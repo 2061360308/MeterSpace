@@ -31,3 +31,79 @@ export const SPOT_STRATEGIES = [
 
 export const DEFAULT_IMAGE_URI =
   "registry.cn-hangzhou.aliyuncs.com/workspace-cloud/code-server-base:latest";
+
+/** 规格族分类（对齐阿里云：架构 → 分类 → 规格族）。 */
+export interface FamilyCategory {
+  id: string;
+  label: string;
+  families: string[]; // 规格族名字片段，用于匹配 instanceTypeFamily
+}
+
+export const FAMILY_CATEGORIES: FamilyCategory[] = [
+  { id: "all", label: "全部分类", families: [] },
+  {
+    id: "general",
+    label: "通用型",
+    families: ["g", "c"],
+  },
+  {
+    id: "compute",
+    label: "计算型",
+    families: ["c6", "c7", "c8", "c9"],
+  },
+  {
+    id: "memory",
+    label: "内存型",
+    families: ["r", "re"],
+  },
+  {
+    id: "bigdata",
+    label: "大数据型",
+    families: ["d"],
+  },
+  {
+    id: "localssd",
+    label: "本地SSD型",
+    families: ["i"],
+  },
+  {
+    id: "shared",
+    label: "共享型",
+    families: ["t"],
+  },
+  {
+    id: "economy",
+    label: "经济型",
+    families: ["e"],
+  },
+  {
+    id: "hetero",
+    label: "异构计算",
+    families: ["gn", "ga", "ebmgn"],
+  },
+];
+
+/** 简单按规格族前缀推断架构分类（X86 / Arm）。 */
+export function classifyArchitecture(family?: string): "x86" | "arm" {
+  if (!family) return "x86";
+  const f = family.toLowerCase();
+  if (f.startsWith("g8y") || f.startsWith("c8y") || f.startsWith("r8y") || f.startsWith("ecs.g8y") || f.includes("yitian") || f.includes("ampere") || f.startsWith("ecs.am")) {
+    return "arm";
+  }
+  return "x86";
+}
+
+/** 规格族标签（用于表格「规格族」列的中文名） */
+export function familyLabel(family?: string): string {
+  if (!family) return "—";
+  const f = family.toLowerCase();
+  if (f.startsWith("ecs.e") || /^e/g.test(f)) return "经济型";
+  if (/^ecs\.t|^t\d/.test(f)) return "突发性能型";
+  if (f.startsWith("ecs.g")) return "通用型";
+  if (f.startsWith("ecs.c")) return "计算型";
+  if (f.startsWith("ecs.r")) return "内存型";
+  if (f.startsWith("ecs.i")) return "本地SSD型";
+  if (f.startsWith("ecs.d")) return "大数据型";
+  if (f.startsWith("ecs.gn")) return "GPU型";
+  return "通用型";
+}

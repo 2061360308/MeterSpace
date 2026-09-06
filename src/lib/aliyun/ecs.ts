@@ -58,6 +58,8 @@ export interface InstanceType {
   cpuCoreCount: number;
   memorySize: number;
   instanceFamilyLevel?: string;
+  instanceTypeFamily?: string;
+  cpuArchitecture?: string;
 }
 
 export async function describeInstanceTypes(

@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
         instanceTypeId: t.instanceTypeId,
         cpuCoreCount: t.cpuCoreCount,
         memorySize: t.memorySize,
+        instanceTypeFamily: t.instanceTypeFamily,
+        cpuArchitecture: t.cpuArchitecture,
       })),
     });
   } catch (e) {
