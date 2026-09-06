@@ -5,6 +5,7 @@ import {
   workspaces,
   workspaceStates,
   auditLogs,
+  settings,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getUserCredentials } from "@/lib/aliyun/auth";
@@ -14,7 +15,11 @@ import {
   runCommand,
   describeInvocationResults,
   modifyInstanceAutoReleaseTime,
+  describeSpotAdvice,
+  describePrice,
+  findUbuntu2204Image,
 } from "@/lib/aliyun/ecs";
+import { queryAccountBalance } from "@/lib/aliyun/bss";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
 import { ensureBucket } from "@/lib/aliyun/oss";
 import {
@@ -140,6 +145,78 @@ async function launchInstance(
   return instanceId;
 }
 
+/** Pre-launch validation: spot availability + balance sufficiency. */
+async function preflightCheck(
+  workspace: typeof workspaces.$inferSelect,
+  releaseHours: number,
+): Promise<void> {
+  const creds = await getUserCredentials(workspace.userId);
+
+  if ((workspace.spotStrategy ?? "NoSpot") !== "NoSpot") {
+    const advice = await describeSpotAdvice(
+      creds,
+      workspace.region,
+      workspace.instanceType,
+      workspace.spotDuration ?? 1,
+    );
+    if (!advice.available) {
+      throw new WorkspaceError(
+        "该规格当前无可用抢占实例，请改用按量付费或更换规格/地域",
+        409,
+      );
+    }
+  }
+
+  try {
+    const balance = await queryAccountBalance(creds);
+    const imageId = await findUbuntu2204Image(creds, workspace.region);
+    const details = await describePrice(creds, {
+      region: workspace.region,
+      imageId,
+      instanceType: workspace.instanceType,
+      spotStrategy: workspace.spotStrategy ?? "NoSpot",
+      spotDuration: workspace.spotDuration ?? 1,
+      spotPriceLimit: workspace.spotPriceLimit
+        ? Number(workspace.spotPriceLimit)
+        : null,
+      diskCategory: workspace.diskCategory ?? "cloud_essd",
+      diskSize: workspace.diskSize ?? 40,
+      bandwidth: workspace.bandwidth ?? 10,
+    });
+    const hourlyTotal = details.reduce((s, d) => s + (d.tradePrice ?? 0), 0);
+    const estimated = hourlyTotal * releaseHours;
+    if (balance.availableAmount < estimated) {
+      throw new WorkspaceError(
+        `余额不足：预计需 ¥${estimated.toFixed(2)}，当前可用 ¥${balance.availableAmount.toFixed(2)}`,
+        409,
+      );
+    }
+  } catch (e) {
+    if (e instanceof WorkspaceError) throw e;
+    console.warn("[preflight] balance check skipped:", e);
+  }
+}
+
+/** Ensure an ACR enterprise instance exists for the region (best-effort). */
+async function ensureAcrInstance(
+  userId: string,
+  region: string,
+): Promise<string | null> {
+  try {
+    const creds = await getUserCredentials(userId);
+    const { listInstances, createInstance } = await import("@/lib/aliyun/acr");
+    const instances = await listInstances(creds, region);
+    const existing = instances.find(
+      (i) => i.status === "Running" || i.status === "ACTIVE",
+    );
+    if (existing) return existing.instanceId;
+    return await createInstance(creds, region, "workspace-cloud");
+  } catch (e) {
+    console.warn("[acr] ensure instance skipped:", e);
+    return null;
+  }
+}
+
 export async function createWorkspace(
   userId: string,
   input: CreateWorkspaceInput,
@@ -206,16 +283,37 @@ export async function createWorkspace(
   const creds = await getUserCredentials(userId);
   await ensureBucket(creds, input.region, ossBucketForRegion(input.region));
 
-  // Launch ECS (best-effort: if this fails, workspace stays PROVISIONING -> error handling).
   const updatedWorkspace = { ...workspace, ossWorkspacePath };
-  const instanceId = await launchInstance(updatedWorkspace, accessToken);
 
-  await db
-    .update(workspaceStates)
-    .set({ instanceId, status: "PROVISIONING" })
-    .where(eq(workspaceStates.workspaceId, workspace.id));
+  // Ensure an ACR instance exists when the image is hosted on ACR.
+  if (updatedWorkspace.imageUri.match(/registry\..*\.aliyuncs\.com\//)) {
+    const acrId = await ensureAcrInstance(userId, updatedWorkspace.region);
+    if (acrId) {
+      await db
+        .update(settings)
+        .set({ acrInstanceId: acrId, updatedAt: new Date() })
+        .where(eq(settings.userId, userId));
+    }
+  }
 
-  return { workspaceId: workspace.id, instanceId };
+  // Pre-launch validation + launch with FAILED rollback on error.
+  const s = await getUserSettings(userId);
+  const releaseHours = updatedWorkspace.releaseHours ?? s.defaultReleaseHours;
+  try {
+    await preflightCheck(updatedWorkspace, releaseHours);
+    const instanceId = await launchInstance(updatedWorkspace, accessToken);
+    await db
+      .update(workspaceStates)
+      .set({ instanceId, status: "PROVISIONING" })
+      .where(eq(workspaceStates.workspaceId, workspace.id));
+    return { workspaceId: workspace.id, instanceId };
+  } catch (e) {
+    await db
+      .update(workspaceStates)
+      .set({ status: "FAILED", updatedAt: new Date() })
+      .where(eq(workspaceStates.workspaceId, workspace.id));
+    throw e;
+  }
 }
 
 export interface StartWorkspaceInput {
@@ -275,14 +373,24 @@ export async function startWorkspace(
     details: { mode: input.mode, instanceType: workspace.instanceType },
   });
 
-  const instanceId = await launchInstance(workspace, accessToken);
-
-  await db
-    .update(workspaceStates)
-    .set({ instanceId, status: "PROVISIONING" })
-    .where(eq(workspaceStates.workspaceId, workspaceId));
-
-  return { workspaceId, instanceId };
+  // Pre-launch validation + launch with FAILED rollback on error.
+  const s = await getUserSettings(userId);
+  const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
+  try {
+    await preflightCheck(workspace, releaseHours);
+    const instanceId = await launchInstance(workspace, accessToken);
+    await db
+      .update(workspaceStates)
+      .set({ instanceId, status: "PROVISIONING" })
+      .where(eq(workspaceStates.workspaceId, workspaceId));
+    return { workspaceId, instanceId };
+  } catch (e) {
+    await db
+      .update(workspaceStates)
+      .set({ status: "FAILED", updatedAt: new Date() })
+      .where(eq(workspaceStates.workspaceId, workspaceId));
+    throw e;
+  }
 }
 
 export async function stopWorkspace(userId: string, workspaceId: string) {

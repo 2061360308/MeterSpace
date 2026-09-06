@@ -489,6 +489,7 @@ export async function describePrice(
 }
 
 export interface SpotAdvice {
+  available: boolean;
   releaseRate: number;
   historicalDiscount: number;
   spotPrice?: number;
@@ -524,6 +525,7 @@ export async function describeSpotAdvice(
       ?.AvailableSpotResource?.[0];
   const rateMatch = resource?.InterruptRateDesc?.match(/([\d.]+)%/);
   return {
+    available: Boolean(resource),
     releaseRate: rateMatch ? Number(rateMatch[1]) / 100 : 0,
     historicalDiscount: (resource?.AverageSpotDiscount ?? 100) / 100,
     spotPrice: resource?.SpotPrice,
