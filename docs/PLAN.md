@@ -1,6 +1,23 @@
 # Workspace Cloud — 类 Codespaces 云端开发环境完整规划
 
-> 自部署模式：用户填写自己的阿里云 AK，Vercel 部署前端+Serverless，ECS 按需创建/销毁，JuiceFS 挂载 workspace 实时落 OSS。
+> 自部署模式：用户填写自己的阿里云 AK，Vercel 部署前端 + Serverless，ECS 按需创建/销毁，ossfs 挂载 workspace 实时落 OSS。
+
+---
+
+## 〇、关键技术与架构决策（实现前必读）
+
+本文档后续所有章节以本节决策为准。这些决策已在需求评审阶段确认，任何实现不得偏离。
+
+| # | 决策点 | 结论 | 理由 |
+|---|---|---|---|
+| D1 | `/workspace` 持久化挂载 | **ossfs**（阿里云官方 FUSE，OSS 原始对象模型），**非 JuiceFS** | JuiceFS 需常驻元数据引擎（Redis/PG），与「ECS 即用即毁、零常驻」冲突；ossfs 对象=文件，贴合停止只留增量、控制台看文件、按对象算占用等全部设计 |
+| D2 | code-server 运行方式 | **Docker 容器**运行（`docker run IMAGE_URI`），`/workspace` 以 volume 挂入容器 | 符合「用户自定义镜像」设计；base OS 镜像只装 docker + ossfs |
+| D3 | 停止/快照清理触发 | **阿里云 ECS 云助手 RunCommand** 在机内执行 `stop-hook.sh`，后端轮询 `DescribeInvocationResults` 后 `DeleteInstance` | 无额外端口、无密钥、无 agent，最契合 serverless 后端 |
+| D4 | ECS 基础 OS 镜像（ImageId） | `DescribeImages` 动态查询该地域最新 Ubuntu 22.04 公共镜像，结果缓存 | 镜像 ID 随版本迭代变化，映射表会过期 |
+| D5 | code-server 密码 & 健康回调鉴权 | 后端每次启动生成 `access_token`，作为 code-server 密码**和**健康回调鉴权凭证统一注入 | 消除「注入后又 openssl 重生成」的矛盾；回调带 token 校验防伪造 |
+| D6 | Features 安装位置 | 容器启动后 `docker exec` 在容器内执行 installScript，装到容器内 `/opt/<tool>` | code-server 集成终端运行在容器内，工具必须在容器内可见；随实例不持久化（镜像不固化） |
+| D7 | 漫游配置（code-server settings/gitconfig） | 停止时 `docker cp` 打包到 OSS `ws-{id}/config/roaming.tar.gz`，启动时恢复 | 小文件走快照不常驻 FUSE，避免拖慢 IDE |
+| D8 | 展示价格口径 | 所有界面显示的价格均为 **DescribePrice 折后价（TradePrice）**；规格卡片显示实例折后单价，价格面板 total = 实例+系统盘折后价之和。文中 mockup 的 ¥ 数字仅示意，以实值为准 | 统一口径避免「原价/折后价」混用 |
 
 ---
 
@@ -10,9 +27,11 @@
 
 - **用户自填阿里云 AK**：所有资源归属用户自己的账号，无平台托管信任问题
 - **工作区 = 配置 + OSS 数据**：创建后一直在，直到手动销毁
-- **ECS = 临时工具**：按需创建/销毁，只有"运行中"才存在
-- **OSS = 真正的持久层**：同地域内网访问，零流量费，JuiceFS 后端
+- **ECS = 临时工具**：按需创建/销毁，只有「运行中」才存在
+- **OSS = 真正的持久层**：同地域内网访问，零流量费，ossfs 挂载后端
 - **停止时只保留增量**：已提交到 git 远程的文件不重复存储，只存未提交的 untracked/modified 文件
+
+---
 
 ## 二、部署拓扑
 
@@ -24,11 +43,13 @@
 │  ├─ 工作区列表 + 实时状态                     ├─ GET  /api/workspaces/:id              │
 │  ├─ 新建工作区（单页表单）                     ├─ POST /api/workspaces/:id/start        │
 │  ├─ 工作区详情（启动/停止/进入）               ├─ POST /api/workspaces/:id/stop         │
-│  ├─ 动态价格面板（实时联动）                   ├─ DELETE /api/workspaces/:id            │
-│  ├─ 全局设置（AK/默认参数）                    ├─ POST /api/price/calculate             │
-│  └─ 余额显示 + OSS 空间监控                   ├─ GET  /api/ecs/types                   │
+│  ├─ 动态价格面板（实时联动）                   ├─ POST /api/workspaces/:id/renew        │
+│  ├─ 全局设置（AK/默认参数）                    ├─ DELETE /api/workspaces/:id            │
+│  └─ 余额显示 + OSS 空间监控                   ├─ POST /api/price/calculate             │
+│                                               ├─ GET  /api/ecs/types                   │
 │                                               ├─ GET  /api/ecs/price                   │
 │                                               ├─ GET  /api/ecs/spot-advice             │
+│                                               ├─ GET  /api/ecs/regions                 │
 │                                               ├─ GET  /api/acr/repositories            │
 │                                               ├─ GET  /api/git/repos                   │
 │                                               ├─ GET  /api/git/branches                │
@@ -42,10 +63,13 @@
 │                                                                                      │
 │  ECS: 按量创建 (PostPaid + AutoReleaseTime + UserData)                               │
 │       抢占式可选 (SpotAsPriceGo / SpotWithPriceLimit + SpotDuration=0|1)              │
+│       + 云助手 RunCommand 执行停止/快照脚本                                            │
 │  ACR: 用户选镜像（含 code-server base / dev-xxx 分层镜像）                             │
-│  OSS: workspace 持久化（JuiceFS 后端，同地域内网）                                    │
+│  OSS: workspace 持久化（ossfs 后端，同地域内网）                                       │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## 三、技术栈
 
@@ -60,9 +84,13 @@
 | **数据库** | Neon Postgres (Drizzle ORM) | Serverless Postgres，scale-to-zero，Drizzle 极轻量冷启动快 |
 | **缓存/心跳** | Upstash Redis (M2+ 可选) | Serverless Redis，TTL 适合 idle 检测 |
 | **认证** | NextAuth.js v5 | Credentials 密码登录 + GitHub/CNB OAuth，自托管 |
-| **存储** | 阿里云 OSS (JuiceFS 后端) | 同地域内网，workspace 持久化 |
+| **存储** | 阿里云 OSS (ossfs 后端) | 同地域内网，workspace 持久化 |
+| **ECS 内文件挂载** | ossfs | 把 OSS 的 `ws-{id}/workspace` 直接挂为 `/workspace` |
+| **远程命令** | 云助手 RunCommand | 停止时在 ECS 内执行快照/清理脚本 |
 | **镜像** | 阿里云 ACR | 用户自定义镜像仓库 |
 | **部署** | Vercel (前端+Serverless) + 阿里云 ECS (工作区) | 前端托管 Vercel，运行时按需创建 ECS |
+
+---
 
 ## 四、数据库 Schema
 
@@ -124,7 +152,7 @@
 | `created_at` | TIMESTAMPTZ DEFAULT NOW() | 创建时间 |
 | `updated_at` | TIMESTAMPTZ DEFAULT NOW() | 更新时间 |
 
-> **关键设计**：`instance_type` 等规格字段在"精确变配启动"时会被更新，新规格成为下次启动的默认值。
+> **关键设计**：`instance_type` 等规格字段在「精确变配启动」时会被更新，新规格成为下次启动的默认值。
 
 ### 4.4 workspace_states — 运行状态表
 
@@ -135,7 +163,7 @@
 | `instance_id` | TEXT | ECS 实例 ID（运行时有值） |
 | `public_ip` | TEXT | 公网 IP |
 | `port` | INT | IDE 端口（code-server 默认 8080） |
-| `access_token` | TEXT | code-server 随机密码（每次启动重新生成） |
+| `access_token` | TEXT | code-server 密码（每次启动重新生成） |
 | `health_callback` | BOOLEAN DEFAULT false | 是否已收到健康回调 |
 | `last_active_at` | TIMESTAMPTZ | 最后活跃时间 |
 | `idle_triggered` | BOOLEAN DEFAULT false | 是否已触发空闲释放 |
@@ -154,53 +182,72 @@
 | `details` | JSONB | 操作详情（规格、价格、耗时等） |
 | `created_at` | TIMESTAMPTZ DEFAULT NOW() | 创建时间 |
 
+---
+
 ## 五、容器内目录角色规划
 
-按"角色"分类目录，后期给对应目录分配角色权限：
+> 说明：code-server 运行在 Docker 容器内（D2）。下表「容器内路径」指容器视角；`/workspace` 由宿主机 ossfs 挂载后以 volume 传入容器（D1）。
 
 | 容器内路径 | 角色 | 内容 | 持久化策略 | 对标 |
 |---|---|---|---|---|
-| `/workspace` | **代码工作区（核心保护区）** | 仓库代码根目录，固定路径，工具按此路径识别项目 | **JuiceFS 挂载 → OSS**（实时落盘） | CNB `/workspace`；Codespaces `/workspaces` |
-| `/workspace/.snapshots` | **快照目录** | 停止时打包的未提交增量 | 随 workspace（OSS） | — |
-| `/opt/<tool>` | **软件装载** | Features 动态注入的工具（Node/Go/Python…），按工具分子目录 | 随实例（不持久化） | Codespaces features |
-| `/usr/local` | **系统级软件** | base 镜像预装（code-server、运行时、基础工具） | 不持久化（镜像自带） | 两者一致 |
-| `/etc` + `~/.config` | **系统/工具配置** | gitconfig、SSH 配置、环境变量、code-server Machine settings | **漫游快照**（小文件，不用 FUSE） | CNB Machine settings + `~/.cnb` |
-| `/home/<user>` | **用户态** | `.local/share/code-server/User/*`（settings/snippets/keybindings）、dotfiles | **漫游快照** | CNB ~ 级漫游；Codespaces dotfiles |
-| `/mnt/persist` | **通用持久卷** | 用户自定义持久目录（排除 /workspace 的杂项） | OSS 挂载（ossfs 1.0） | — |
+| `/workspace` | **代码工作区（核心保护区）** | 仓库代码根目录，固定路径，工具按此路径识别项目 | **ossfs 挂载 → OSS**（实时落盘） | CNB `/workspace`；Codespaces `/workspaces` |
+| `/workspace/.snapshots` | **快照目录** | 停止时打包的未提交增量 | 随 workspace（OSS），已加入 .gitignore | — |
+| `/opt/<tool>` | **软件装载（容器内）** | Features 动态注入的工具（Node/Go/Python…），按工具分子目录 | 随实例（不持久化），`docker exec` 装进容器 | Codespaces features |
+| `/usr/local` | **系统级软件（容器内）** | base 镜像预装（code-server、运行时、基础工具） | 不持久化（镜像自带） | 两者一致 |
+| `~/.config` / `~/.local/share/code-server` | **用户配置（容器内 coder）** | code-server settings/snippets/keybindings、gitconfig | **漫游快照**：停止时 `docker cp` 打包到 OSS `ws-{id}/config/roaming.tar.gz`，启动时恢复（D7） | CNB Machine settings；Codespaces dotfiles |
+| `/mnt/persist` | **通用持久卷（可选）** | 用户自定义持久目录（排除 /workspace 的杂项） | OSS 挂载（ossfs，同 bucket 另一前缀） | — |
 
 ### 设计原则
 
-1. `/workspace` **固定单一路径**：与 CNB 一致，工具按归一化路径区分项目，固定路径能共享历史配置、不"串串"
-2. **"大文件持久化走挂载，小配置走漫游快照"**：配置类文件数以千计走 FUSE 会拖慢 IDE，回收时打包上传 OSS、重建恢复
-3. Features 装到 `/opt/<tool>` 而非系统目录：镜像不固化，实现"同镜像 + 动态组合"
+1. `/workspace` **固定单一路径**：与 CNB 一致，工具按归一化路径区分项目，固定路径能共享历史配置、不「串串」
+2. **「大文件持久化走挂载，小配置走漫游快照」**：配置类文件数以千计走 FUSE 会拖慢 IDE，回收时打包上传 OSS、重建恢复
+3. Features 装到容器内 `/opt/<tool>` 而非系统目录：镜像不固化，实现「同镜像 + 动态组合」
+
+### base 镜像契约（code-server 镜像必须满足）
+
+为保证任意用户自定义镜像可被本平台正确启动，镜像需满足：
+
+1. 监听 **8080** 端口，HTTP 协议
+2. 支持通过环境变量 **`PASSWORD`** 设置登录密码（等价于 `code-server --auth password`）
+3. 接受 `/workspace` 作为工作目录（启动参数传入）
+4. 默认运行用户可读写挂载的 `/workspace`（宿主 ossfs 挂载使用 `-o allow_other -o uid=1000 -o gid=1000` 对齐 coder UID）
+
+官方推荐 base：`codercom/code-server`（或本平台预制的 `code-server-base`、`dev-xxx` 分层镜像）。
+
+---
 
 ## 六、OSS 存储目录结构
 
-同地域一个 Bucket（如 `my-dev-workspace-cn-hangzhou`），内部按工作区划分：
+同地域一个 Bucket（如 `my-dev-workspace-cn-hangzhou`），内部按工作区划分。ossfs 直接映射，OSS 控制台可见原始文件。
 
 ```
 my-dev-workspace-cn-hangzhou/        ← 1 个地域 1 个 Bucket
 │
 ├── ws-{id}/                         ← 工作区 1
-│   ├── workspace/                   ← JuiceFS 挂载点（运行时 ECS 的 /workspace）
+│   ├── workspace/                   ← ossfs 挂载点（运行时 ECS 的 /workspace）
 │   │   ├── .git/                    ← 保留（方便 git 操作）
-│   │   ├── .snapshots/              ← 停止时打包增量
+│   │   ├── .snapshots/              ← 停止时打包增量（已加入 .gitignore）
 │   │   │   └── 20260905-1430.tar.gz
 │   │   ├── src/                     ← 项目代码（运行时）
 │   │   └── ...
-│   └── config/                      ← 工作区元数据（JSON）
+│   └── config/                      ← 工作区元数据 + 漫游配置
+│       ├── workspace.json           ← 元数据（规格快照等，可选）
+│       └── roaming.tar.gz           ← code-server settings/gitconfig 漫游包
 │
 ├── ws-{id}/                         ← 工作区 2
 │   └── ...
 ```
 
-**JuiceFS 挂载映射**（ECS 启动时）：
+**ossfs 挂载映射**（ECS 启动时，两条挂载）：
 
 ```
-OSS: {bucket}/ws-{id}/workspace/   ──→  ECS: /workspace
+OSS: {bucket}/ws-{id}/workspace/   ──→  ECS: /workspace        （代码工作区，实时落盘）
+OSS: {bucket}/ws-{id}/config/      ──→  ECS: /mnt/config       （漫游配置，启动/停止时读写）
 ```
 
 **首次使用某地域**：初始化向导里自动检查 → 不存在则调 `PutBucket` 创建。
+
+---
 
 ## 七、工作区生命周期
 
@@ -219,23 +266,25 @@ OSS: {bucket}/ws-{id}/workspace/   ──→  ECS: /workspace
            │                                                ▼
            │                                           RUNNING
            │                                                │
-           │              停止（快照+DeleteInstance）         │
+           │              停止（RunCommand 快照 + DeleteInstance）  │
            └────────────────────────────────────────────────┘
-                        │
-                  手动删除（清 OSS + DB）
-                        │
-                        ▼
-                   已删除（不可恢复）
+                         │
+                   手动删除（清 OSS + DB）
+                         │
+                         ▼
+                    已删除（不可恢复）
 ```
 
 | 状态 | ECS 实例 | OSS 计费 | 用户能做什么 |
 |---|---|---|---|
 | **STOPPED** | 不存在 | 仅 OSS 存储费（极低） | 启动 / 删除 |
 | **PROVISIONING** | 创建中 | — | 等待 |
-| **RUNNING** | 按量付费中 | OSS + ECS（内网零流量） | 进入 IDE / 停止 |
+| **RUNNING** | 按量付费中 | OSS + ECS（内网零流量） | 进入 IDE / 停止 / 续期 |
 | **TERMINATING** | 释放中 | — | 等待 |
 
-### 八、创建工作区完整流程
+---
+
+## 八、创建工作区完整流程
 
 ```
 用户填完表单 → 点「创建工作区」
@@ -254,14 +303,16 @@ OSS: {bucket}/ws-{id}/workspace/   ──→  ECS: /workspace
   ① Neon: INSERT INTO workspaces (...) → 生成 workspace id
   ② Neon: INSERT INTO workspace_states (workspace_id, status='PROVISIONING')
   ③ Neon: INSERT INTO audit_logs (action='CREATE')
-  ④ 检查 OSS Bucket 是否存在 → 不存在则 PutBucket
-  ⑤ 检查 ACR 实例是否存在 → 不存在则 CreateInstance
-  ⑥ 生成 access_token = crypto.randomUUID().slice(0,16)
-  ⑦ 生成 UserData 脚本（base64 编码）
+  ④ 检查 OSS Bucket 是否存在 → 不存在则 PutBucket（地域维度，一次）
+  ⑤ 检查 ACR 实例是否存在 → 不存在则 CreateInstance（地域维度，一次）
+  ⑥ 生成 access_token = crypto.randomBytes(16).toString('hex')   ← D5，唯一凭证
+  ⑦ 生成 UserData 脚本（base64 编码，注入 access_token 等，见第九章）
   ⑧ 调 RunInstances:
        InstanceChargeType: "PostPaid"
+       RegionId: workspace.region
+       ImageId: DescribeImages 查到的 Ubuntu 22.04 镜像 ID   ← D4
        InstanceType: workspace.instance_type
-       ImageId: 镜像ID（或用 image_uri 直接拉取）
+       VSwitchId / SecurityGroupId: 见 8.1 ECS 资源配置
        AutoReleaseTime: now + releaseHours (ISO 8601 UTC)
        InternetMaxBandwidthOut: workspace.bandwidth
        UserData: base64(UserData)
@@ -276,127 +327,153 @@ OSS: {bucket}/ws-{id}/workspace/   ──→  ECS: /workspace
 前端: 显示 "准备中..." → 轮询 /api/workspaces/:id（每 10 秒）
 ```
 
-### 九、ECS 启动自举（UserData 脚本详细逻辑）
+### 8.1 ECS 资源配置（每地域首次自动准备）
+
+RunInstances 依赖以下资源，按地域惰性创建/发现并缓存：
+
+| 资源 | 处理方式 |
+|---|---|
+| **ImageId** | `DescribeImages(RegionId, ImageOwnerAlias='system', OSType='linux', Platform='Ubuntu', Architecture='x86_64')`，取名称含 `22.04` 的最新镜像；结果进程内 + Redis 缓存（D4） |
+| **VPC** | `DescribeVpcs` 取默认 VPC；无则 `CreateVpc` |
+| **VSwitch** | `DescribeVSwitches` 取默认；无则 `CreateVSwitch`（选可用区） |
+| **安全组** | 自动创建安全组，入方向放行 **8080**（code-server）与可选 22（SSH 调试）；出方向全放行。**无需放行其他端口**（停止走云助手，D3） |
+| **RAM 角色** | 为 ECS 绑定 `workspace-cloud-ecs-role`，授权 OSS（`oss:GetObject/PutObject/DeleteObject/ListObjects`，限定该 bucket）与 ACR（拉镜像）。ossfs 用 `-o ram_role` 免 AK 落盘 |
+
+---
+
+## 九、ECS 启动自举（UserData 脚本详细逻辑）
+
+> 依据决策 D1（ossfs）、D2（Docker 容器）、D5（access_token 鉴权）、D6（docker exec 装 features）、D7（漫游配置）。以下为完整正确脚本。
 
 ```bash
 #!/bin/bash
 set -e
 
-# === 环境变量（由 UserData 注入）===
+# === 环境变量（由后端在 UserData 头部注入）===
 WORKSPACE_ID="${WORKSPACE_ID}"
 OSS_BUCKET="${OSS_BUCKET}"
+OSS_WORKSPACE_PATH="${OSS_WORKSPACE_PATH}"      # ws-{id}/workspace
 REGION="${REGION}"
 IMAGE_URI="${IMAGE_URI}"
+RAM_ROLE_NAME="${RAM_ROLE_NAME}"                # workspace-cloud-ecs-role
+CALLBACK_URL="${CALLBACK_URL}"                  # Vercel https 地址
+ACCESS_TOKEN="${ACCESS_TOKEN}"                  # D5：code-server 密码 + 回调凭证
 GIT_REPO_URL="${GIT_REPO_URL:-}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
-GIT_TOKEN="${GIT_TOKEN:-}"
+GIT_AUTHED_URL="${GIT_AUTHED_URL:-}"            # 后端拼好带 token 的克隆地址注入（不落盘）
+GIT_AUTO_CLONE="${GIT_AUTO_CLONE:-true}"
+IDLE_MINUTES="${IDLE_MINUTES:-30}"
 FEATURES="${FEATURES:-[]}"
-Vercel_CALLBACK_URL="${CALLBACK_URL}"
-ACCESS_TOKEN="${ACCESS_TOKEN}"
 
 # === 1. 基础环境 ===
-apt-get update && apt-get install -y docker.io git curl jq tar
+apt-get update && apt-get install -y docker.io git curl jq tar ossfs rsync
 
 # === 2. 启动 Docker ===
-systemctl start docker
+systemctl enable --now docker
 
-# === 3. 登录 ACR ===
-# 使用 RAM Role 或临时 token（安全考虑不硬编码）
-# 方案: ECS 绑定 RAM Role → docker login 自动获取凭证
-# 或: 从 Metadata 获取 STS token → docker login
-TOKEN=$(curl -s http://100.100.100.200/latest/meta-data/ram/security-credentials/ROLE_NAME | jq -r .AccessKeyId:AccessKeySecret:SecurityToken)
-docker login --username=${AccessKeyId} --password=${AccessKeySecret} registry.${REGION}.aliyuncs.com <<< ${SecurityToken}
+# === 3. 登录 ACR（仅当镜像来自阿里云 ACR 时）===
+case "${IMAGE_URI}" in
+  registry.*.aliyuncs.com/*)
+    # 从实例元数据获取 RAM Role 的 STS 临时凭证（不硬编码 AK）
+    STS=$(curl -s http://100.100.100.200/latest/meta-data/ram/security-credentials/${RAM_ROLE_NAME})
+    AK_ID=$(echo "$STS" | jq -r '.AccessKeyId')
+    AK_SECRET=$(echo "$STS" | jq -r '.AccessKeySecret')
+    # 个人版 ACR 用 AK/SK 登录；企业版改用 GetAuthorizationToken 的临时 token
+    docker login "registry.${REGION}.aliyuncs.com" --username="${AK_ID}" --password="${AK_SECRET}"
+    ;;
+esac
 
-# === 4. 安装 JuiceFS 客户端 ===
-curl -sSL https://d.juicefs.com/install | sh -
+# === 4. 挂载 /workspace（ossfs，D1）===
+mkdir -p /workspace /mnt/config
+ossfs "${OSS_BUCKET}:/${OSS_WORKSPACE_PATH}" /workspace \
+  -ourl="http://oss-${REGION}-internal.aliyuncs.com" \
+  -o ram_role="${RAM_ROLE_NAME}" -o allow_other -o uid=1000 -o gid=1000
+ossfs "${OSS_BUCKET}:/ws-${WORKSPACE_ID}/config" /mnt/config \
+  -ourl="http://oss-${REGION}-internal.aliyuncs.com" \
+  -o ram_role="${RAM_ROLE_NAME}" -o allow_other
 
-# === 5. 挂载 /workspace ===
-mkdir -p /workspace
-# JuiceFS 后端 = 同地域 OSS（内网零流量）
-juicefs mount oss://${OSS_BUCKET}/ws-${WORKSPACE_ID}/workspace /workspace \
-  --no-usage-report \
-  -o allow_other
+# === 5. 启动容器（D2）===
+docker pull "${IMAGE_URI}"
+docker run -d --name workspace \
+  -p 8080:8080 \
+  -v /workspace:/workspace \
+  -e PASSWORD="${ACCESS_TOKEN}" \
+  --restart unless-stopped \
+  "${IMAGE_URI}" /workspace
 
-# === 6. 恢复快照（如果存在） ===
+# === 6. 恢复漫游配置（D7）===
+if [ -f "/mnt/config/roaming.tar.gz" ]; then
+  docker cp /mnt/config/roaming.tar.gz workspace:/tmp/roaming.tar.gz
+  docker exec workspace bash -c "tar -xzf /tmp/roaming.tar.gz -C /home/coder && rm /tmp/roaming.tar.gz"
+  echo "[roaming] Restored."
+fi
+
+# === 7. 恢复快照（未提交增量，位于 /workspace/.snapshots）===
 if [ -f "/workspace/.snapshots/latest.tar.gz" ]; then
   echo "[snapshot] Restoring latest snapshot..."
-  # 解压到临时目录再覆盖，避免覆盖 .git 和 .snapshots
   TMPDIR=$(mktemp -d)
-  tar -xzf /workspace/.snapshots/latest.tar.gz -C $TMPDIR
-  # 覆盖非 .git 非 .snapshots 的文件
-  rsync -av --exclude='.git' --exclude='.snapshots' $TMPDIR/ /workspace/
-  rm -rf $TMPDIR
+  tar -xzf /workspace/.snapshots/latest.tar.gz -C "$TMPDIR"
+  rsync -av --exclude='.git' --exclude='.snapshots' "$TMPDIR/" /workspace/
+  rm -rf "$TMPDIR"
   echo "[snapshot] Restore complete."
 fi
 
-# === 7. Git Clone（如果开启且有仓库） ===
-if [ -n "$GIT_REPO_URL" ] && [ "$GIT_AUTO_CLONE" = "true" ]; then
-  echo "[git] Cloning ${GIT_REPO_URL} (${GIT_BRANCH})..."
-  # 注入 token 到 URL
-  AUTHED_URL=$(echo "$GIT_REPO_URL" | sed "s|https://|https://${GIT_TOKEN}@|")
+# === 8. Git Clone / Pull（如果开启且有仓库）===
+# GIT_AUTHED_URL 由后端生成 UserData 时拼好并注入（含 token，不落盘不进入进程参数）
+if [ -n "${GIT_REPO_URL}" ] && [ "${GIT_AUTO_CLONE}" = "true" ]; then
+  echo "[git] Cloning/pulling ${GIT_REPO_URL} (${GIT_BRANCH})..."
   cd /workspace
   if [ -d ".git" ]; then
-    git pull origin ${GIT_BRANCH}
+    git pull origin "${GIT_BRANCH}"
   else
-    git clone -b ${GIT_BRANCH} ${AUTHED_URL} .
+    git clone -b "${GIT_BRANCH}" "${GIT_AUTHED_URL}" .
   fi
   echo "[git] Clone complete."
 fi
 
-# === 8. 安装 Features ===
-# FEATURES 是 JSON 数组: [{"id":"node","version":"22","script":"..."}, ...]
-echo "$FEATURES" | jq -c '.[]' | while read -r feature; do
+# === 9. 安装 Features（D6：docker exec 装进容器内 /opt）===
+echo "${FEATURES}" | jq -c '.[]' | while read -r feature; do
   FEATURE_ID=$(echo "$feature" | jq -r '.id')
-  FEATURE_SCRIPT=$(echo "$feature" | jq -r '.script')
+  FEATURE_SCRIPT=$(echo "$feature" | jq -r '.installScript')
   echo "[feature] Installing ${FEATURE_ID}..."
-  bash -c "$FEATURE_SCRIPT"
+  docker exec workspace bash -lc "${FEATURE_SCRIPT}"
   echo "[feature] ${FEATURE_ID} installed."
 done
 
-# === 9. 启动 code-server ===
-# 生成随机密码
-CODE_SERVER_PWD=$(openssl rand -hex 16)
-mkdir -p /home/coder/.local/share/code-server/User
-# 配置 code-server
-cat > /home/coder/.config/code-server/config.yaml << EOF
-bind-addr: 0.0.0.0:8080
-auth: password
-password: ${CODE_SERVER_PWD}
-cert: false
-EOF
+# === 10. 写并启动 idle-watcher（宿主机，见第十二章）===
+cat > /opt/idle-watcher.sh <<'WATCHER'
+# 见第十二章 idle-watcher.sh 全文
+WATCHER
+chmod +x /opt/idle-watcher.sh
+nohup bash /opt/idle-watcher.sh >/var/log/idle-watcher.log 2>&1 &
 
-# 启动 code-server（后台）
-su - coder -c "code-server --bind-addr 0.0.0.0:8080 /workspace &"
-
-# === 10. 健康上报 ===
-# 等待 code-server 启动
-sleep 5
+# === 11. 健康上报（D5：带 access_token 鉴权）===
+PUBLIC_IP=$(curl -s http://100.100.100.200/latest/meta-data/public-ipv4)
+INSTANCE_ID=$(curl -s http://100.100.100.200/latest/meta-data/instance-id)
 for i in $(seq 1 30); do
-  if curl -s http://localhost:8080 > /dev/null 2>&1; then
-    # 上报健康
-    PUBLIC_IP=$(curl -s http://100.100.100.200/latest/meta-data/public-ipv4)
-    curl -X POST "${Vercel_CALLBACK_URL}/api/health/${WORKSPACE_ID}" \
+  if curl -sf http://localhost:8080 >/dev/null 2>&1; then
+    curl -s -X POST "${CALLBACK_URL}/api/health/${WORKSPACE_ID}" \
       -H "Content-Type: application/json" \
-      -d "{
-        \"instanceId\": \"$(curl -s http://100.100.100.200/latest/meta-data/instance-id)\",
-        \"publicIp\": \"${PUBLIC_IP}\",
-        \"port\": 8080,
-        \"accessToken\": \"${CODE_SERVER_PWD}\"
-      }"
+      -d "{\"instanceId\":\"${INSTANCE_ID}\",\"publicIp\":\"${PUBLIC_IP}\",\"port\":8080,\"accessToken\":\"${ACCESS_TOKEN}\"}"
     echo "[health] Reported healthy."
     break
   fi
   sleep 5
 done
 
-# === 11. 启动 idle watcher（后台）===
-bash /opt/idle-watcher.sh &
-
-# === 12. 保持容器运行 ===
+# === 12. 保持运行 ===
 tail -f /dev/null
 ```
 
-## 十、停止工作区完整流程
+**注**：
+- 第 8 步 `AUTHED_URL` 应由后端在生成 UserData 时直接拼好（含 token），而非在 ECS 内用 `sed` 拼接，避免 token 出现在命令历史/进程参数。脚本里改为注入现成的 `GIT_AUTHED_URL` 变量（下表统一）。
+- 变量命名统一：`CALLBACK_URL`（无 `Vercel_` 前缀）。
+
+**UserData 注入变量最终清单**：`WORKSPACE_ID`, `OSS_BUCKET`, `OSS_WORKSPACE_PATH`, `REGION`, `IMAGE_URI`, `RAM_ROLE_NAME`, `CALLBACK_URL`, `ACCESS_TOKEN`, `GIT_AUTHED_URL`, `GIT_REPO_URL`, `GIT_BRANCH`, `GIT_AUTO_CLONE`, `IDLE_MINUTES`, `FEATURES`。
+
+---
+
+## 十、停止工作区完整流程（云助手 RunCommand，D3）
 
 ```
 用户点「停止」或 idle 超时触发
@@ -405,60 +482,58 @@ tail -f /dev/null
   POST /api/workspaces/:id/stop
 
 后端 (Vercel Serverless):
-  ① Neon: UPDATE workspace_states SET status='TERMINATING'
-  ② Neon: INSERT INTO audit_logs (action='STOP')
-
-ECS 容器内（stop-hook.sh，由后端通过 SSH 或 API 触发）:
-
-  #!/bin/bash
-  set -e
-
-  WORKSPACE_ID="${WORKSPACE_ID}"
-  OSS_BUCKET="${OSS_BUCKET}"
-
-  cd /workspace
-
-  # === 1. 打包未提交文件 ===
-  echo "[snapshot] Finding uncommitted files..."
-  # 找出所有 untracked + modified 文件
-  UNTRACKED=$(git ls-files --others --exclude-standard)
-  MODIFIED=$(git diff --name-only)
-  ALL_FILES=$(echo -e "$UNTRACKED\n$MODIFIED" | sort -u | grep -v '^$')
-
-  if [ -n "$ALL_FILES" ]; then
-    echo "[snapshot] Packing $(echo "$ALL_FILES" | wc -l) files..."
-    echo "$ALL_FILES" | tar -czf .snapshots/$(date +%Y%m%d-%H%M).tar.gz -T -
-    # 同时创建 latest.tar.gz 软链接
-    ln -sf .snapshots/$(date +%Y%m%d-%H%M).tar.gz .snapshots/latest.tar.gz
-    echo "[snapshot] Snapshot saved."
-  fi
-
-  # === 2. 删除已跟踪文件（保留 .git 和 .snapshots） ===
-  echo "[cleanup] Removing tracked files from JuiceFS..."
-  # 找出所有被 git 跟踪的文件（排除 .git 和 .snapshots）
-  git ls-files | grep -v '^\.snapshots/' | while read -r f; do
-    rm -f "$f"
-  done
-  # 删除空目录（保留 .git 和 .snapshots）
-  find . -type d -empty -not -path './.git/*' -not -path './.snapshots/*' -delete 2>/dev/null || true
-  echo "[cleanup] Tracked files removed. Only .git + .snapshots remain."
-
-  # === 3. 上报 OSS 空间占用 ===
-  OSS_USAGE=$(du -sb /workspace | cut -f1)
-  curl -X POST "${CALLBACK_URL}/api/health/${WORKSPACE_ID}/oss-usage" \
-    -H "Content-Type: application/json" \
-    -d "{\"ossUsageBytes\": ${OSS_USAGE}}"
-  echo "[report] OSS usage: ${OSS_USAGE} bytes"
-
-  # === 4. 通知后端可以释放 ===
-  curl -X POST "${CALLBACK_URL}/api/health/${WORKSPACE_ID}/ready-to-release"
-
-后端 (Vercel Serverless):
-  ③ 调 DeleteInstance(InstanceIds.1=workspace.instance_id)
-  ④ Neon: UPDATE workspace_states SET status='STOPPED', instance_id=NULL,
+  ① 读取 workspace_states.instance_id
+  ② Neon: UPDATE workspace_states SET status='TERMINATING'
+  ③ Neon: INSERT INTO audit_logs (action='STOP')
+  ④ 生成 stop-hook.sh（内容见下），base64 后调:
+       RunCommand(RegionId, InstanceId, Type='RunShellScript',
+                  Timeout=120, CommandContent=base64(stop-hook.sh))
+       → 返回 InvokeId
+  ⑤ 轮询 DescribeInvocationResults(InvokeId) 直到 InvocationStatus=Finished
+     （最长 120s，超时则跳过清理直接删除，见错误处理）
+  ⑥ 解析脚本 stdout 中的 OSS_USAGE=<bytes> → UPDATE workspace_states.oss_usage_bytes
+  ⑦ 调 DeleteInstance(InstanceIds=[instance_id], Force=true)
+  ⑧ Neon: UPDATE workspace_states SET status='STOPPED', instance_id=NULL,
            public_ip=NULL, port=NULL, access_token=NULL, released_at=NOW()
-  ⑤ Neon: INSERT INTO audit_logs (action='TERMINATE')
+  ⑨ Neon: INSERT INTO audit_logs (action='TERMINATE')
 ```
+
+**stop-hook.sh**（在 ECS 内以 root 执行，云助手自动把 stdout 回传）：
+
+```bash
+#!/bin/bash
+set -e
+cd /workspace
+
+# === 1. 打包未提交文件（untracked + modified）===
+UNTRACKED=$(git ls-files --others --exclude-standard)
+MODIFIED=$(git diff --name-only)
+ALL_FILES=$(printf '%s\n%s\n' "$UNTRACKED" "$MODIFIED" | sort -u | grep -v '^$')
+
+if [ -n "$ALL_FILES" ]; then
+  SNAP=".snapshots/$(date +%Y%m%d-%H%M).tar.gz"
+  mkdir -p .snapshots
+  printf '%s\n' "$ALL_FILES" | tar -czf "$SNAP" -T -
+  ln -sf "$(basename "$SNAP")" .snapshots/latest.tar.gz
+  echo "[snapshot] Packed $(printf '%s\n' "$ALL_FILES" | wc -l) files."
+fi
+
+# === 2. 漫游配置打包（D7）===
+docker exec workspace bash -c "tar -czf /tmp/roaming.tar.gz -C /home/coder .local/share/code-server .config .gitconfig 2>/dev/null || true"
+docker cp workspace:/tmp/roaming.tar.gz /mnt/config/roaming.tar.gz 2>/dev/null || true
+
+# === 3. 删除已跟踪文件（保留 .git 和 .snapshots）===
+git ls-files | grep -v '^\.snapshots/' | while read -r f; do rm -f "$f"; done
+find . -type d -empty -not -path './.git/*' -not -path './.snapshots/*' -delete 2>/dev/null || true
+echo "[cleanup] Tracked files removed."
+
+# === 4. 输出 OSS 占用（后端从 stdout 解析）===
+echo "OSS_USAGE=$(du -sb /workspace | cut -f1)"
+```
+
+**注**：删除大量已跟踪文件在 ossfs 上等同大量 DeleteObject 请求，内网可接受；文件数极多时可改用 `ossutil rm` 批量删除（优化项）。
+
+---
 
 ## 十一、启动工作区流程
 
@@ -469,23 +544,19 @@ ECS 容器内（stop-hook.sh，由后端通过 SSH 或 API 触发）:
 
 前端:
   POST /api/workspaces/:id/start
-  Body: {
-    mode: "quick",           ← 按量 或 抢占
-    // 不传 instanceType → 使用工作区已保存的规格
-    // 不传 spot 参数 → 使用全局默认
-  }
+  Body: { mode: "quick" }   ← 不传规格/spot 参数，用工作区已保存配置 + 全局默认时限
 
 后端:
   ① Neon: 读取 workspace 配置（规格、镜像、features、Git、时限等）
   ② 验证:
-     - 若 mode=抢占 → 调 DescribePrice(SpotStrategy=SpotAsPriceGo) 确认可抢占
+     - 若 spot 模式 → 调 DescribePrice(SpotStrategy=...) 确认可抢占
      - 查余额 ≥ 预估费用
-  ③ 生成新 access_token
-  ④ 生成 UserData（同创建流程）
-  ⑤ 调 RunInstances（使用 workspace 保存的规格 + 全局默认时限）
-  ⑥ Neon: workspace_states.status='PROVISIONING', instance_id=新ID
+  ③ 生成新 access_token（crypto.randomBytes(16).toString('hex')）
+  ④ 生成 UserData（同创建流程，第九章）
+  ⑤ 调 RunInstances（workspace 保存的规格 + 全局默认时限）
+  ⑥ Neon: workspace_states.status='PROVISIONING', instance_id=新ID, access_token=新token
   ⑦ Neon: audit_logs(action='START')
-  ⑧ 健康回调 → status='RUNNING'
+  ⑧ 健康回调（带 token）→ status='RUNNING'
 ```
 
 ### 11.2 精确变配启动
@@ -493,11 +564,11 @@ ECS 容器内（stop-hook.sh，由后端通过 SSH 或 API 触发）:
 ```
 用户点「选择规格后启动」→ 弹出完整规格选择面板
 
-用户选完新规格 + 确认 →
+前端:
   POST /api/workspaces/:id/start
   Body: {
     mode: "custom",
-    instanceType: "ecs.g7.2xlarge",   ← 新规格
+    instanceType: "ecs.g7.2xlarge",
     spotStrategy: "NoSpot",
     diskCategory: "cloud_essd",
     diskSize: 40,
@@ -505,42 +576,51 @@ ECS 容器内（stop-hook.sh，由后端通过 SSH 或 API 触发）:
   }
 
 后端:
-  ① 更新 Neon workspaces 表: instance_type=新规格, disk_category, disk_size, bandwidth
+  ① UPDATE workspaces: instance_type=新规格, disk_category, disk_size, bandwidth
      → 新规格成为下次启动的默认值
-  ② 后续同快速启动流程（RunInstances 使用新规格）
+  ② 后续同 11.1（RunInstances 使用新规格）
 ```
+
+### 11.3 续期（renew）
+
+```
+POST /api/workspaces/:id/renew
+Body: { hours: 1 | 4 | 8 | 24 }
+
+后端:
+  ① 调 ModifyInstanceAutoReleaseTime(InstanceId, AutoReleaseTime = now + hours)
+  ② audit_logs(action='RENEW')
+```
+
+---
 
 ## 十二、空闲检测机制
 
-### 容器内 idle-watcher.sh
+### 容器内 idle-watcher.sh（运行于宿主机，UserData 第 10 步写入）
 
 ```bash
 #!/bin/bash
 # idle-watcher.sh — 检测 code-server 活动，空闲超阈值时上报
 
 WORKSPACE_ID="${WORKSPACE_ID}"
-IDLE_MINUTES="${IDLE_MINUTES:-30}"   # 从环境变量读取，null 时用 30
+IDLE_MINUTES="${IDLE_MINUTES:-30}"
 CALLBACK_URL="${CALLBACK_URL}"
-CHECK_INTERVAL=60                     # 每 60 秒检查一次
+CHECK_INTERVAL=60
 
-# 获取最后活跃时间的函数
+touch /tmp/.last_activity
+
 get_last_activity() {
-  # 方法1: 检查 code-server WebSocket 连接数
-  # 方法2: 检查 /workspace 下文件的最近修改时间
-  # 方法3: 检查终端进程的最后活动时间
-  # 综合判断：取最新的活动时间
-  local ws_activity=$(ss -tnp | grep -c ':8080' 2>/dev/null || echo 0)
+  # 综合判断：8080 连接数 / workspace 文件改动 / 终端进程
+  local ws_activity=$(ss -tnp 2>/dev/null | grep -c ':8080' || echo 0)
   local file_activity=$(find /workspace -maxdepth 3 -newer /tmp/.last_activity -type f 2>/dev/null | head -1)
-  local term_activity=$(ps aux | grep -c 'bash\|zsh\|node' 2>/dev/null || echo 0)
+  local term_activity=$(docker exec workspace ps aux 2>/dev/null | grep -cE 'bash|zsh|node' || echo 0)
 
   if [ "$ws_activity" -gt 0 ] || [ -n "$file_activity" ] || [ "$term_activity" -gt 1 ]; then
     date +%s > /tmp/.last_activity
   fi
-
   cat /tmp/.last_activity 2>/dev/null || date +%s
 }
 
-# 主循环
 while true; do
   LAST_ACTIVE=$(get_last_activity)
   NOW=$(date +%s)
@@ -549,20 +629,16 @@ while true; do
 
   if [ "$IDLE_TIME" -ge "$IDLE_SECONDS" ]; then
     echo "[idle] Workspace idle for ${IDLE_TIME}s (threshold: ${IDLE_SECONDS}s)"
-
-    # 检查是否已触发过（避免重复触发）
     if [ ! -f "/tmp/.idle_triggered" ]; then
       touch /tmp/.idle_triggered
-      curl -X POST "${CALLBACK_URL}/api/health/${WORKSPACE_ID}/idle" \
+      curl -s -X POST "${CALLBACK_URL}/api/health/${WORKSPACE_ID}/idle" \
         -H "Content-Type: application/json" \
-        -d "{\"idleSeconds\": ${IDLE_TIME}}"
+        -d "{\"idleSeconds\": ${IDLE_TIME}, \"accessToken\": \"${ACCESS_TOKEN}\"}"
       echo "[idle] Reported idle to server."
     fi
   else
-    # 有活动，清除 idle 标记
     rm -f /tmp/.idle_triggered
   fi
-
   sleep $CHECK_INTERVAL
 done
 ```
@@ -572,10 +648,10 @@ done
 ```
 POST /api/health/:workspaceId/idle
 
-① Neon: UPDATE workspace_states SET idle_triggered=true, last_active_at=NOW()
-② 读取 workspace.idle_minutes（null 用全局默认）
-③ 设置计时器：idle_minutes 后自动触发释放
-④ 或：依赖 Vercel Cron 兜底扫描（Hobby 每天一次 / Pro 每分钟）
+① 校验 accessToken（D5）
+② Neon: UPDATE workspace_states SET idle_triggered=true, last_active_at=NOW()
+③ 读取 workspace.idle_minutes（null 用全局默认）
+④ 直接触发停止流程（复用第十章），或交给 Vercel Cron 兜底扫描（Hobby 每天一次 / Pro 每分钟）
 ```
 
 ### 前端心跳
@@ -588,6 +664,8 @@ Body: { timestamp: Date.now() }
 
 → Neon: UPDATE workspace_states SET last_active_at=NOW(), idle_triggered=false
 ```
+
+---
 
 ## 十三、动态价格计算引擎
 
@@ -612,7 +690,7 @@ Request Body:
 Response:
 {
   "hourly": {
-    "instance": 0.64,                // 实例每小时（已折扣）
+    "instance": 0.64,                // 实例每小时（折后 TradePrice）
     "disk": 0.08,                    // 系统盘每小时
     "bandwidth": 0.00,               // 带宽每小时（按流量=0）
     "total": 0.72                    // 每小时总价
@@ -620,7 +698,7 @@ Response:
   "breakdown": {
     "instanceOriginal": 0.84,        // 实例按量原价
     "instanceDiscount": 0.64,        // 实例折后价
-    "instanceDiscountRate": 0.76,    // 折扣率
+    "instanceDiscountRate": 0.76,    // 折扣率 = 折后/原价
     "diskOriginal": 0.10,
     "diskDiscount": 0.08,
     "spotMode": "NoSpot"             // 当前模式
@@ -645,6 +723,8 @@ Response:
 }
 ```
 
+> **价格口径（D8）**：以上所有 `hourly.*` 与 `estimates` 均基于 DescribePrice 返回的 **TradePrice（折后价）**。文中数字为示意，实现以实值为准。
+
 ### 13.2 后端调用链
 
 ```
@@ -656,7 +736,7 @@ Response:
   │    RegionId: region
   │    ResourceType: "instance"
   │    InstanceType: instanceType
-  │    ImageId: "ubuntu_22_04_x64_20G_alibase_20240101.vhd"  // 系统镜像
+  │    ImageId: 该地域 Ubuntu 22.04 镜像 ID（与 D4 一致）
   │    SystemDisk.Category: diskCategory
   │    SystemDisk.Size: diskSize
   │    InternetMaxBandwidthOut: bandwidth
@@ -668,9 +748,10 @@ Response:
   │    Period: 1
   │
   ├─ 解析 DetailInfos:
-  │    instanceType → hourly.instance
+  │    instanceType → hourly.instance（取 TradePrice）
   │    systemDisk   → hourly.disk
   │    bandwidth    → hourly.bandwidth
+  │    originalPrice → breakdown.*Original
   │
   ├─ 若 SpotStrategy != NoSpot:
   │    调 DescribeSpotAdvice → releaseRate, historicalDiscount
@@ -704,11 +785,14 @@ Response:
 | 1h 保障+固定上限 | SpotWithPriceLimit | 1 | 用户输入 | 上限价以内竞标，超出按量原价 |
 
 固定上限输入时前端显示参考条：
+
 ```
 固定上限: ¥0.30/时  [━━━━━━●━━━━━]
 按量原价: ¥0.84/时  [━━━━━━━━━━━━━●]
 市场价:   ¥0.17/时  [━●━━━━━━━━━━━━]
 ```
+
+---
 
 ## 十四、API 端点清单
 
@@ -762,8 +846,8 @@ Response:
 | GET | `/api/workspaces/:id` | 工作区详情（含 ECS 实时状态） |
 | POST | `/api/workspaces` | 创建工作区 |
 | POST | `/api/workspaces/:id/start` | 启动工作区（快速/精确变配） |
-| POST | `/api/workspaces/:id/stop` | 停止工作区 |
-| POST | `/api/workspaces/:id/renew` | 续期（更新 AutoReleaseTime） |
+| POST | `/api/workspaces/:id/stop` | 停止工作区（RunCommand + DeleteInstance） |
+| POST | `/api/workspaces/:id/renew` | 续期（ModifyInstanceAutoReleaseTime） |
 | DELETE | `/api/workspaces/:id` | 删除工作区（清 OSS + DB） |
 
 ### 价格
@@ -776,11 +860,13 @@ Response:
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/health/:workspaceId` | ECS 健康回调（启动完成上报） |
-| POST | `/api/health/:workspaceId/idle` | 空闲上报 |
+| POST | `/api/health/:workspaceId` | ECS 健康回调（启动完成上报，带 accessToken 鉴权） |
+| POST | `/api/health/:workspaceId/idle` | 空闲上报（带 accessToken 鉴权） |
 | POST | `/api/health/:workspaceId/heartbeat` | 前端心跳 |
-| POST | `/api/health/:workspaceId/oss-usage` | OSS 空间占用上报 |
-| POST | `/api/health/:workspaceId/ready-to-release` | 准备释放确认 |
+
+> 原设计中的 `/api/health/:id/oss-usage` 与 `/ready-to-release` 两个端点已移除：停止流程改为 RunCommand 执行，OSS 占用从脚本 stdout 解析（D3），无需 ECS 反调这两个接口。
+
+---
 
 ## 十五、界面详细设计
 
@@ -1005,9 +1091,9 @@ Response:
 
 ### 屏 7：进入 IDE
 
-新标签页打开：`http://47.96.xx.xx:8080/?token=xxxxx`
+新标签页打开：`http://47.96.xx.xx:8080/`
 
-- 完整 code-server（浏览器里的 VS Code）
+- 完整 code-server（浏览器里的 VS Code），使用 **Basic 认证**：用户名为任意，密码 = 后端生成的 `access_token`（界面显示密码 + 一键复制按钮）
 - 左侧文件树：`/workspace` 里已有仓库代码
 - 终端可用：Features 安装的工具已就绪
 - 无后端调用，直连 ECS 公网 IP + 端口
@@ -1020,7 +1106,7 @@ Response:
 ⚠️ 您已空闲 25 分钟，将在 5 分钟后自动休眠释放。[继续使用]
 ```
 
-- 点击"继续使用"→ POST `/api/health/:id/heartbeat` → 清除 idle 标记
+- 点击「继续使用」→ POST `/api/health/:id/heartbeat` → 清除 idle 标记
 - 不操作 → 5 分钟后触发释放流程
 
 ### 屏 9：终止流程 UI
@@ -1073,6 +1159,8 @@ Response:
 └──────────────────────────────────────────────────────────────┘
 ```
 
+---
+
 ## 十六、安全设计
 
 ### 16.1 AK/SK 加密
@@ -1083,21 +1171,24 @@ Response:
 
 ### 16.2 code-server 访问安全
 
-- 每次启动生成随机密码（`crypto.randomUUID().slice(0,16)`）
-- URL 带 token：`http://{ip}:{port}/?token={token}`
-- ECS 安全组只放行必要端口
+- 每次启动生成随机密码 `crypto.randomBytes(16).toString('hex')`（即 `access_token`）
+- code-server 使用 Basic 认证，密码 = access_token
+- ECS 安全组只放行 8080（及可选 22），入方向白名单可按需限制来源 IP
 
 ### 16.3 Git token 安全
 
 - OAuth token 加密后存 Neon（git_token_enc）
-- 注入到 UserData 脚本中，ECS 内使用后不落盘
+- 后端生成 UserData 时解密并拼成 `GIT_AUTHED_URL`，注入后 ECS 内使用，不落盘、不进入进程参数
 - 优先使用 ACR RAM Role（ECS 绑定角色）避免硬编码
 
 ### 16.4 网络安全
 
 - OSS/ACR/ECS **必须同地域**：内网访问零流量费
-- JuiceFS 挂载使用内网 endpoint
+- ossfs 挂载使用内网 endpoint `oss-{region}-internal.aliyuncs.com`
 - Vercel Serverless 调用阿里云 API 走 HTTPS
+- ECS 内 ossfs/ACR 均通过实例 RAM Role 获取 STS 临时凭证，AK/SK 不落盘
+
+---
 
 ## 十七、错误处理模式
 
@@ -1107,9 +1198,12 @@ Response:
 | AK 权限不足 | 返回具体缺失权限列表 + 引导到 RAM 控制台 |
 | code-server 启动超时（5 分钟无健康回调） | 自动释放 ECS + 更新状态 FAILED + 通知用户 |
 | 空闲释放触发失败 | AutoReleaseTime 作为硬兜底（阿里云侧到期必释放） |
+| RunCommand 执行超时（120s 未 Finished） | 跳过清理直接 DeleteInstance（数据靠 git remote + 已实时落 OSS 兜底），记录告警 |
 | OSS 空间超阈值 | Dashboard 显示警告 + 可引导用户清理 |
 | ACR 镜像拉取失败 | 返回错误 + 检查镜像地址/权限 |
-| JuiceFS 挂载失败 | 降级为普通磁盘（不持久化）+ 警告用户 |
+| ossfs 挂载失败 | 降级为普通磁盘（不持久化）+ 警告用户 |
+
+---
 
 ## 十八、里程碑详细任务
 
@@ -1123,25 +1217,25 @@ Response:
 | **M1.2** 数据库迁移 | Drizzle schema（users, settings, workspaces, workspace_states, audit_logs）+ 初始迁移 | M1.1 | 0.5天 |
 | **M1.3** 认证 | NextAuth v5 Credentials Provider + `.env` 管理员账号 | M1.1 | 1天 |
 | **M1.4** 初始化向导 | `/setup` 页面：填 AK/SK → 测试连接 → 选默认地域 → 保存加密到 DB | M1.2, M1.3 | 2天 |
-| **M1.5** 阿里云 SDK 封装 | `lib/aliyun/ecs.ts`：RunInstances/DescribeInstances/DeleteInstance/DescribePrice/DescribeInstanceTypes/DescribeAvailableResource/DescribeRegions；`lib/aliyun/bss.ts`：QueryAccountBalance；`lib/aliyun/auth.ts`：AK 加解密 | M1.1 | 2天 |
+| **M1.5** 阿里云 SDK 封装 | `lib/aliyun/ecs.ts`：RunInstances/DescribeInstances/DeleteInstance/DescribePrice/DescribeInstanceTypes/DescribeAvailableResource/DescribeRegions/**DescribeImages**/**RunCommand**/**DescribeInvocationResults**/**ModifyInstanceAutoReleaseTime**；`lib/aliyun/bss.ts`：QueryAccountBalance；`lib/aliyun/auth.ts`：AK 加解密 | M1.1 | 2天 |
 | **M1.6** 规格选择组件 | `InstanceSelector.tsx`（规格卡片 + 按量/抢占 Tab）；`/api/ecs/types` 拉规格+价格 | M1.5 | 2天 |
-| **M1.7** UserData 脚本 | `docker/entrypoint.sh`（基础版）：install docker → pull image → docker run code-server → 上报健康 | M1.5 | 1天 |
-| **M1.8** 工作区创建 API | `POST /api/workspaces`：生成 UserData → RunInstances(异步) → Neon 写记录(STATUS=PROVISIONING) | M1.5, M1.7 | 2天 |
-| **M1.9** 健康回调 | `POST /api/health/:workspaceId`：ECS 容器启动后 curl 回调 → Neon 更新 STATUS=RUNNING，存公网 IP+port+token | M1.8 | 1天 |
+| **M1.7** UserData 脚本 | `docker/entrypoint.sh`（基础版）：装 docker/ossfs → 挂载 → `docker run code-server`（D2）→ 上报健康（D5） | M1.5 | 1天 |
+| **M1.8** 工作区创建 API | `POST /api/workspaces`：生成 UserData → RunInstances(异步) → Neon 写记录(STATUS=PROVISIONING)；含 8.1 资源配置（ImageId/VPC/安全组） | M1.5, M1.7 | 2天 |
+| **M1.9** 健康回调 | `POST /api/health/:workspaceId`：校验 accessToken → Neon 更新 STATUS=RUNNING，存公网 IP+port+token | M1.8 | 1天 |
 | **M1.10** Dashboard | 工作区列表页（轮询状态）；`/api/workspaces` + `/api/workspaces/:id` | M1.8 | 1.5天 |
-| **M1.11** 进入 IDE | 点击 → 新标签页 `http://{ip}:{port}/?token={token}` | M1.9 | 0.5天 |
-| **M1.12** 停止/删除 | 停止：`POST /api/workspaces/:id/stop` → DeleteInstance → Neon 更新 STOPPED；删除：`DELETE` → 清 OSS+DB | M1.5, M1.8 | 1.5天 |
+| **M1.11** 进入 IDE | 点击 → 新标签页 `http://{ip}:8080` + 显示密码（access_token） | M1.9 | 0.5天 |
+| **M1.12** 停止/删除 | 停止：`POST /api/workspaces/:id/stop` → RunCommand(简单版) → DeleteInstance → Neon 更新 STOPPED；删除：`DELETE` → 清 OSS+DB | M1.5, M1.8 | 1.5天 |
 | **M1.13** 余额显示 | Dashboard 顶部余额栏（定时刷新 + 手动刷新） | M1.4 | 0.5天 |
 
 **M1 合计约 17 个工作日（3.5 周）**
 
 **M1 交付物**：
 - 用户能登录 → 配置 AK → 选规格 → 创建 ECS 实例 → 进入 code-server IDE → 停止释放
-- **M1 不涉及**：JuiceFS、OSS 持久化、Git clone、Features、动态价格面板、空闲检测
+- **M1 不涉及**：ossfs 持久化（先用本地盘）、Git clone、Features、动态价格面板、空闲检测
 
 ### M2：持久化 + Git + Features（2~3 周）
 
-**目标**：JuiceFS 挂 workspace → OSS 持久化 → 停止时快照增量 → Git 自动 clone → Features 动态安装 → 启动恢复
+**目标**：ossfs 挂 workspace → OSS 持久化 → 停止时快照增量 → Git 自动 clone → Features 动态安装 → 启动恢复
 
 | 任务 | 内容 | 依赖 | 预估 |
 |---|---|---|---|
@@ -1149,13 +1243,13 @@ Response:
 | **M2.2** OSS 自动创建 | 首次使用某地域 → 自动 PutBucket → Neon 存 bucket 名 | M2.1 | 0.5天 |
 | **M2.3** ACR 封装 | `lib/aliyun/acr.ts`：ListInstance/CreateInstance/ListRepository/ListImage | M1.5 | 1天 |
 | **M2.4** ACR 自动创建 | 首次使用 → 自动 CreateInstance → 存 ID | M2.3 | 0.5天 |
-| **M2.5** UserData 完整版 | entrypoint.sh 加入：JuiceFS 安装+挂载、快照恢复、Features 安装、idle watcher | M1.7, M2.1 | 2天 |
+| **M2.5** UserData 完整版 | entrypoint.sh 加入：ossfs 挂载、快照恢复、Features 安装（docker exec）、idle watcher | M1.7, M2.1 | 2天 |
 | **M2.6** Git OAuth | GitHub OAuth 流程 + `/api/git/auth` + `/api/git/callback` | M1.3 | 1.5天 |
 | **M2.7** 仓库选择 | `/api/git/repos` + `/api/git/branches`；前端 `GitSelector.tsx` 组件 | M2.6 | 1天 |
-| **M2.8** Clone 注入 | UserData 注入 token+repoURL+branch → entrypoint git clone | M2.5, M2.7 | 1天 |
+| **M2.8** Clone 注入 | UserData 注入 GIT_AUTHED_URL+repoURL+branch → entrypoint git clone | M2.5, M2.7 | 1天 |
 | **M2.9** Features 目录 | `features.json`：Node/Python/Go/Java/Docker-in-Docker/Git 等，每个含版本列表+installScript；前端 `FeatureSelector.tsx` 多选+版本选择 | — | 2天 |
-| **M2.10** Features 安装 | entrypoint 按 JSON 执行 features 的 installScript → 装到 `/opt/{tool}/` | M2.5, M2.9 | 1天 |
-| **M2.11** 停止钩子 | `stop-hook.sh`：打包 untracked → .snapshots/ → 删除已跟踪文件 → 上报 OSS 用量 → 回调 → DeleteInstance | M2.5 | 2天 |
+| **M2.10** Features 安装 | entrypoint 按 JSON 执行 features 的 installScript → docker exec 装到容器 `/opt/{tool}/` | M2.5, M2.9 | 1天 |
+| **M2.11** 停止钩子 | `stop-hook.sh`：打包 untracked → .snapshots/ → 打包漫游配置 → 删除已跟踪文件 → RunCommand 执行 + 解析 OSS 用量 → DeleteInstance | M2.5 | 2天 |
 | **M2.12** 快照恢复 | entrypoint 启动时检查 .snapshots/ → 解压覆盖 → git pull | M2.5, M2.11 | 1天 |
 | **M2.13** 启动流程 | 详情页「按量启动」/「抢占式启动」/「精确变配启动」；启动前检查（可抢占验证+余额校验）；启动后规格覆盖写入 workspace 配置 | M1.8, M1.6 | 2天 |
 | **M2.14** 空闲检测 | `idle-watcher.sh`：监控活动 → 超阈值 → POST `/api/health/:id/idle` → 触发释放 | M1.9 | 1.5天 |
@@ -1163,7 +1257,7 @@ Response:
 **M2 合计约 17 个工作日（3.5 周）**
 
 **M2 交付物**：
-- JuiceFS 挂载 /workspace 实时落 OSS
+- ossfs 挂载 /workspace 实时落 OSS
 - Git 自动 clone + 快照恢复
 - Features 动态安装（版本可选）
 - 一键启动（按量/抢占）+ 精确变配启动
@@ -1176,12 +1270,12 @@ Response:
 
 | 任务 | 内容 | 依赖 | 预估 |
 |---|---|---|---|
-| **M3.1** 价格计算引擎 | `lib/price/calculator.ts` + `/api/price/calculate`：DescribePrice 封装（实例+系统盘+带宽一次调）→ 返回分项价格+预估费用 | M1.5 | 2天 |
+| **M3.1** 价格计算引擎 | `lib/price/calculator.ts` + `/api/price/calculate`：DescribePrice 封装（实例+系统盘+带宽一次调）→ 返回分项价格+预估费用（折后价 D8） | M1.5 | 2天 |
 | **M3.2** PricePanel 组件 | 底部固定价格面板：分项明细 + 多时段预估 + 折扣率/释放率 | M3.1 | 1.5天 |
 | **M3.3** 动态联动 | InstanceSelector/DiskSlider/BandwidthSlider/SpotConfig/DurationSelector → 任一变动 → debounce 300ms → 调 price/calculate → PricePanel 更新 | M3.1, M3.2, M1.6 | 2天 |
 | **M3.4** 抢占式完整 | SpotConfig 组件：三种模式 → 固定上限输入时显示按量原价参考条 → DescribeSpotAdvice 显示释放率+折扣率 | M3.3 | 1.5天 |
 | **M3.5** 历史价格 | DescribeSpotPriceHistory → Recharts 近 30 天价格曲线图 | M3.4 | 1天 |
-| **M3.6** OSS 空间监控 | 停止时 ListObjectsV2 计算 workspace 目录大小 → 上报 Neon → Dashboard 显示占用 + 超阈值告警 | M2.11, M2.1 | 1天 |
+| **M3.6** OSS 空间监控 | 停止时解析 OSS 用量（stop-hook stdout）→ 上报 Neon → Dashboard 显示占用 + 超阈值告警 | M2.11, M2.1 | 1天 |
 | **M3.7** 全局设置页 | `/settings`：编辑 AK/SK、默认地域/规格/时限/抢占参数/磁盘/带宽 | M1.4 | 1.5天 |
 | **M3.8** 余额实时刷新 | Dashboard 顶部余额 → 定时刷新（60s）+ 手动刷新；余额低于阈值红色警告 | M1.4 | 0.5天 |
 | **M3.9** 审计日志 | 每次 CREATE/START/STOP/DELETE 写 audit_logs → 工作区详情页展示操作历史 | M1.8 | 1天 |
@@ -1197,6 +1291,8 @@ Response:
 - 全局设置管理
 - 操作审计日志
 - 完善的错误处理
+
+---
 
 ## 十九、环境变量
 
@@ -1216,16 +1312,25 @@ UPSTASH_REDIS_REST_TOKEN=AXxx...
 
 # AES 加密主密钥（64 字节 hex = 32 字节密钥）
 ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# 部署期配置（代码/常量，非环境变量）
+# - ECS RAM Role 名: workspace-cloud-ecs-role（OSS + ACR 权限）
+# - code-server 端口固定 8080
+# - GitHub OAuth Client ID/Secret、CNB OAuth 凭据（随 NextAuth provider 配置）
 ```
+
+---
 
 ## 二十、关键技术约束总结
 
 | 约束 | 方案 |
 |---|---|
 | Vercel Serverless 无状态 | 所有运行态数据存 Neon/Redis，ECS 状态靠轮询+回调 |
-| Vercel 无长连接 | IDE 直连 ECS 公网 IP，不做 WebSocket 代理 |
-| Git token 安全 | UserData 注入 → ECS 内使用后不落盘；或走 OSS 中转 |
-| JuiceFS 同地域 | Bucket/ACR/ECS 三者必须同地域，内网访问 |
-| 代码持久化 | JuiceFS 实时挂 OSS + 停止时只保留未提交增量（已提交靠 git remote） |
+| Vercel 无长连接 | IDE 直连 ECS 公网 IP，不做 WebSocket 代理；停止走云助手 RunCommand |
+| Git token 安全 | 后端拼 GIT_AUTHED_URL 注入 UserData，ECS 内使用后不落盘 |
+| 同地域内网 | Bucket/ACR/ECS 三者必须同地域，ossfs 走内网 endpoint |
+| 代码持久化 | ossfs 实时挂 OSS + 停止时只保留未提交增量（已提交靠 git remote） |
 | AutoReleaseTime 兜底 | 即使所有释放逻辑挂掉，阿里云侧到期必释放，钱不会失控 |
 | 冷启动延迟 | ECS 创建到 IDE 可用约 2~5 分钟（UserData 自举），前端显示进度 |
+| 无元数据引擎 | 采用 ossfs 而非 JuiceFS，避免常驻元数据服务（D1） |
+
