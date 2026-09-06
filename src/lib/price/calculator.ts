@@ -121,17 +121,22 @@ export async function calculatePrice(
   };
 
   if (input.spotStrategy !== "NoSpot") {
-    const advice = await describeSpotAdvice(
-      creds,
-      input.region,
-      input.instanceType,
-      input.spotDuration,
-    );
-    result.spotAdvice = {
-      releaseRate: advice.releaseRate,
-      historicalDiscount: advice.historicalDiscount,
-      estimatedSpotPrice: round(instanceDiscount * advice.historicalDiscount),
-    };
+    try {
+      const advice = await describeSpotAdvice(
+        creds,
+        input.region,
+        input.instanceType,
+        input.spotDuration,
+      );
+      result.spotAdvice = {
+        releaseRate: advice.releaseRate,
+        historicalDiscount: advice.historicalDiscount,
+        estimatedSpotPrice: round(instanceDiscount * advice.historicalDiscount),
+      };
+    } catch (e) {
+      // Spot advice is best-effort; degrade gracefully without dropping the price.
+      console.warn("[price] describeSpotAdvice failed:", e);
+    }
   }
 
   return result;

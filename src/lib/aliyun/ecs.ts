@@ -501,6 +501,15 @@ export async function describeSpotAdvice(
   instanceType: string,
   spotDuration: number,
 ): Promise<SpotAdvice> {
+  // DescribeSpotAdvice needs a concrete zone id (not "random").
+  const zonesRes = await request<{ zones?: { zone?: { zoneId?: string }[] } }>(
+    creds,
+    region,
+    "DescribeZones",
+    { RegionId: region },
+  );
+  const zoneId = zonesRes.zones?.zone?.[0]?.zoneId;
+
   const res = await request<{
     availableSpotZones?: {
       availableSpotZone?: {
@@ -518,18 +527,37 @@ export async function describeSpotAdvice(
     RegionId: region,
     InstanceTypes: JSON.stringify([instanceType]),
     SpotDuration: spotDuration,
-    ZoneId: "random",
+    ...(zoneId ? { ZoneId: zoneId } : {}),
   });
-  const resource =
-    res.availableSpotZones?.availableSpotZone?.[0]?.availableSpotResources
-      ?.availableSpotResource?.[0];
+
+  // Collect all resources across zones and find the exact instance type.
+  const all = (
+    res.availableSpotZones?.availableSpotZone ?? []
+  ).flatMap(
+    (z) => z.availableSpotResources?.availableSpotResource ?? [],
+  );
+  const resource = all.find(
+    (r) => r.instanceType?.toLowerCase() === instanceType.toLowerCase(),
+  );
+
   const rateMatch = resource?.interruptRateDesc?.match(/([\d.]+)%/);
+  // AverageSpotDiscount is a percentage (e.g. 4 => 4% discount => pay 4% of original).
+  const discountPct = resource?.averageSpotDiscount ?? 100;
   return {
     available: Boolean(resource),
     releaseRate: rateMatch ? Number(rateMatch[1]) / 100 : 0,
-    historicalDiscount: (resource?.averageSpotDiscount ?? 100) / 100,
+    // historicalDiscount = 折后价占原价的比例（4 => 0.04）
+    historicalDiscount: discountPct / 100,
     spotPrice: resource?.spotPrice,
   };
+}
+
+export function toAliyunTimestamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`
+  );
 }
 
 export async function describeSpotPriceHistory(
@@ -545,8 +573,8 @@ export async function describeSpotPriceHistory(
     RegionId: region,
     InstanceType: instanceType,
     NetworkType: "vpc",
-    StartTime: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
-    EndTime: new Date().toISOString(),
+    StartTime: toAliyunTimestamp(new Date(Date.now() - 30 * 24 * 3600 * 1000)),
+    EndTime: toAliyunTimestamp(new Date()),
     SpotDuration: 0,
   });
   return (

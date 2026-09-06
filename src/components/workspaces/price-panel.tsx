@@ -10,6 +10,12 @@ export interface PricePanelData {
     bandwidth: number;
     total: number;
   };
+  breakdown?: {
+    instanceOriginal: number;
+    instanceDiscount: number;
+    instanceDiscountRate: number;
+    spotMode: string;
+  };
   estimates?: { hours: number; total: number; label: string }[];
   spotAdvice?: {
     releaseRate: number;
@@ -30,9 +36,11 @@ export function PricePanel({
   proceeding: boolean;
 }) {
   const total = data.hourly?.total ?? 0;
-  const discountTotal = data.spotAdvice
-    ? total * (1 - data.spotAdvice.historicalDiscount)
-    : 0;
+  // 共减 = 按量原价 - 当前抢占价（仅实例部分）
+  const saved =
+    data.breakdown && data.hourly
+      ? data.breakdown.instanceOriginal - data.hourly.instance
+      : 0;
 
   return (
     <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
@@ -52,7 +60,8 @@ export function PricePanel({
               </span>
               {billingMode === "spot" && data.spotAdvice && (
                 <span className="text-xs text-gray-400">
-                  共减 {formatCurrency(discountTotal)}/时
+                  共减 {formatCurrency(saved)}/时 · 释放率{" "}
+                  {(data.spotAdvice.releaseRate * 100).toFixed(0)}%
                 </span>
               )}
             </>
