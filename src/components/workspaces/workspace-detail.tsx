@@ -42,6 +42,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/workspaces/${id}`);
@@ -70,7 +71,12 @@ export function WorkspaceDetail({ id }: { id: string }) {
 
   async function action(path: string, method: string) {
     setBusy(true);
-    await fetch(path, { method });
+    setError("");
+    const res = await fetch(path, { method });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "操作失败，请重试");
+    }
     await load();
     router.refresh();
     setBusy(false);
@@ -103,6 +109,30 @@ export function WorkspaceDetail({ id }: { id: string }) {
         </div>
         <Badge tone={meta.tone}>{meta.label}</Badge>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+          <button className="ml-2 underline" onClick={() => setError("")}>
+            关闭
+          </button>
+        </div>
+      )}
+
+      {status === "FAILED" && (
+        <Card className="flex items-center justify-between p-4">
+          <p className="text-sm text-red-600">
+            上次启动失败，可修改配置后重试。
+          </p>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => action(`/api/workspaces/${id}/start`, "POST")}
+          >
+            重试启动
+          </Button>
+        </Card>
+      )}
 
       {running && ideUrl && (
         <Card className="space-y-3 p-6">
@@ -147,7 +177,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
       <Card className="space-y-4 p-6">
         <h2 className="font-medium">操作</h2>
         <div className="flex flex-wrap gap-2">
-          {status === "STOPPED" && (
+          {(status === "STOPPED" || status === "FAILED") && (
             <>
               <Button
                 disabled={busy}

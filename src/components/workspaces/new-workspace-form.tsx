@@ -18,6 +18,7 @@ import {
   DEFAULT_IMAGE_URI,
 } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
+import { SpotPriceChart } from "@/components/workspaces/spot-price-chart";
 
 interface FeatureDef {
   id: string;
@@ -422,6 +423,17 @@ export function NewWorkspaceForm() {
                   </span>
                 ))}
               </div>
+              {spotStrategy !== "NoSpot" && (
+                <div className="mt-3">
+                  <p className="mb-1 text-xs font-medium text-gray-500">
+                    近 30 天抢占价格
+                  </p>
+                  <SpotPriceChart
+                    region={region}
+                    instanceType={instanceType}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-400">计算中...</p>

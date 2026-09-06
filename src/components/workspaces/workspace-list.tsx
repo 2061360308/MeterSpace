@@ -27,6 +27,7 @@ export function WorkspaceList() {
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const [wsRes, balRes] = await Promise.all([
@@ -52,7 +53,12 @@ export function WorkspaceList() {
 
   async function action(path: string, method: string) {
     setBusyId(path);
-    await fetch(path, { method });
+    setError("");
+    const res = await fetch(path, { method });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "操作失败，请重试");
+    }
     await load();
     router.refresh();
     setBusyId(null);
@@ -82,6 +88,18 @@ export function WorkspaceList() {
           </Link>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+          <button
+            className="ml-2 underline"
+            onClick={() => setError("")}
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       {workspaces.length === 0 ? (
         <Card className="p-10 text-center text-gray-500">
