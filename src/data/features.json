@@ -1,0 +1,100 @@
+[
+  {
+    "id": "node",
+    "name": "Node.js",
+    "description": "JavaScript 运行时",
+    "companion": "nvm",
+    "versions": [
+      {
+        "version": "22",
+        "label": "v22 LTS",
+        "installScript": "curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz -o /tmp/node.tar.xz && tar -C /opt -xf /tmp/node.tar.xz && mv /opt/node-v22.12.0-linux-x64 /opt/node && ln -sf /opt/node/bin/node /usr/local/bin/node && ln -sf /opt/node/bin/npm /usr/local/bin/npm && ln -sf /opt/node/bin/npx /usr/local/bin/npx"
+      },
+      {
+        "version": "20",
+        "label": "v20 LTS",
+        "installScript": "curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz -o /tmp/node.tar.xz && tar -C /opt -xf /tmp/node.tar.xz && mv /opt/node-v20.18.0-linux-x64 /opt/node && ln -sf /opt/node/bin/node /usr/local/bin/node && ln -sf /opt/node/bin/npm /usr/local/bin/npm && ln -sf /opt/node/bin/npx /usr/local/bin/npx"
+      }
+    ]
+  },
+  {
+    "id": "python",
+    "name": "Python",
+    "description": "Python 运行时",
+    "companion": "pyenv",
+    "versions": [
+      {
+        "version": "3.12",
+        "label": "3.12",
+        "installScript": "apt-get update && apt-get install -y python3.12 python3.12-venv python3-pip && ln -sf /usr/bin/python3.12 /usr/local/bin/python && ln -sf /usr/bin/python3.12 /usr/local/bin/python3"
+      },
+      {
+        "version": "3.11",
+        "label": "3.11",
+        "installScript": "apt-get update && apt-get install -y python3.11 python3.11-venv python3-pip && ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/bin/python3.11 /usr/local/bin/python3"
+      }
+    ]
+  },
+  {
+    "id": "go",
+    "name": "Go",
+    "description": "Go 工具链",
+    "companion": "goenv",
+    "versions": [
+      {
+        "version": "1.22",
+        "label": "1.22",
+        "installScript": "curl -fsSL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz -o /tmp/go.tgz && tar -C /opt -xzf /tmp/go.tgz && ln -sf /opt/go/bin/go /usr/local/bin/go && ln -sf /opt/go/bin/gofmt /usr/local/bin/gofmt"
+      },
+      {
+        "version": "1.21",
+        "label": "1.21",
+        "installScript": "curl -fsSL https://go.dev/dl/go1.21.13.linux-amd64.tar.gz -o /tmp/go.tgz && tar -C /opt -xzf /tmp/go.tgz && ln -sf /opt/go/bin/go /usr/local/bin/go && ln -sf /opt/go/bin/gofmt /usr/local/bin/gofmt"
+      }
+    ]
+  },
+  {
+    "id": "java",
+    "name": "Java",
+    "description": "Java 运行时 + Maven",
+    "companion": "sdkman",
+    "versions": [
+      {
+        "version": "21",
+        "label": "21 LTS",
+        "installScript": "apt-get update && apt-get install -y openjdk-21-jdk-headless maven && ln -sf /usr/bin/java /usr/local/bin/java"
+      },
+      {
+        "version": "17",
+        "label": "17 LTS",
+        "installScript": "apt-get update && apt-get install -y openjdk-17-jdk-headless maven && ln -sf /usr/bin/java /usr/local/bin/java"
+      }
+    ]
+  },
+  {
+    "id": "gh-cli",
+    "name": "Git + GitHub CLI",
+    "description": "Git 与 GitHub 命令行工具",
+    "companion": "git",
+    "versions": [
+      {
+        "version": "latest",
+        "label": "latest",
+        "installScript": "apt-get update && apt-get install -y git gh"
+      }
+    ]
+  },
+  {
+    "id": "docker-in-docker",
+    "name": "Docker-in-Docker",
+    "description": "容器内运行 Docker（共享宿主机 docker.sock）",
+    "companion": "docker",
+    "versions": [
+      {
+        "version": "latest",
+        "label": "latest",
+        "installScript": "apt-get update && apt-get install -y docker.io"
+      }
+    ]
+  }
+]
