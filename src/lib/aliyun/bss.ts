@@ -17,18 +17,18 @@ export async function queryAccountBalance(
     apiVersion: API_VERSIONS.bss,
   });
   const res = (await client.request("QueryAccountBalance", {})) as {
-    Data?: {
-      AvailableAmount?: string;
-      AvailableCashAmount?: string;
-      CreditAmount?: string;
-      Currency?: string;
+    data?: {
+      availableAmount?: string;
+      availableCashAmount?: string;
+      creditAmount?: string;
+      currency?: string;
     };
   };
-  const d = res.Data ?? {};
+  const d = res.data ?? {};
   return {
-    availableAmount: Number(d.AvailableAmount ?? 0),
-    availableCashAmount: Number(d.AvailableCashAmount ?? 0),
-    creditAmount: Number(d.CreditAmount ?? 0),
-    currency: d.Currency ?? "CNY",
+    availableAmount: Number(d.availableAmount ?? 0),
+    availableCashAmount: Number(d.availableCashAmount ?? 0),
+    creditAmount: Number(d.creditAmount ?? 0),
+    currency: d.currency ?? "CNY",
   };
 }

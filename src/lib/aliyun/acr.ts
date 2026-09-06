@@ -27,9 +27,9 @@ export async function listInstances(
   region: string,
 ): Promise<AcrInstance[]> {
   const res = await request<{
-    Instances?: { Instance?: AcrInstance[] };
+    instances?: { instance?: AcrInstance[] };
   }>(creds, region, "ListInstance", { RegionId: region });
-  return res.Instances?.Instance ?? [];
+  return res.instances?.instance ?? [];
 }
 
 export async function createInstance(
@@ -38,13 +38,13 @@ export async function createInstance(
   instanceName: string,
 ): Promise<string> {
   const res = await request<{
-    InstanceId?: string;
+    instanceId?: string;
   }>(creds, region, "CreateInstance", {
     RegionId: region,
     InstanceName: instanceName,
     InstanceType: "basic",
   });
-  return res.InstanceId ?? "";
+  return res.instanceId ?? "";
 }
 
 export interface Repository {
@@ -61,14 +61,14 @@ export async function listRepositories(
   instanceId: string,
 ): Promise<Repository[]> {
   const res = await request<{
-    Repositories?: { Repository?: Repository[] };
+    repositories?: { repository?: Repository[] };
   }>(creds, region, "ListRepository", {
     InstanceId: instanceId,
     RegionId: region,
     PageSize: 100,
     PageNo: 1,
   });
-  return res.Repositories?.Repository ?? [];
+  return res.repositories?.repository ?? [];
 }
 
 export interface ImageTag {
@@ -84,11 +84,11 @@ export async function listImageTags(
   repoId: string,
 ): Promise<ImageTag[]> {
   const res = await request<{
-    Images?: { Image?: ImageTag[] };
+    images?: { image?: ImageTag[] };
   }>(creds, region, "ListRepositoryTag", {
     InstanceId: instanceId,
     RepoId: repoId,
     RegionId: region,
   });
-  return res.Images?.Image ?? [];
+  return res.images?.image ?? [];
 }

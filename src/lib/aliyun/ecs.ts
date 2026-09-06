@@ -48,9 +48,9 @@ export async function describeRegions(
   creds: AliCredentials,
 ): Promise<Region[]> {
   const res = await request<{
-    Regions?: { Region?: Region[] };
+    regions?: { region?: Region[] };
   }>(creds, "cn-hangzhou", "DescribeRegions", {});
-  return res.Regions?.Region ?? [];
+  return res.regions?.region ?? [];
 }
 
 export interface InstanceType {
@@ -65,22 +65,19 @@ export async function describeInstanceTypes(
   region: string,
 ): Promise<InstanceType[]> {
   const out: InstanceType[] = [];
-  let pageNumber = 1;
-  // DescribeInstanceTypes is paginated; page through up to 10 pages.
-  for (let i = 0; i < 10; i++) {
+  let nextToken: string | undefined;
+  for (let i = 0; i < 20; i++) {
     const res = await request<{
-      InstanceTypes?: { InstanceType?: InstanceType[] };
-      NextToken?: string;
-      TotalCount?: number;
+      instanceTypes?: { instanceType?: InstanceType[] };
+      nextToken?: string;
     }>(creds, region, "DescribeInstanceTypes", {
       RegionId: region,
-      NextToken: undefined as unknown as string,
-      PageNumber: pageNumber,
-      PageSize: 100,
+      MaxResults: 100,
+      ...(nextToken ? { NextToken: nextToken } : {}),
     });
-    out.push(...(res.InstanceTypes?.InstanceType ?? []));
-    if (!res.NextToken) break;
-    pageNumber += 1;
+    out.push(...(res.instanceTypes?.instanceType ?? []));
+    if (!res.nextToken) break;
+    nextToken = res.nextToken;
   }
   return out;
 }
@@ -174,9 +171,9 @@ export async function runInstances(
   });
 
   const res = await request<{
-    InstanceIdSets?: { InstanceIdSet?: string[] };
+    instanceIdSets?: { instanceIdSet?: string[] };
   }>(creds, input.region, "RunInstances", params);
-  const id = res.InstanceIdSets?.InstanceIdSet?.[0];
+  const id = res.instanceIdSets?.instanceIdSet?.[0];
   if (!id) throw new AliyunError("NoInstanceId", "RunInstances returned no instance id");
   return { instanceId: id };
 }
@@ -185,7 +182,7 @@ export interface Zone {
   zoneId: string;
   localName?: string;
   availableInstanceTypes?: {
-    InstanceTypes?: string[];
+    instanceTypes?: string[];
   };
 }
 
@@ -193,13 +190,13 @@ export async function describeZones(
   creds: AliCredentials,
   region: string,
 ): Promise<Zone[]> {
-  const res = await request<{ Zones?: { Zone?: Zone[] } }>(
+  const res = await request<{ zones?: { zone?: Zone[] } }>(
     creds,
     region,
     "DescribeZones",
     { RegionId: region },
   );
-  return res.Zones?.Zone ?? [];
+  return res.zones?.zone ?? [];
 }
 
 export interface Vpc {
@@ -213,13 +210,13 @@ export async function describeVpcs(
   creds: AliCredentials,
   region: string,
 ): Promise<Vpc[]> {
-  const res = await request<{ Vpcs?: { Vpc?: Vpc[] } }>(
+  const res = await request<{ vpcs?: { vpc?: Vpc[] } }>(
     creds,
     region,
     "DescribeVpcs",
     { RegionId: region, PageSize: 50 },
   );
-  return res.Vpcs?.Vpc ?? [];
+  return res.vpcs?.vpc ?? [];
 }
 
 export async function createVpc(
@@ -227,13 +224,13 @@ export async function createVpc(
   region: string,
   cidrBlock = "172.16.0.0/16",
 ): Promise<string> {
-  const res = await request<{ VpcId?: string }>(creds, region, "CreateVpc", {
+  const res = await request<{ vpcId?: string }>(creds, region, "CreateVpc", {
     RegionId: region,
     CidrBlock: cidrBlock,
     VpcName: "workspace-cloud-vpc",
   });
-  if (!res.VpcId) throw new AliyunError("NoVpcId", "CreateVpc returned no id");
-  return res.VpcId;
+  if (!res.vpcId) throw new AliyunError("NoVpcId", "CreateVpc returned no id");
+  return res.vpcId;
 }
 
 export interface VSwitch {
@@ -249,13 +246,13 @@ export async function describeVSwitches(
   region: string,
   vpcId?: string,
 ): Promise<VSwitch[]> {
-  const res = await request<{ VSwitches?: { VSwitch?: VSwitch[] } }>(
+  const res = await request<{ vSwitches?: { vSwitch?: VSwitch[] } }>(
     creds,
     region,
     "DescribeVSwitches",
     { RegionId: region, PageSize: 50, ...(vpcId ? { VpcId: vpcId } : {}) },
   );
-  return res.VSwitches?.VSwitch ?? [];
+  return res.vSwitches?.vSwitch ?? [];
 }
 
 export async function createVSwitch(
@@ -265,7 +262,7 @@ export async function createVSwitch(
   zoneId: string,
   cidrBlock = "172.16.0.0/24",
 ): Promise<string> {
-  const res = await request<{ VSwitchId?: string }>(
+  const res = await request<{ vSwitchId?: string }>(
     creds,
     region,
     "CreateVSwitch",
@@ -277,10 +274,10 @@ export async function createVSwitch(
       VSwitchName: "workspace-cloud-vswitch",
     },
   );
-  if (!res.VSwitchId) {
+  if (!res.vSwitchId) {
     throw new AliyunError("NoVSwitchId", "CreateVSwitch returned no id");
   }
-  return res.VSwitchId;
+  return res.vSwitchId;
 }
 
 export interface SecurityGroup {
@@ -295,13 +292,13 @@ export async function describeSecurityGroups(
   vpcId?: string,
 ): Promise<SecurityGroup[]> {
   const res = await request<{
-    SecurityGroups?: { SecurityGroup?: SecurityGroup[] };
+    securityGroups?: { securityGroup?: SecurityGroup[] };
   }>(creds, region, "DescribeSecurityGroups", {
     RegionId: region,
     PageSize: 50,
     ...(vpcId ? { VpcId: vpcId } : {}),
   });
-  return res.SecurityGroups?.SecurityGroup ?? [];
+  return res.securityGroups?.securityGroup ?? [];
 }
 
 export async function createSecurityGroup(
@@ -309,7 +306,7 @@ export async function createSecurityGroup(
   region: string,
   vpcId: string,
 ): Promise<string> {
-  const res = await request<{ SecurityGroupId?: string }>(
+  const res = await request<{ securityGroupId?: string }>(
     creds,
     region,
     "CreateSecurityGroup",
@@ -320,10 +317,10 @@ export async function createSecurityGroup(
       Description: "workspace-cloud auto security group",
     },
   );
-  if (!res.SecurityGroupId) {
+  if (!res.securityGroupId) {
     throw new AliyunError("NoSgId", "CreateSecurityGroup returned no id");
   }
-  return res.SecurityGroupId;
+  return res.securityGroupId;
 }
 
 export async function authorizeIngress(
@@ -360,12 +357,12 @@ export async function describeInstances(
   instanceId: string,
 ): Promise<Instance | null> {
   const res = await request<{
-    Instances?: { Instance?: Instance[] };
+    instances?: { instance?: Instance[] };
   }>(creds, region, "DescribeInstances", {
     RegionId: region,
     InstanceIds: JSON.stringify([instanceId]),
   });
-  return res.Instances?.Instance?.[0] ?? null;
+  return res.instances?.instance?.[0] ?? null;
 }
 
 export async function deleteInstance(
@@ -406,16 +403,15 @@ export async function describeImages(
   region: string,
 ): Promise<ImageInfo[]> {
   const res = await request<{
-    Images?: { Image?: ImageInfo[] };
+    images?: { image?: ImageInfo[] };
   }>(creds, region, "DescribeImages", {
     RegionId: region,
     ImageOwnerAlias: "system",
     OSType: "linux",
-    Platform: "Ubuntu",
     Architecture: "x86_64",
     PageSize: 100,
   });
-  return res.Images?.Image ?? [];
+  return res.images?.image ?? [];
 }
 
 /** Find the latest Ubuntu 22.04 public image for a region (D4). */
@@ -425,7 +421,9 @@ export async function findUbuntu2204Image(
 ): Promise<string> {
   const images = await describeImages(creds, region);
   const candidates = images.filter(
-    (i) => i.osName?.includes("22.04") || i.imageName?.includes("22.04"),
+    (i) =>
+      (i.osName ?? "").includes("22.04") ||
+      (i.imageName ?? "").toLowerCase().includes("22.04"),
   );
   candidates.sort((a, b) =>
     (b.creationTime ?? "").localeCompare(a.creationTime ?? ""),
@@ -453,7 +451,7 @@ export interface DescribePriceInput {
 }
 
 export interface PriceDetailInfo {
-  resourceType: string;
+  resource: string;
   originalPrice: number;
   tradePrice: number;
   discountPrice?: number;
@@ -483,9 +481,9 @@ export async function describePrice(
     }
   }
   const res = await request<{
-    PriceInfo?: { Price?: { DetailInfos?: { DetailInfo?: PriceDetailInfo[] } } };
+    priceInfo?: { price?: { detailInfos?: { detailInfo?: PriceDetailInfo[] } } };
   }>(creds, input.region, "DescribePrice", params);
-  return res.PriceInfo?.Price?.DetailInfos?.DetailInfo ?? [];
+  return res.priceInfo?.price?.detailInfos?.detailInfo ?? [];
 }
 
 export interface SpotAdvice {
@@ -502,14 +500,14 @@ export async function describeSpotAdvice(
   spotDuration: number,
 ): Promise<SpotAdvice> {
   const res = await request<{
-    AvailableSpotZones?: {
-      AvailableSpotZone?: {
-        AvailableSpotResources?: {
-          AvailableSpotResource?: {
-            InstanceType: string;
-            InterruptRateDesc?: string;
-            AverageSpotDiscount?: number;
-            SpotPrice?: number;
+    availableSpotZones?: {
+      availableSpotZone?: {
+        availableSpotResources?: {
+          availableSpotResource?: {
+            instanceType: string;
+            interruptRateDesc?: string;
+            averageSpotDiscount?: number;
+            spotPrice?: number;
           }[];
         };
       }[];
@@ -521,14 +519,14 @@ export async function describeSpotAdvice(
     ZoneId: "random",
   });
   const resource =
-    res.AvailableSpotZones?.AvailableSpotZone?.[0]?.AvailableSpotResources
-      ?.AvailableSpotResource?.[0];
-  const rateMatch = resource?.InterruptRateDesc?.match(/([\d.]+)%/);
+    res.availableSpotZones?.availableSpotZone?.[0]?.availableSpotResources
+      ?.availableSpotResource?.[0];
+  const rateMatch = resource?.interruptRateDesc?.match(/([\d.]+)%/);
   return {
     available: Boolean(resource),
     releaseRate: rateMatch ? Number(rateMatch[1]) / 100 : 0,
-    historicalDiscount: (resource?.AverageSpotDiscount ?? 100) / 100,
-    spotPrice: resource?.SpotPrice,
+    historicalDiscount: (resource?.averageSpotDiscount ?? 100) / 100,
+    spotPrice: resource?.spotPrice,
   };
 }
 
@@ -538,8 +536,8 @@ export async function describeSpotPriceHistory(
   instanceType: string,
 ): Promise<{ timestamp: string; spotPrice: number }[]> {
   const res = await request<{
-    SpotPrices?: {
-      SpotPriceType?: { Timestamp?: string; SpotPrice?: number }[];
+    spotPrices?: {
+      spotPriceType?: { timestamp?: string; spotPrice?: number }[];
     };
   }>(creds, region, "DescribeSpotPriceHistory", {
     RegionId: region,
@@ -550,9 +548,9 @@ export async function describeSpotPriceHistory(
     SpotDuration: 0,
   });
   return (
-    res.SpotPrices?.SpotPriceType?.map((p) => ({
-      timestamp: p.Timestamp ?? "",
-      spotPrice: p.SpotPrice ?? 0,
+    res.spotPrices?.spotPriceType?.map((p) => ({
+      timestamp: p.timestamp ?? "",
+      spotPrice: p.spotPrice ?? 0,
     })) ?? []
   );
 }
@@ -567,7 +565,7 @@ export async function runCommand(
   instanceId: string,
   commandContent: string,
 ): Promise<RunCommandResult> {
-  const res = await request<{ InvokeId?: string }>(
+  const res = await request<{ invokeId?: string }>(
     creds,
     region,
     "RunCommand",
@@ -579,10 +577,10 @@ export async function runCommand(
       Timeout: 120,
     },
   );
-  if (!res.InvokeId) {
+  if (!res.invokeId) {
     throw new AliyunError("NoInvokeId", "RunCommand returned no invoke id");
   }
-  return { invokeId: res.InvokeId };
+  return { invokeId: res.invokeId };
 }
 
 export type InvocationStatus = "Finished" | "Running" | "Failed" | "Stopped";
@@ -599,12 +597,12 @@ export async function describeInvocationResults(
   invokeId: string,
 ): Promise<InvocationResult> {
   const res = await request<{
-    Invocation?: {
-      InvocationResults?: {
-        InvocationResult?: {
-          InvocationStatus?: InvocationStatus;
-          Output?: string;
-          ExitCode?: number;
+    invocation?: {
+      invocationResults?: {
+        invocationResult?: {
+          invocationStatus?: InvocationStatus;
+          output?: string;
+          exitCode?: number;
         }[];
       };
     };
@@ -612,10 +610,10 @@ export async function describeInvocationResults(
     RegionId: region,
     InvokeId: invokeId,
   });
-  const r = res.Invocation?.InvocationResults?.InvocationResult?.[0];
+  const r = res.invocation?.invocationResults?.invocationResult?.[0];
   return {
-    status: r?.InvocationStatus ?? "Running",
-    output: r?.Output ?? "",
-    exitCode: r?.ExitCode ?? null,
+    status: r?.invocationStatus ?? "Running",
+    output: r?.output ?? "",
+    exitCode: r?.exitCode ?? null,
   };
 }

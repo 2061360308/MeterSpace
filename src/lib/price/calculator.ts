@@ -58,7 +58,7 @@ function pick(
   ...names: string[]
 ): PriceDetailInfo | undefined {
   return details.find((d) =>
-    names.some((n) => d.resourceType?.toLowerCase() === n.toLowerCase()),
+    names.some((n) => d.resource?.toLowerCase() === n.toLowerCase()),
   );
 }
 
@@ -80,7 +80,7 @@ export async function calculatePrice(
 
   const instance = pick(details, "instance", "instancetype");
   const disk = pick(details, "systemdisk");
-  const bandwidth = pick(details, "internetmaxbandwidthout");
+  const bandwidth = pick(details, "bandwidth", "internetmaxbandwidthout");
 
   const instanceDiscount = round(instance?.tradePrice ?? 0);
   const instanceOriginal = round(instance?.originalPrice ?? 0);
