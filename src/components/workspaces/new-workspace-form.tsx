@@ -12,13 +12,18 @@ import {
 } from "@/components/ui";
 import {
   REGIONS,
-  INSTANCE_TYPES,
   DISK_CATEGORIES,
   SPOT_STRATEGIES,
   DEFAULT_IMAGE_URI,
 } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { SpotPriceChart } from "@/components/workspaces/spot-price-chart";
+
+interface InstanceTypeInfo {
+  instanceTypeId: string;
+  cpuCoreCount: number;
+  memorySize: number;
+}
 
 interface FeatureDef {
   id: string;
@@ -43,6 +48,9 @@ export function NewWorkspaceForm() {
   const [name, setName] = useState("");
   const [region, setRegion] = useState("cn-hangzhou");
   const [instanceType, setInstanceType] = useState("ecs.g6.xlarge");
+  const [instanceTypes, setInstanceTypes] = useState<InstanceTypeInfo[]>([]);
+  const [instanceTypesLoading, setInstanceTypesLoading] = useState(true);
+  const [specSearch, setSpecSearch] = useState("");
   const [diskCategory, setDiskCategory] = useState("cloud_essd");
   const [diskSize, setDiskSize] = useState(40);
   const [bandwidth, setBandwidth] = useState(10);
@@ -74,6 +82,15 @@ export function NewWorkspaceForm() {
       .then((d) => setFeatureDefs(d.features))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setInstanceTypesLoading(true);
+    fetch(`/api/ecs/types?region=${encodeURIComponent(region)}`)
+      .then((r) => r.json())
+      .then((d) => setInstanceTypes(d.types ?? []))
+      .catch(() => setInstanceTypes([]))
+      .finally(() => setInstanceTypesLoading(false));
+  }, [region]);
 
   useEffect(() => {
     fetch("/api/git/repos?provider=github")
@@ -125,6 +142,20 @@ export function NewWorkspaceForm() {
       if (timer.current) clearTimeout(timer.current);
     };
   }, [fetchPrice]);
+
+  const filteredTypes = instanceTypes
+    .filter((t) => t.memorySize >= 1 && t.cpuCoreCount >= 1)
+    .sort((a, b) => {
+      if (a.cpuCoreCount !== b.cpuCoreCount) {
+        return a.cpuCoreCount - b.cpuCoreCount;
+      }
+      return a.memorySize - b.memorySize;
+    });
+  const visibleTypes = specSearch.trim()
+    ? filteredTypes.filter((t) =>
+        t.instanceTypeId.toLowerCase().includes(specSearch.trim().toLowerCase()),
+      )
+    : filteredTypes;
 
   async function onSubmit() {
     setLoading(true);
@@ -199,16 +230,38 @@ export function NewWorkspaceForm() {
             </div>
             <div>
               <Label>实例规格</Label>
-              <Select
-                value={instanceType}
-                onChange={(e) => setInstanceType(e.target.value)}
-              >
-                {INSTANCE_TYPES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.id} ({t.note})
-                  </option>
-                ))}
-              </Select>
+              <Input
+                value={specSearch}
+                onChange={(e) => setSpecSearch(e.target.value)}
+                placeholder="搜索规格，如 ecs.g6.xlarge"
+              />
+              <div className="mt-2 max-h-48 overflow-y-auto rounded-md border border-gray-200">
+                {instanceTypesLoading ? (
+                  <div className="p-3 text-sm text-gray-400">加载规格中...</div>
+                ) : visibleTypes.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-400">
+                    没有匹配的规格（该地域可能有限）
+                  </div>
+                ) : (
+                  visibleTypes.map((t) => (
+                    <label
+                      key={t.instanceTypeId}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50"
+                    >
+                      <input
+                        type="radio"
+                        name="instanceType"
+                        checked={instanceType === t.instanceTypeId}
+                        onChange={() => setInstanceType(t.instanceTypeId)}
+                      />
+                      <span className="flex-1">{t.instanceTypeId}</span>
+                      <span className="text-xs text-gray-500">
+                        {t.cpuCoreCount}核 {t.memorySize}G
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
             <div>
               <Label>磁盘类型</Label>
