@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { Nav } from "@/components/nav";
+import { AppShell } from "@/components/app-shell";
 
 export default async function ProtectedLayout({
   children,
@@ -10,10 +10,5 @@ export default async function ProtectedLayout({
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  return (
-    <div className="min-h-screen">
-      <Nav />
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }
