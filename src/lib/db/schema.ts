@@ -29,7 +29,7 @@ export const settings = pgTable("settings", {
   defaultDiskCategory: text("default_disk_category").default("cloud_essd"),
   defaultDiskSize: integer("default_disk_size").default(40),
   defaultBandwidth: integer("default_bandwidth").default(10),
-  defaultReleaseHours: integer("default_release_hours").default(4),
+  defaultReleaseHours: real("default_release_hours").default(0.5),
   defaultIdleMinutes: integer("default_idle_minutes").default(30),
   defaultSpotStrategy: text("default_spot_strategy").default("NoSpot"),
   defaultSpotDuration: integer("default_spot_duration").default(1),
