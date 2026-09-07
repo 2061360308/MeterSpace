@@ -182,9 +182,13 @@ async function preflightCheck(
       const instanceDetail = details.find(d => d.resource === "instanceType");
       const currentSpotPrice = instanceDetail?.tradePrice ?? 0;
       
-      if (Number(workspace.spotPriceLimit) < currentSpotPrice) {
+      // 四舍五入到4位小数避免浮点数精度问题
+      const userPrice = Math.round(Number(workspace.spotPriceLimit) * 10000) / 10000;
+      const marketPrice = Math.round(currentSpotPrice * 10000) / 10000;
+      
+      if (userPrice < marketPrice) {
         throw new WorkspaceError(
-          `出价过低：当前市场价格为 ¥${currentSpotPrice.toFixed(4)}/时，您的出价 ¥${Number(workspace.spotPriceLimit).toFixed(4)}/时 低于市场价。建议提高出价或改用自动出价`,
+          `出价过低：当前市场价格为 ¥${marketPrice.toFixed(4)}/时，您的出价 ¥${userPrice.toFixed(4)}/时 低于市场价。建议提高出价或改用自动出价`,
           409,
         );
       }
