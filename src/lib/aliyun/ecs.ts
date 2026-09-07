@@ -261,7 +261,7 @@ export interface RunInstancesInput {
   instanceType: string;
   securityGroupId: string;
   vSwitchId: string;
-  ramRoleName: string;
+  ramRoleName?: string;
   diskCategory: string;
   diskSize: number;
   bandwidth: number;
@@ -287,7 +287,6 @@ export async function runInstances(
     InstanceType: input.instanceType,
     SecurityGroupId: input.securityGroupId,
     VSwitchId: input.vSwitchId,
-    RamRoleName: input.ramRoleName,
     InstanceChargeType: "PostPaid",
     InternetChargeType: "PayByTraffic",
     InternetMaxBandwidthOut: input.bandwidth,
@@ -297,6 +296,9 @@ export async function runInstances(
     UserData: input.userData,
     Amount: 1,
   };
+  if (input.ramRoleName) {
+    params.RamRoleName = input.ramRoleName;
+  }
   if (input.spotStrategy !== "NoSpot") {
     params.SpotStrategy = input.spotStrategy;
     params.SpotDuration = input.spotDuration;

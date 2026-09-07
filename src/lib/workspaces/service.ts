@@ -165,6 +165,30 @@ async function preflightCheck(
         409,
       );
     }
+    
+    // 检查手动出价是否合理
+    if (workspace.spotStrategy === "SpotWithPriceLimit" && workspace.spotPriceLimit) {
+      const imageId = await findDebianImage(creds, workspace.region);
+      const details = await describePrice(creds, {
+        region: workspace.region,
+        imageId,
+        instanceType: workspace.instanceType,
+        spotStrategy: "SpotAsPriceGo",
+        spotDuration: workspace.spotDuration ?? 1,
+        diskCategory: workspace.diskCategory ?? "cloud_essd",
+        diskSize: workspace.diskSize ?? 40,
+        bandwidth: workspace.bandwidth ?? 10,
+      });
+      const instanceDetail = details.find(d => d.resource === "instanceType");
+      const currentSpotPrice = instanceDetail?.tradePrice ?? 0;
+      
+      if (Number(workspace.spotPriceLimit) < currentSpotPrice) {
+        throw new WorkspaceError(
+          `出价过低：当前市场价格为 ¥${currentSpotPrice.toFixed(4)}/时，您的出价 ¥${Number(workspace.spotPriceLimit).toFixed(4)}/时 低于市场价。建议提高出价或改用自动出价`,
+          409,
+        );
+      }
+    }
   }
 
   try {
