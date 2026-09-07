@@ -4,7 +4,7 @@ import { requireUserId } from "@/lib/session";
 import { renewWorkspace } from "@/lib/workspaces/service";
 import { ok, fail } from "@/lib/api";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
   hours: z.number().int().min(1).default(1),
@@ -13,8 +13,9 @@ const bodySchema = z.object({
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const userId = await requireUserId();
+    const { id } = await params;
     const body = bodySchema.parse(await req.json());
-    const result = await renewWorkspace(userId, params.id, body.hours);
+    const result = await renewWorkspace(userId, id, body.hours);
     return ok(result);
   } catch (e) {
     return fail(e);

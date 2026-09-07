@@ -5,15 +5,16 @@ import { workspaceStates } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { ok, fail } from "@/lib/api";
 
-type Params = { params: { workspaceId: string } };
+type Params = { params: Promise<{ workspaceId: string }> };
 
 export async function POST(_req: NextRequest, { params }: Params) {
   try {
     await requireUserId();
+    const { workspaceId } = await params;
     await db
       .update(workspaceStates)
       .set({ lastActiveAt: new Date(), idleTriggered: false, updatedAt: new Date() })
-      .where(eq(workspaceStates.workspaceId, params.workspaceId));
+      .where(eq(workspaceStates.workspaceId, workspaceId));
     return ok({ ok: true });
   } catch (e) {
     return fail(e);

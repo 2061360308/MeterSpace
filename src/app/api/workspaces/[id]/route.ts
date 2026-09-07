@@ -8,23 +8,24 @@ import { getUserCredentials } from "@/lib/aliyun/auth";
 import { describeInstances } from "@/lib/aliyun/ecs";
 import { ok, fail } from "@/lib/api";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const userId = await requireUserId();
+    const { id } = await params;
     const workspace = await db.query.workspaces.findFirst({
-      where: and(eq(workspaces.id, params.id), eq(workspaces.userId, userId)),
+      where: and(eq(workspaces.id, id), eq(workspaces.userId, userId)),
     });
     if (!workspace) return fail(Object.assign(new Error("Not found"), { status: 404 }));
 
     const state = await db.query.workspaceStates.findFirst({
-      where: eq(workspaceStates.workspaceId, params.id),
+      where: eq(workspaceStates.workspaceId, id),
     });
     const logs = await db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.workspaceId, params.id))
+      .where(eq(auditLogs.workspaceId, id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(50);
 
@@ -48,7 +49,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const userId = await requireUserId();
-    const result = await deleteWorkspace(userId, params.id);
+    const { id } = await params;
+    const result = await deleteWorkspace(userId, id);
     return ok(result);
   } catch (e) {
     return fail(e);

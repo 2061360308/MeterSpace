@@ -5,10 +5,11 @@ import { WorkspaceDetail } from "@/components/workspaces/workspace-detail";
 export default async function WorkspaceDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  return <WorkspaceDetail id={params.id} />;
+  const { id } = await params;
+  return <WorkspaceDetail id={id} />;
 }

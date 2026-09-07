@@ -4,11 +4,11 @@ import { db } from "@/lib/db";
 import { workspaceStates } from "@/lib/db/schema";
 import { ok, fail } from "@/lib/api";
 
-type Params = { params: { workspaceId: string } };
+type Params = { params: Promise<{ workspaceId: string }> };
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
-    const { workspaceId } = params;
+    const { workspaceId } = await params;
     const body = (await req.json()) as {
       idleSeconds?: number;
       accessToken?: string;
