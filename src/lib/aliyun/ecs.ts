@@ -60,6 +60,10 @@ export interface InstanceType {
   instanceFamilyLevel?: string;
   instanceTypeFamily?: string;
   cpuArchitecture?: string;
+  gpuAmount?: number;
+  gpuSpec?: string;
+  localStorage?: string;
+  internetMaxBandwidthOut?: number;
 }
 
 export async function describeInstanceTypes(
@@ -84,38 +88,171 @@ export async function describeInstanceTypes(
   return out;
 }
 
-export interface AvailableResource {
-  instanceType: string;
-  status: string;
+export interface InstanceAvailability {
+  instanceTypeId: string;
+  status: "Available" | "SoldOut" | "Unavailable";
+  availableZones: number;
+  totalZones: number;
+  statusCategory?: "WithStock" | "ClosedWithStock" | "WithoutStock" | "ClosedWithoutStock";
+  zones: { zoneId: string; statusCategory: "WithStock" | "ClosedWithStock" | "WithoutStock" | "ClosedWithoutStock" }[];
 }
 
-/** Query which instance types are purchasable in a region (default zone). */
-export async function describeAvailableResource(
+export interface DiskCategory {
+  category: string;
+  label: string;
+  status: "Available" | "SoldOut";
+  min?: number;
+  max?: number;
+}
+
+const DISK_LABELS: Record<string, string> = {
+  cloud: "普通云盘",
+  cloud_efficiency: "高效云盘",
+  cloud_ssd: "SSD 云盘",
+  ephemeral_ssd: "本地 SSD 盘",
+  cloud_essd: "ESSD 云盘",
+  cloud_auto: "ESSD AutoPL 云盘",
+  cloud_essd_entry: "ESSD Entry 云盘",
+  elastic_ephemeral_disk_standard: "标准临时云盘",
+  elastic_ephemeral_disk_premium: "高配临时云盘",
+};
+
+/** Query availability for all instance types across all zones in a region.
+ *  Uses DestinationResource=Zone to get all zones and their supported instance types in one call. */
+export async function describeAllAvailability(
   creds: AliCredentials,
   region: string,
-  instanceType?: string,
-): Promise<AvailableResource[]> {
+): Promise<InstanceAvailability[]> {
   const res = await request<{
-    AvailableZones?: {
-      AvailableZone?: {
-        AvailableResources?: {
-          AvailableResource?: AvailableResource[];
+    availableZones?: {
+      availableZone?: {
+        zoneId?: string;
+        status?: string;
+        statusCategory?: string;
+        availableResources?: {
+          availableResource?: {
+            type?: string;
+            supportedResources?: {
+              supportedResource?: {
+                status?: string;
+                value?: string;
+                statusCategory?: string;
+              }[];
+            };
+          }[];
         };
       }[];
     };
   }>(creds, region, "DescribeAvailableResource", {
     RegionId: region,
     DestinationResource: "InstanceType",
+    IoOptimized: "optimized",
     InstanceChargeType: "PostPaid",
-    ...(instanceType ? { InstanceType: instanceType } : {}),
   });
-  const out: AvailableResource[] = [];
-  for (const zone of res.AvailableZones?.AvailableZone ?? []) {
-    for (const r of zone.AvailableResources?.AvailableResource ?? []) {
-      out.push(r);
+
+  const zones = res.availableZones?.availableZone ?? [];
+  const totalZones = zones.length;
+
+  const instanceMap = new Map<string, {
+    availableZones: number;
+    zones: { zoneId: string; statusCategory: "WithStock" | "ClosedWithStock" | "WithoutStock" | "ClosedWithoutStock" }[];
+    statusCategory?: "WithStock" | "ClosedWithStock" | "WithoutStock" | "ClosedWithoutStock";
+  }>();
+
+  for (const zone of zones) {
+    const zoneId = zone.zoneId ?? "";
+    const resources = zone.availableResources?.availableResource ?? [];
+
+    for (const resource of resources) {
+      if (resource.type !== "InstanceType") continue;
+      const supportedResources = resource.supportedResources?.supportedResource ?? [];
+
+      for (const sr of supportedResources) {
+        const instanceType = sr.value ?? "";
+        if (!instanceType) continue;
+        const srStatusCategory = (sr.statusCategory ?? "WithStock") as "WithStock" | "ClosedWithStock" | "WithoutStock" | "ClosedWithoutStock";
+
+        const existing = instanceMap.get(instanceType) ?? {
+          availableZones: 0,
+          zones: [],
+          statusCategory: srStatusCategory,
+        };
+
+        existing.zones.push({ zoneId, statusCategory: srStatusCategory });
+        if (srStatusCategory === "WithStock" || srStatusCategory === "ClosedWithStock") {
+          existing.availableZones++;
+        }
+
+        instanceMap.set(instanceType, existing);
+      }
     }
   }
-  return out;
+
+  const result: InstanceAvailability[] = [];
+  for (const [instanceTypeId, data] of instanceMap) {
+    const status = data.availableZones > 0 ? "Available" : "SoldOut";
+    result.push({
+      instanceTypeId,
+      status,
+      availableZones: data.availableZones,
+      totalZones,
+      statusCategory: data.statusCategory,
+      zones: data.zones,
+    });
+  }
+
+  return result;
+}
+
+/** Query available disk categories (works for both system and data disk). */
+export async function describeDiskCategories(
+  creds: AliCredentials,
+  region: string,
+): Promise<DiskCategory[]> {
+  const res = await request<{
+    availableZones?: {
+      availableZone?: {
+        availableResources?: {
+          availableResource?: {
+            type?: string;
+            supportedResources?: {
+              supportedResource?: {
+                status?: string;
+                value?: string;
+                min?: number;
+                max?: number;
+              }[];
+            };
+          }[];
+        };
+      }[];
+    };
+  }>(creds, region, "DescribeAvailableResource", {
+    RegionId: region,
+    DestinationResource: "DataDisk",
+    ResourceType: "disk",
+  });
+
+  const categories: DiskCategory[] = [];
+
+  for (const zone of res.availableZones?.availableZone ?? []) {
+    for (const resource of zone.availableResources?.availableResource ?? []) {
+      if (resource.type !== "DataDisk") continue;
+      for (const sr of resource.supportedResources?.supportedResource ?? []) {
+        const cat = sr.value ?? "";
+        if (!cat || categories.some((c) => c.category === cat)) continue;
+        categories.push({
+          category: cat,
+          label: DISK_LABELS[cat] ?? cat,
+          status: (sr.status as "Available" | "SoldOut") ?? "Available",
+          min: sr.min,
+          max: sr.max,
+        });
+      }
+    }
+  }
+
+  return categories;
 }
 
 export interface RunInstancesInput {
@@ -564,6 +701,7 @@ export async function describeSpotPriceHistory(
   creds: AliCredentials,
   region: string,
   instanceType: string,
+  spotDuration: number = 0,
 ): Promise<{ timestamp: string; spotPrice: number }[]> {
   const res = await request<{
     spotPrices?: {
@@ -575,7 +713,7 @@ export async function describeSpotPriceHistory(
     NetworkType: "vpc",
     StartTime: toAliyunTimestamp(new Date(Date.now() - 30 * 24 * 3600 * 1000)),
     EndTime: toAliyunTimestamp(new Date()),
-    SpotDuration: 0,
+    SpotDuration: spotDuration,
   });
   return (
     res.spotPrices?.spotPriceType?.map((p) => ({
