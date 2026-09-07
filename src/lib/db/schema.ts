@@ -35,6 +35,7 @@ export const settings = pgTable("settings", {
   defaultSpotDuration: integer("default_spot_duration").default(1),
   acrInstanceId: text("acr_instance_id"),
   ossBucket: text("oss_bucket"),
+  enabledRegions: jsonb("enabled_regions").$type<string[]>().default(["cn-hangzhou"]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 

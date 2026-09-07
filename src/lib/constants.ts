@@ -97,13 +97,21 @@ export function classifyArchitecture(family?: string): "x86" | "arm" {
 export function familyLabel(family?: string): string {
   if (!family) return "—";
   const f = family.toLowerCase();
-  if (f.startsWith("ecs.e") || /^e/g.test(f)) return "经济型";
-  if (/^ecs\.t|^t\d/.test(f)) return "突发性能型";
+  // 精确匹配 ecs 前缀的规格族
+  if (/^ecs\.e\d/.test(f)) return "经济型";
+  if (/^ecs\.t\d/.test(f)) return "突发性能型";
+  if (/^ecs\.gn|^ecs\.ga|^ecs\.ebmgn/.test(f)) return "GPU型";
+  if (/^ecs\.g\d|^ecs\.gt\d/.test(f)) return "通用型";
+  if (/^ecs\.c\d/.test(f)) return "计算型";
+  if (/^ecs\.r\d/.test(f)) return "内存型";
+  if (/^ecs\.i\d/.test(f)) return "本地SSD型";
+  if (/^ecs\.d\d/.test(f)) return "大数据型";
+  if (/^ecs\.bm/.test(f)) return "裸金属型";
+  // 兜底：按首字母推断
+  if (f.startsWith("ecs.e")) return "经济型";
+  if (f.startsWith("ecs.t")) return "突发性能型";
   if (f.startsWith("ecs.g")) return "通用型";
   if (f.startsWith("ecs.c")) return "计算型";
   if (f.startsWith("ecs.r")) return "内存型";
-  if (f.startsWith("ecs.i")) return "本地SSD型";
-  if (f.startsWith("ecs.d")) return "大数据型";
-  if (f.startsWith("ecs.gn")) return "GPU型";
   return "通用型";
 }
