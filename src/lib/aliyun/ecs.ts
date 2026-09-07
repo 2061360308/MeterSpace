@@ -553,26 +553,23 @@ export async function describeImages(
   return res.images?.image ?? [];
 }
 
-/** Find the latest Ubuntu 22.04 public image for a region (D4). */
-export async function findUbuntu2204Image(
+/** Find the latest Debian 12 public image for a region. */
+export async function findDebianImage(
   creds: AliCredentials,
   region: string,
 ): Promise<string> {
   const images = await describeImages(creds, region);
   const candidates = images.filter(
     (i) =>
-      (i.osName ?? "").includes("22.04") ||
-      (i.imageName ?? "").toLowerCase().includes("22.04"),
+      (i.osName ?? "").toLowerCase().includes("debian") &&
+      ((i.osName ?? "").includes("12") || (i.imageName ?? "").includes("12")),
   );
   candidates.sort((a, b) =>
     (b.creationTime ?? "").localeCompare(a.creationTime ?? ""),
   );
   const pick = candidates[0];
   if (!pick) {
-    throw new AliyunError(
-      "ImageNotFound",
-      `No Ubuntu 22.04 image found in ${region}`,
-    );
+    throw new Error(`No Debian 12 image found in ${region}`);
   }
   return pick.imageId;
 }

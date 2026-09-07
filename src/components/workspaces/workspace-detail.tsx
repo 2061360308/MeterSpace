@@ -75,7 +75,11 @@ export function WorkspaceDetail({ id }: { id: string }) {
   async function action(path: string, method: string) {
     setBusy(true);
     setError("");
-    const res = await fetch(path, { method });
+    const res = await fetch(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method !== "GET" ? "{}" : undefined,
+    });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "操作失败，请重试");

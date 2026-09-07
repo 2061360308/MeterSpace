@@ -28,6 +28,7 @@ import { type InstanceTypeInfo } from "@/components/workspaces/instance-selector
 import { type InstanceAvailability } from "@/lib/aliyun/ecs";
 import { FAMILY_CATEGORIES, familyLabel, classifyArchitecture } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
+import { formatCurrency } from "@/lib/utils";
 
 interface InstanceTableProps {
   types: InstanceTypeInfo[];
@@ -48,6 +49,13 @@ const STATUS_CONFIG: Record<string, { label: string; tone: "green" | "gray" | "b
   ClosedWithoutStock: { label: "已下架", tone: "gray" },
 };
 
+interface PriceInfo {
+  historicalDiscount: number;
+  releaseRate: number;
+  onDemandPrice: number;
+  averageSpotPrice: number;
+}
+
 export function InstanceTable({ types, loading, value, onChange, availability, availabilityLoading }: InstanceTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -55,6 +63,8 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
   const [familyCategory, setFamilyCategory] = useState("all");
   const [cpuFilter, setCpuFilter] = useState<string>("");
   const [memFilter, setMemFilter] = useState<string>("");
+  const [priceData, setPriceData] = useState<Record<string, PriceInfo>>({});
+  const [priceLoading, setPriceLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredTypes = useMemo(() => {
@@ -78,6 +88,22 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
     }
     return result;
   }, [types, architecture, familyCategory, cpuFilter, memFilter]);
+
+  const handleFetchPrices = async () => {
+    if (filteredTypes.length === 0 || filteredTypes.length > 50) return;
+    setPriceLoading(true);
+    try {
+      const region = "cn-hangzhou";
+      const types = filteredTypes.map((t) => t.instanceTypeId).join(",");
+      const res = await fetch(`/api/ecs/batch-price-info?region=${region}&instanceTypes=${types}`);
+      const data = await res.json();
+      if (data && typeof data === "object") setPriceData(data);
+    } catch {
+      // ignore
+    } finally {
+      setPriceLoading(false);
+    }
+  };
 
   const columns = useMemo(() => [
     columnHelper.display({
@@ -121,7 +147,67 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
       },
       size: 100,
     },
-  ], [availability, availabilityLoading]);
+    {
+      id: "historicalDiscount",
+      header: "折扣率",
+      accessorFn: (row: InstanceTypeInfo) => {
+        const p = priceData[row.instanceTypeId];
+        return p?.historicalDiscount ?? 0;
+      },
+      cell: (info: any) => {
+        const p = priceData[info.row.original.instanceTypeId];
+        if (priceLoading) return <Spinner className="h-3 w-3" />;
+        if (!p) return <span className="text-muted-foreground">-</span>;
+        return `${(p.historicalDiscount * 100).toFixed(0)}%`;
+      },
+      size: 80,
+    },
+    {
+      id: "releaseRate",
+      header: "释放率",
+      accessorFn: (row: InstanceTypeInfo) => {
+        const p = priceData[row.instanceTypeId];
+        return p?.releaseRate ?? 0;
+      },
+      cell: (info: any) => {
+        const p = priceData[info.row.original.instanceTypeId];
+        if (priceLoading) return <Spinner className="h-3 w-3" />;
+        if (!p) return <span className="text-muted-foreground">-</span>;
+        return `${(p.releaseRate * 100).toFixed(0)}%`;
+      },
+      size: 80,
+    },
+    {
+      id: "onDemandPrice",
+      header: "按量价格",
+      accessorFn: (row: InstanceTypeInfo) => {
+        const p = priceData[row.instanceTypeId];
+        return p?.onDemandPrice ?? 0;
+      },
+      cell: (info: any) => {
+        const p = priceData[info.row.original.instanceTypeId];
+        if (priceLoading) return <Spinner className="h-3 w-3" />;
+        if (!p) return <span className="text-muted-foreground">-</span>;
+        return formatCurrency(p.onDemandPrice);
+      },
+      size: 90,
+    },
+    {
+      id: "averageSpotPrice",
+      header: "抢占均价",
+      accessorFn: (row: InstanceTypeInfo) => {
+        const p = priceData[row.instanceTypeId];
+        return p?.averageSpotPrice ?? 0;
+      },
+      cell: (info: any) => {
+        const p = priceData[info.row.original.instanceTypeId];
+        if (priceLoading) return <Spinner className="h-3 w-3" />;
+        if (!p) return <span className="text-muted-foreground">-</span>;
+        return formatCurrency(p.averageSpotPrice);
+      },
+      size: 90,
+    },
+  ], [availability, availabilityLoading, priceData, priceLoading]);
 
   const table = useReactTable({
     data: filteredTypes,
@@ -212,6 +298,22 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
             </option>
           ))}
         </select>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={handleFetchPrices}
+          disabled={priceLoading || filteredTypes.length === 0 || filteredTypes.length > 50}
+        >
+          {priceLoading && <Spinner className="h-3 w-3 mr-1" />}
+          查询价格
+        </Button>
+        {filteredTypes.length > 50 && (
+          <span className="text-xs text-destructive self-center">
+            实例超过50个，请缩小范围
+          </span>
+        )}
       </div>
 
       <RadioGroup
@@ -220,7 +322,7 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
         className="space-y-0 flex-1 min-h-0 flex flex-col"
       >
         <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto rounded-md border">
-          <Table className="grid" style={{ minWidth: "700px" }}>
+          <Table className="grid" style={{ minWidth: "1060px" }}>
             <TableHeader className="grid sticky top-0 bg-background z-10">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id} className="grid flex w-full">
@@ -228,6 +330,8 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
                     <TableHead
                       key={header.id}
                       style={{ width: header.getSize() }}
+                      className={header.column.getCanSort() ? "cursor-pointer select-none" : ""}
+                      onClick={header.column.getToggleSortingHandler()}
                     >
                       {header.isPlaceholder
                         ? null
@@ -235,6 +339,10 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
                             header.column.columnDef.header,
                             header.getContext()
                           )}
+                      {{
+                        asc: " ↑",
+                        desc: " ↓",
+                      }[header.column.getIsSorted() as string] ?? null}
                     </TableHead>
                   ))}
                 </TableRow>

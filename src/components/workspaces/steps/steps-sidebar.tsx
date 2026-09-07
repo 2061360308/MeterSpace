@@ -26,31 +26,19 @@ function getStepSummary(step: number, state: WizardState): string {
       const instance = state.instanceTypes.find(
         (t) => t.instanceTypeId === state.instanceType
       );
+      const parts: string[] = [];
       if (instance) {
-        return `${instance.cpuCoreCount}核${instance.memorySize}G`;
+        parts.push(`${instance.cpuCoreCount}核${instance.memorySize}G`);
       }
-      return "未选择";
+      parts.push(`${state.diskSize}G 磁盘`);
+      parts.push(`${state.bandwidth}Mbps`);
+      return parts.join(" · ") || "未选择";
     }
     case 3: {
-      const parts: string[] = [];
-      if (state.systemDiskCategory) {
-        parts.push(state.disk.size + "G " + state.systemDiskCategory.replace("cloud_", "").toUpperCase());
-      }
-      if (state.network.bandwidth) {
-        parts.push(state.network.bandwidth + "Mbps");
-      }
-      if (state.zone) {
-        parts.push(state.zone);
-      } else {
-        parts.push("自动分配可用区");
-      }
-      return parts.join(" · ") || "未配置";
-    }
-    case 4: {
       const count = Object.keys(state.selectedFeatures).length;
       return count > 0 ? `${count} 个工具` : "无";
     }
-    case 5: {
+    case 4: {
       if (!state.autoClone) return "不拉取";
       if (state.gitRepoUrl) return state.gitRepoUrl.split("/").pop() || "已配置";
       return "未配置";
@@ -86,6 +74,14 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
               {state.instanceType || "—"}
             </dd>
           </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">系统盘</dt>
+            <dd className="font-medium">{state.diskSize}G</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">带宽</dt>
+            <dd className="font-medium">{state.bandwidth}Mbps</dd>
+          </div>
           {state.useSpot && (
             <div className="flex justify-between">
               <dt className="text-muted-foreground">计费</dt>
@@ -102,28 +98,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
           )}
         </dl>
       );
-    case 3:
-      return (
-        <dl className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">系统盘</dt>
-            <dd className="font-medium">
-              {state.disk.size}G {state.systemDiskCategory.replace("cloud_", "").toUpperCase()}
-            </dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">带宽</dt>
-            <dd className="font-medium">{state.network.bandwidth}Mbps</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">可用区</dt>
-            <dd className="font-medium truncate ml-2">
-              {state.zone || "自动分配"}
-            </dd>
-          </div>
-        </dl>
-      );
-    case 4: {
+    case 3: {
       const selected = Object.keys(state.selectedFeatures);
       return (
         <dl className="space-y-1 text-sm">
@@ -141,7 +116,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
         </dl>
       );
     }
-    case 5:
+    case 4:
       return (
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between">

@@ -17,7 +17,7 @@ import {
   modifyInstanceAutoReleaseTime,
   describeSpotAdvice,
   describePrice,
-  findUbuntu2204Image,
+  findDebianImage,
 } from "@/lib/aliyun/ecs";
 import { queryAccountBalance } from "@/lib/aliyun/bss";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
@@ -120,7 +120,7 @@ async function launchInstance(
 
   const autoReleaseTime = new Date(
     Date.now() + releaseHours * 3600 * 1000,
-  ).toISOString();
+  ).toISOString().replace(/\.\d{3}Z$/, "Z");
 
   const { instanceId } = await runInstances(creds, {
     region: workspace.region,
@@ -169,7 +169,7 @@ async function preflightCheck(
 
   try {
     const balance = await queryAccountBalance(creds);
-    const imageId = await findUbuntu2204Image(creds, workspace.region);
+    const imageId = await findDebianImage(creds, workspace.region);
     const details = await describePrice(creds, {
       region: workspace.region,
       imageId,
@@ -268,7 +268,7 @@ export async function createWorkspace(
 
   await db.insert(workspaceStates).values({
     workspaceId: workspace.id,
-    status: "PROVISIONING",
+    status: "STOPPED",
     accessToken,
   });
 
@@ -296,24 +296,7 @@ export async function createWorkspace(
     }
   }
 
-  // Pre-launch validation + launch with FAILED rollback on error.
-  const s = await getUserSettings(userId);
-  const releaseHours = updatedWorkspace.releaseHours ?? s.defaultReleaseHours;
-  try {
-    await preflightCheck(updatedWorkspace, releaseHours);
-    const instanceId = await launchInstance(updatedWorkspace, accessToken);
-    await db
-      .update(workspaceStates)
-      .set({ instanceId, status: "PROVISIONING" })
-      .where(eq(workspaceStates.workspaceId, workspace.id));
-    return { workspaceId: workspace.id, instanceId };
-  } catch (e) {
-    await db
-      .update(workspaceStates)
-      .set({ status: "FAILED", updatedAt: new Date() })
-      .where(eq(workspaceStates.workspaceId, workspace.id));
-    throw e;
-  }
+  return { workspaceId: workspace.id };
 }
 
 export interface StartWorkspaceInput {

@@ -5,12 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { type PricePanelData } from "@/components/workspaces/price-panel";
 import { DEFAULT_IMAGE_URI } from "@/lib/constants";
-import { type DiskSelection } from "@/components/workspaces/disk-selector";
-import { type NetworkSelection } from "@/components/workspaces/network-selector";
 import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
 import { StepInstance } from "./steps/step-instance";
-import { StepStorage } from "./steps/step-storage";
 import { StepFeatures } from "./steps/step-features";
 import { StepGit } from "./steps/step-git";
 import { STEP_CONFIG, type WizardState } from "./steps/types";
@@ -28,22 +25,8 @@ const INITIAL_STATE: WizardState = {
   instanceTypesLoading: false,
   instanceAvailability: {},
   availabilityLoading: false,
-  zone: "",
-  zones: [],
-  zonesLoading: false,
-  systemDiskCategories: [],
-  systemDiskCategory: "cloud_essd",
-  disk: {
-    category: "cloud_essd",
-    size: 40,
-    releaseWithInstance: true,
-    encrypted: false,
-  } as DiskSelection,
-  network: {
-    publicIp: true,
-    chargeType: "traffic",
-    bandwidth: 10,
-  } as NetworkSelection,
+  diskSize: 40,
+  bandwidth: 10,
   imageUri: DEFAULT_IMAGE_URI,
   featureDefs: [],
   selectedFeatures: {},
@@ -87,8 +70,6 @@ export function NewWorkspaceForm() {
       case 3:
         return null;
       case 4:
-        return null;
-      case 5:
         if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
         return null;
       default:
@@ -162,11 +143,11 @@ export function NewWorkspaceForm() {
         body: JSON.stringify({
           region: state.region,
           instanceType: state.instanceType,
-          diskCategory: state.systemDiskCategory,
-          diskSize: state.disk.size,
-          bandwidth: state.network.bandwidth,
+          diskCategory: "cloud_essd",
+          diskSize: state.diskSize,
+          bandwidth: state.bandwidth,
           spotStrategy,
-          spotDuration: spotStrategy !== "NoSpot" ? 1 : 1,
+          spotDuration: state.spotDuration,
           durationHours: 4,
         }),
       });
@@ -183,10 +164,10 @@ export function NewWorkspaceForm() {
   }, [
     state.region,
     state.instanceType,
-    state.systemDiskCategory,
-    state.disk.size,
-    state.network.bandwidth,
+    state.diskSize,
+    state.bandwidth,
     spotStrategy,
+    state.spotDuration,
   ]);
 
   useEffect(() => {
@@ -210,12 +191,13 @@ export function NewWorkspaceForm() {
           name: state.name,
           region: state.region,
           instanceType: state.instanceType,
-          diskCategory: state.systemDiskCategory,
-          diskSize: state.disk.size,
-          bandwidth: state.network.bandwidth,
-          publicIp: state.network.publicIp,
+          diskCategory: "cloud_essd",
+          diskSize: state.diskSize,
+          bandwidth: state.bandwidth,
+          publicIp: true,
           spotStrategy,
-          spotDuration: spotStrategy !== "NoSpot" ? 1 : 1,
+          spotDuration: state.spotDuration,
+          spotPriceLimit: state.spotPriceLimit,
           imageUri: state.imageUri,
           features,
           gitProvider: state.gitRepoUrl ? "github" : null,
@@ -245,9 +227,8 @@ export function NewWorkspaceForm() {
       <div className="flex-1 overflow-y-auto">
         {state.currentStep === 1 && <div className="p-6"><StepBasic state={state} setState={setState} /></div>}
         {state.currentStep === 2 && <StepInstance state={state} setState={setState} />}
-        {state.currentStep === 3 && <div className="p-6"><StepStorage state={state} setState={setState} /></div>}
-        {state.currentStep === 4 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
-        {state.currentStep === 5 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
+        {state.currentStep === 3 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
+        {state.currentStep === 4 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
       </div>
 
       {/* 右侧配置概要 - 固定宽度 */}

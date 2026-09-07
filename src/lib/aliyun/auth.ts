@@ -54,7 +54,7 @@ export async function getUserSettings(
     defaultDiskCategory: row.defaultDiskCategory ?? "cloud_essd",
     defaultDiskSize: row.defaultDiskSize ?? 40,
     defaultBandwidth: row.defaultBandwidth ?? 10,
-    defaultReleaseHours: row.defaultReleaseHours ?? 4,
+    defaultReleaseHours: row.defaultReleaseHours ?? 0.5,
     defaultIdleMinutes: row.defaultIdleMinutes ?? 30,
     defaultSpotStrategy: row.defaultSpotStrategy ?? "NoSpot",
     defaultSpotDuration: row.defaultSpotDuration ?? 1,

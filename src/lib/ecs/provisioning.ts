@@ -31,19 +31,19 @@ function key(creds: AliCredentials, region: string): string {
   return `${creds.accessKeyId}:${region}`;
 }
 
-async function findUbuntu2204(creds: AliCredentials, region: string) {
+async function findDebian(creds: AliCredentials, region: string) {
   const images = await describeImages(creds, region);
   const candidates = images.filter(
     (i) =>
-      (i.osName ?? "").includes("22.04") ||
-      (i.imageName ?? "").includes("22.04"),
+      (i.osName ?? "").toLowerCase().includes("debian") &&
+      ((i.osName ?? "").includes("12") || (i.imageName ?? "").includes("12")),
   );
   candidates.sort((a, b) =>
     (b.creationTime ?? "").localeCompare(a.creationTime ?? ""),
   );
   const pick = candidates[0];
   if (!pick) {
-    throw new Error(`No Ubuntu 22.04 image found in ${region}`);
+    throw new Error(`No Debian 12 image found in ${region}`);
   }
   return pick.imageId;
 }
@@ -60,7 +60,7 @@ export async function ensureRegionResources(
   const hit = cache.get(k);
   if (hit && hit.expiresAt > Date.now()) return hit.value;
 
-  const imageId = await findUbuntu2204(creds, region);
+  const imageId = await findDebian(creds, region);
 
   // VPC
   let vpcId = (await describeVpcs(creds, region)).find((v) => v.status === "Available")?.vpcId;
@@ -80,12 +80,13 @@ export async function ensureRegionResources(
     vSwitch = { vSwitchId: id };
   }
 
-  // Security group (+ ingress 8080)
+  // Security group (+ ingress 22, 8080)
   let sg = (await describeSecurityGroups(creds, region, vpcId)).find(
     (s) => s.vpcId === vpcId,
   );
   if (!sg) {
     const id = await createSecurityGroup(creds, region, vpcId);
+    await authorizeIngress(creds, region, id, "22/22");
     await authorizeIngress(creds, region, id, "8080/8080");
     sg = { securityGroupId: id };
   }

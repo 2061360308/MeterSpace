@@ -8,11 +8,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { InstanceTable } from "./instance-table";
-import { DiskSelector } from "@/components/workspaces/disk-selector";
-import { NetworkSelector } from "@/components/workspaces/network-selector";
 import { SpotConfigPopover } from "@/components/workspaces/spot-config-popover";
 import { formatCurrency } from "@/lib/utils";
 import { type StepProps } from "./types";
+
+const BANDWIDTH_OPTIONS = [1, 2, 3, 5, 10, 50, 100];
 
 export function StepInstance({ state, setState }: StepProps) {
   const [activeTab, setActiveTab] = useState("instance");
@@ -118,22 +118,54 @@ export function StepInstance({ state, setState }: StepProps) {
             </Field>
 
             <Field orientation="vertical">
-              <FieldLabel>系统盘</FieldLabel>
+              <FieldLabel>系统盘容量</FieldLabel>
               <FieldContent>
-                <DiskSelector
-                  value={state.disk}
-                  onChange={(disk) => setState((s) => ({ ...s, disk }))}
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    className="w-32"
+                    value={state.diskSize}
+                    onChange={(e) => setState((s) => ({ ...s, diskSize: Number(e.target.value) }))}
+                  />
+                  <span className="text-sm text-muted-foreground">GiB</span>
+                </div>
+                <FieldDescription>
+                  系统盘类型为高效云盘，默认随实例释放
+                </FieldDescription>
               </FieldContent>
             </Field>
 
             <Field orientation="vertical">
-              <FieldLabel>网络和安全组</FieldLabel>
+              <FieldLabel>带宽峰值</FieldLabel>
               <FieldContent>
-                <NetworkSelector
-                  value={state.network}
-                  onChange={(network) => setState((s) => ({ ...s, network }))}
+                <div className="flex flex-wrap items-center gap-2">
+                  {BANDWIDTH_OPTIONS.map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => setState((s) => ({ ...s, bandwidth: b }))}
+                      className={
+                        "rounded-md border px-3 py-1.5 text-sm " +
+                        (state.bandwidth === b
+                          ? "border-blue-500 bg-blue-50 text-blue-600"
+                          : "border-gray-200 text-gray-600 hover:border-blue-300")
+                      }
+                    >
+                      {b} Mbps
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  value={state.bandwidth}
+                  onChange={(e) => setState((s) => ({ ...s, bandwidth: Number(e.target.value) }))}
+                  className="mt-2 w-full"
                 />
+                <div className="text-right text-sm text-gray-500">{state.bandwidth} Mbps</div>
+                <FieldDescription>
+                  按流量计费，入带宽自动等于出带宽，不额外收费
+                </FieldDescription>
               </FieldContent>
             </Field>
           </div>

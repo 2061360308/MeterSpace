@@ -131,7 +131,9 @@ export async function calculatePrice(
       result.spotAdvice = {
         releaseRate: advice.releaseRate,
         historicalDiscount: advice.historicalDiscount,
-        estimatedSpotPrice: round(instanceDiscount * advice.historicalDiscount),
+        // instanceDiscount (tradePrice) is already the spot price when using SpotAsPriceGo/SpotWithPriceLimit
+        // historicalDiscount is just a reference for the typical discount rate
+        estimatedSpotPrice: round(instanceDiscount),
       };
     } catch (e) {
       // Spot advice is best-effort; degrade gracefully without dropping the price.
