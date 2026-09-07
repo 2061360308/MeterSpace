@@ -2,14 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Button,
-  Card,
-  Input,
-  Label,
-  Select,
-  Spinner,
-} from "@/components/ui";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import {
   REGIONS,
   INSTANCE_TYPES,

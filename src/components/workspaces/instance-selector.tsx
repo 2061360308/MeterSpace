@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Select } from "@/components/ui";
+import { Select } from "@/components/ui/select";
 import { FAMILY_CATEGORIES } from "@/lib/constants";
 
 export interface InstanceTypeInfo {

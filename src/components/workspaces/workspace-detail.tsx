@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, Spinner } from "@/components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { formatBytes, STATUS_META } from "@/lib/utils";
 
 interface Log {
@@ -206,7 +209,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
             </Button>
           )}
           <Button
-            variant="danger"
+            variant="destructive"
             disabled={busy}
             onClick={async () => {
               if (confirm("确定删除该工作区？OSS 数据将被清除，不可恢复。")) {

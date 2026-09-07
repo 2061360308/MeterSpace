@@ -1,6 +1,7 @@
 "use client";
 
-import { Input, Select } from "@/components/ui";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 export interface DiskSelection {
   category: string;

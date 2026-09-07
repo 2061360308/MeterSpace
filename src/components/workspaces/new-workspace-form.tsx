@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Input, Label, Select, Spinner } from "@/components/ui";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import {
   REGIONS,
   DEFAULT_IMAGE_URI,
@@ -214,7 +218,7 @@ export function NewWorkspaceForm() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
         {/* 左侧配置区 */}
-        <div className="space-y-6">
+    <div className="space-y-6 pb-20">
           <Card className="space-y-5 p-6">
             <div>
               <Label>名称</Label>

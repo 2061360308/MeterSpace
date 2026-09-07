@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, Spinner } from "@/components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { formatBytes, formatCurrency, STATUS_META } from "@/lib/utils";
 
 interface WorkspaceRow {
