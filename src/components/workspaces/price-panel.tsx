@@ -43,7 +43,7 @@ export function PricePanel({
       : 0;
 
   return (
-    <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+    <div className="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div className="flex items-baseline gap-3">
           {data.loading ? (
