@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/session";
 import { getUserCredentials } from "@/lib/aliyun/auth";
 import { describePrice, findUbuntu2204Image } from "@/lib/aliyun/ecs";
 import { ok, fail } from "@/lib/api";
+import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,19 +13,41 @@ export async function GET(req: NextRequest) {
     const instanceType = p.get("instanceType");
     if (!instanceType) return fail(new Error("instanceType is required"));
 
+    const spotStrategy = p.get("spotStrategy") ?? "NoSpot";
+    const spotDuration = Number(p.get("spotDuration") ?? 1);
+    const diskCategory = p.get("diskCategory") ?? "cloud_essd";
+    const diskSize = Number(p.get("diskSize") ?? 40);
+    const bandwidth = Number(p.get("bandwidth") ?? 10);
+
+    const key = cacheKey(
+      "ecs:price",
+      userId,
+      region,
+      instanceType,
+      spotStrategy,
+      spotDuration,
+      diskCategory,
+      diskSize,
+      bandwidth
+    );
+    const cached = cacheGet(key);
+    if (cached) return ok(cached);
+
     const creds = await getUserCredentials(userId);
     const imageId = await findUbuntu2204Image(creds, region);
     const details = await describePrice(creds, {
       region,
       imageId,
       instanceType,
-      spotStrategy: p.get("spotStrategy") ?? "NoSpot",
-      spotDuration: Number(p.get("spotDuration") ?? 1),
-      diskCategory: p.get("diskCategory") ?? "cloud_essd",
-      diskSize: Number(p.get("diskSize") ?? 40),
-      bandwidth: Number(p.get("bandwidth") ?? 10),
+      spotStrategy,
+      spotDuration,
+      diskCategory,
+      diskSize,
+      bandwidth,
     });
-    return ok({ details });
+    const result = { details };
+    cacheSet(key, result, TTL.HOUR);
+    return ok(result);
   } catch (e) {
     return fail(e);
   }

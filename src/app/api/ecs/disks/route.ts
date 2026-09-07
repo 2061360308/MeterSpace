@@ -1,26 +1,27 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
 import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeSpotPriceHistory } from "@/lib/aliyun/ecs";
+import { describeDiskCategories } from "@/lib/aliyun/ecs";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   try {
-    const p = req.nextUrl.searchParams;
-    const region = p.get("region") ?? "cn-hangzhou";
-    const instanceType = p.get("instanceType");
-    if (!instanceType) return fail(new Error("instanceType is required"));
+    const region = req.nextUrl.searchParams.get("region");
+    if (!region) {
+      return fail({ status: 400, message: "region is required" });
+    }
 
-    const key = cacheKey("ecs:spot-history", region, instanceType);
+    const key = cacheKey("ecs:disks", region);
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
     const userId = await requireUserId();
     const creds = await getUserCredentials(userId);
-    const history = await describeSpotPriceHistory(creds, region, instanceType);
-    cacheSet(key, history, TTL.HOUR);
-    return ok(history);
+    const disks = await describeDiskCategories(creds, region);
+    const result = { disks };
+    cacheSet(key, result, TTL.DAY);
+    return ok(result);
   } catch (e) {
     return fail(e);
   }
