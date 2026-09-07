@@ -2,12 +2,10 @@
 
 import * as React from "react"
 import {
-  AudioWaveform,
   BookOpen,
   Bot,
-  Command,
   Frame,
-  GalleryVerticalEnd,
+  LayoutDashboard,
   Map,
   PieChart,
   Settings2,
@@ -17,7 +15,7 @@ import {
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
-import { TeamSwitcher } from "@/components/team-switcher"
+import { RegionSwitcher } from "@/components/region-switcher"
 import {
   Sidebar,
   SidebarContent,
@@ -33,29 +31,22 @@ const data = {
     email: "m@example.com",
     avatar: "/avatars/shadcn.jpg",
   },
-  teams: [
-    {
-      name: "Acme Inc",
-      logo: GalleryVerticalEnd,
-      plan: "Enterprise",
-    },
-    {
-      name: "Acme Corp.",
-      logo: AudioWaveform,
-      plan: "Startup",
-    },
-    {
-      name: "Evil Corp.",
-      logo: Command,
-      plan: "Free",
-    },
-  ],
   navMain: [
+    {
+      title: "概览",
+      url: "/",
+      icon: LayoutDashboard,
+      isActive: true,
+    },
+    {
+      title: "工作区",
+      url: "/workspaces",
+      icon: SquareTerminal,
+    },
     {
       title: "Playground",
       url: "#",
-      icon: SquareTerminal,
-      isActive: true,
+      icon: Bot,
       items: [
         {
           title: "History",
@@ -72,84 +63,57 @@ const data = {
       ],
     },
     {
-      title: "Models",
-      url: "#",
-      icon: Bot,
-      items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Documentation",
+      title: "镜像",
       url: "#",
       icon: BookOpen,
       items: [
         {
-          title: "Introduction",
+          title: "我的镜像",
           url: "#",
         },
         {
-          title: "Get Started",
+          title: "镜像市场",
           url: "#",
         },
         {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
+          title: "构建记录",
           url: "#",
         },
       ],
     },
     {
-      title: "Settings",
-      url: "#",
+      title: "设置",
+      url: "/settings",
       icon: Settings2,
       items: [
         {
-          title: "General",
-          url: "#",
+          title: "通用",
+          url: "/settings",
         },
         {
-          title: "Team",
-          url: "#",
+          title: "密钥管理",
+          url: "/settings/keys",
         },
         {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
+          title: "计费",
+          url: "/settings/billing",
         },
       ],
     },
   ],
   projects: [
     {
-      name: "Design Engineering",
+      name: "开发环境",
       url: "#",
       icon: Frame,
     },
     {
-      name: "Sales & Marketing",
+      name: "测试环境",
       url: "#",
       icon: PieChart,
     },
     {
-      name: "Travel",
+      name: "生产环境",
       url: "#",
       icon: Map,
     },
@@ -160,7 +124,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+        <RegionSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />

@@ -6,6 +6,7 @@ import { settings } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { ok, fail } from "@/lib/api";
+import { cacheDelete, cacheKey } from "@/lib/cache";
 
 export async function GET() {
   try {
@@ -92,6 +93,9 @@ export async function POST(req: NextRequest) {
         .insert(settings)
         .values(values as typeof settings.$inferInsert);
     }
+
+    // Invalidate user-specific caches when settings change
+    cacheDelete(cacheKey("balance", userId));
 
     return ok({ ok: true });
   } catch (e) {

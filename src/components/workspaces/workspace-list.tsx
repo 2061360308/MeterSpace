@@ -3,11 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { IconFolderCode } from "@tabler/icons-react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { formatBytes, formatCurrency, STATUS_META } from "@/lib/utils";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { formatBytes, STATUS_META } from "@/lib/utils";
 
 interface WorkspaceRow {
   id: string;
@@ -27,23 +37,15 @@ interface WorkspaceRow {
 export function WorkspaceList() {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
-  const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const [wsRes, balRes] = await Promise.all([
-      fetch("/api/workspaces"),
-      fetch("/api/account/balance").catch(() => null),
-    ]);
+    const wsRes = await fetch("/api/workspaces");
     if (wsRes.ok) {
       const data = await wsRes.json();
       setWorkspaces(data.workspaces);
-    }
-    if (balRes?.ok) {
-      const bal = await balRes.json();
-      setBalance(bal.availableAmount);
     }
     setLoading(false);
   }, []);
@@ -77,21 +79,6 @@ export function WorkspaceList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">工作区</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600">
-            余额{" "}
-            <span className="font-semibold text-gray-900">
-              {formatCurrency(balance)}
-            </span>
-          </span>
-          <Link href="/workspaces/new">
-            <Button>+ 新建工作区</Button>
-          </Link>
-        </div>
-      </div>
-
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -105,9 +92,35 @@ export function WorkspaceList() {
       )}
 
       {workspaces.length === 0 ? (
-        <Card className="p-10 text-center text-gray-500">
-          还没有工作区，点击「新建工作区」开始。
-        </Card>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <IconFolderCode />
+            </EmptyMedia>
+            <EmptyTitle>还没有工作区</EmptyTitle>
+            <EmptyDescription>
+              您还没有创建任何工作区。点击下方按钮开始创建您的第一个云端开发环境。
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <div className="flex gap-2">
+              <Link href="/workspaces/new">
+                <Button>新建工作区</Button>
+              </Link>
+              <Button variant="outline">导入项目</Button>
+            </div>
+          </EmptyContent>
+          <Button
+            variant="link"
+            asChild
+            className="text-muted-foreground"
+            size="sm"
+          >
+            <a href="/docs">
+              了解更多 <ArrowUpRightIcon />
+            </a>
+          </Button>
+        </Empty>
       ) : (
         <Card>
           <table className="w-full text-sm">

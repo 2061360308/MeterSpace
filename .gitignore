@@ -41,3 +41,6 @@ next-env.d.ts
 # misc saved web snapshots
 *.aliyun*
 阿里云*
+
+# opencode backup (contains sensitive data)
+.opencode-backup/data/auth.json

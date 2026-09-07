@@ -1,5 +1,6 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -16,7 +17,37 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 
+const routes: Record<string, string> = {
+  "/": "概览",
+  "/workspaces": "工作区",
+  "/workspaces/new": "新建工作区",
+  "/settings": "设置",
+  "/dashboard": "Dashboard",
+}
+
+function getBreadcrumbs(pathname: string) {
+  const segments = pathname.split("/").filter(Boolean)
+  const crumbs: { label: string; href: string }[] = []
+
+  let path = ""
+  for (const segment of segments) {
+    path += `/${segment}`
+    const label = routes[path]
+    if (label) {
+      crumbs.push({ label, href: path })
+    } else if (path.match(/^\/workspaces\/[^/]+$/)) {
+      crumbs.push({ label: `工作区详情`, href: path })
+    }
+  }
+
+  return crumbs
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  const crumbs = getBreadcrumbs(pathname)
+  const current = crumbs.pop()
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -31,14 +62,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="#">
-                    Build Your Application
+                  <BreadcrumbLink href="/">
+                    Workspace Cloud
                   </BreadcrumbLink>
                 </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Data Fetching</BreadcrumbPage>
-                </BreadcrumbItem>
+                {crumbs.map((crumb) => (
+                  <BreadcrumbItem key={crumb.href} className="hidden md:block">
+                    <BreadcrumbSeparator />
+                    <BreadcrumbLink href={crumb.href}>
+                      {crumb.label}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                ))}
+                {current && (
+                  <BreadcrumbItem>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbPage>{current.label}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                )}
               </BreadcrumbList>
             </Breadcrumb>
           </div>

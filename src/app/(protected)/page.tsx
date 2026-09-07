@@ -3,9 +3,9 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
-import { WorkspaceList } from "@/components/workspaces/workspace-list";
+import { BalanceCard } from "@/components/balance-card";
 
-export default async function DashboardPage() {
+export default async function OverviewPage() {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) redirect("/login");
@@ -15,5 +15,9 @@ export default async function DashboardPage() {
   });
   if (!row) redirect("/setup");
 
-  return <WorkspaceList />;
+  return (
+    <div className="space-y-6">
+      <BalanceCard />
+    </div>
+  );
 }

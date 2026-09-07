@@ -5,6 +5,7 @@ import { getUserCredentials } from "@/lib/aliyun/auth";
 import { findUbuntu2204Image } from "@/lib/aliyun/ecs";
 import { calculatePrice } from "@/lib/price/calculator";
 import { ok, fail } from "@/lib/api";
+import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
 const bodySchema = z.object({
   region: z.string().default("cn-hangzhou"),
@@ -23,6 +24,21 @@ export async function POST(req: NextRequest) {
     const userId = await requireUserId();
     const body = bodySchema.parse(await req.json());
 
+    const key = cacheKey(
+      "price:calc",
+      userId,
+      body.region,
+      body.instanceType,
+      body.spotStrategy,
+      body.spotDuration,
+      body.diskCategory,
+      body.diskSize,
+      body.bandwidth,
+      body.durationHours
+    );
+    const cached = cacheGet(key);
+    if (cached) return ok(cached);
+
     const creds = await getUserCredentials(userId);
     const imageId = await findUbuntu2204Image(creds, body.region);
     const result = await calculatePrice(creds, {
@@ -37,6 +53,7 @@ export async function POST(req: NextRequest) {
       bandwidth: body.bandwidth,
       durationHours: body.durationHours,
     });
+    cacheSet(key, result, TTL.MINUTE * 30);
     return ok(result);
   } catch (e) {
     return fail(e);
