@@ -8,6 +8,7 @@ import {
   decimal,
   bigint,
   jsonb,
+  real,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
