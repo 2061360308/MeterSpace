@@ -10,6 +10,10 @@ export interface InstanceTypeInfo {
   memorySize: number;
   instanceTypeFamily?: string;
   cpuArchitecture?: string;
+  gpuAmount?: number;
+  gpuSpec?: string;
+  localStorage?: string;
+  internetMaxBandwidthOut?: number;
 }
 
 const CPU_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128];

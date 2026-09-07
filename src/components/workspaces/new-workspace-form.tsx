@@ -2,125 +2,192 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  REGIONS,
-  DEFAULT_IMAGE_URI,
-  SPOT_STRATEGIES,
-} from "@/lib/constants";
-import { formatCurrency } from "@/lib/utils";
-import { InstanceSelector, type InstanceTypeInfo } from "@/components/workspaces/instance-selector";
-import { DiskSelector, type DiskSelection } from "@/components/workspaces/disk-selector";
-import { NetworkSelector, type NetworkSelection } from "@/components/workspaces/network-selector";
-import { PricePanel, type PricePanelData } from "@/components/workspaces/price-panel";
-import { SpotPriceChart } from "@/components/workspaces/spot-price-chart";
+import { Button } from "@/components/ui/button";
+import { type PricePanelData } from "@/components/workspaces/price-panel";
+import { DEFAULT_IMAGE_URI } from "@/lib/constants";
+import { type DiskSelection } from "@/components/workspaces/disk-selector";
+import { type NetworkSelection } from "@/components/workspaces/network-selector";
+import { StepsSidebar } from "./steps/steps-sidebar";
+import { StepBasic } from "./steps/step-basic";
+import { StepInstance } from "./steps/step-instance";
+import { StepStorage } from "./steps/step-storage";
+import { StepFeatures } from "./steps/step-features";
+import { StepGit } from "./steps/step-git";
+import { STEP_CONFIG, type WizardState } from "./steps/types";
 
-interface FeatureDef {
-  id: string;
-  name: string;
-  description: string;
-  companion: string;
-  versions: { version: string; label: string }[];
-}
-
-export function NewWorkspaceForm() {
-  const router = useRouter();
-  // 付费类型 Tab
-  const [billingMode, setBillingMode] = useState<"ondemand" | "spot">("ondemand");
-  const [spotStrategy, setSpotStrategy] = useState("NoSpot");
-
-  const [name, setName] = useState("");
-  const [region, setRegion] = useState("cn-hangzhou");
-  const [instanceType, setInstanceType] = useState("ecs.g6.xlarge");
-  const [instanceTypes, setInstanceTypes] = useState<InstanceTypeInfo[]>([]);
-  const [instanceTypesLoading, setInstanceTypesLoading] = useState(true);
-  const [disk, setDisk] = useState<DiskSelection>({
+const INITIAL_STATE: WizardState = {
+  currentStep: 1,
+  completedSteps: new Set(),
+  name: "",
+  region: "",
+  useSpot: false,
+  spotDuration: 0,
+  spotPriceLimit: null,
+  instanceType: "",
+  instanceTypes: [],
+  instanceTypesLoading: false,
+  instanceAvailability: {},
+  availabilityLoading: false,
+  zone: "",
+  zones: [],
+  zonesLoading: false,
+  systemDiskCategories: [],
+  systemDiskCategory: "cloud_essd",
+  disk: {
     category: "cloud_essd",
     size: 40,
     releaseWithInstance: true,
     encrypted: false,
-  });
-  const [network, setNetwork] = useState<NetworkSelection>({
+  } as DiskSelection,
+  network: {
     publicIp: true,
     chargeType: "traffic",
     bandwidth: 10,
-  });
-  const [imageUri, setImageUri] = useState(DEFAULT_IMAGE_URI);
+  } as NetworkSelection,
+  imageUri: DEFAULT_IMAGE_URI,
+  featureDefs: [],
+  selectedFeatures: {},
+  autoClone: true,
+  gitRepoUrl: "",
+  gitBranch: "main",
+  repos: [],
+  gitAuthed: false,
+  priceData: { loading: false },
+  loading: false,
+  error: "",
+};
 
-  const [featureDefs, setFeatureDefs] = useState<FeatureDef[]>([]);
-  const [selectedFeatures, setSelectedFeatures] = useState<
-    Record<string, string>
-  >({});
-
-  const [autoClone, setAutoClone] = useState(true);
-  const gitProvider = "github";
-  const [repos, setRepos] = useState<{ fullName: string; defaultBranch: string }[]>([]);
-  const [gitAuthed, setGitAuthed] = useState(false);
-  const [gitRepoUrl, setGitRepoUrl] = useState("");
-  const [gitBranch, setGitBranch] = useState("main");
-
-  const [priceData, setPriceData] = useState<PricePanelData>({ loading: true });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+export function NewWorkspaceForm() {
+  const router = useRouter();
+  const [state, setState] = useState<WizardState>(INITIAL_STATE);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    fetch("/api/features")
-      .then((r) => r.json())
-      .then((d) => setFeatureDefs(d.features))
-      .catch(() => {});
-  }, []);
+  const goPrev = () =>
+    setState((s) => ({ ...s, currentStep: Math.max(1, s.currentStep - 1) }));
 
-  useEffect(() => {
-    fetch("/api/git/repos?provider=github")
-      .then(async (r) => {
-        if (!r.ok) throw new Error();
-        const d = await r.json();
-        setRepos(d.repos);
-        setGitAuthed(true);
-      })
-      .catch(() => setGitAuthed(false));
-  }, []);
+  const goNext = () => {
+    const { currentStep } = state;
+    if (validateStep(currentStep)) return;
+    setState((s) => ({
+      ...s,
+      currentStep: Math.min(STEP_CONFIG.length, currentStep + 1),
+      completedSteps: new Set(s.completedSteps).add(currentStep),
+    }));
+  };
 
-  useEffect(() => {
-    setInstanceTypesLoading(true);
-    fetch(`/api/ecs/types?region=${encodeURIComponent(region)}`)
-      .then((r) => r.json())
-      .then((d) => setInstanceTypes(d.types ?? []))
-      .catch(() => setInstanceTypes([]))
-      .finally(() => setInstanceTypesLoading(false));
-  }, [region]);
+  const validateStep = (step: number): string | null => {
+    switch (step) {
+      case 1:
+        if (!state.name.trim()) return "请填写实例名称";
+        if (!state.region) return "请选择地域";
+        return null;
+      case 2:
+        if (!state.instanceType) return "请选择实例规格";
+        return null;
+      case 3:
+        return null;
+      case 4:
+        return null;
+      case 5:
+        if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
+        return null;
+      default:
+        return null;
+    }
+  };
 
+  const stepError = validateStep(state.currentStep);
+
+  const spotStrategy =
+    !state.useSpot
+      ? "NoSpot"
+      : state.spotPriceLimit != null
+      ? "SpotWithPriceLimit"
+      : "SpotAsPriceGo";
+
+  // Load instance types + availability when region changes
+  useEffect(() => {
+    if (!state.region) return;
+    let cancelled = false;
+
+    async function load() {
+      setState((s) => ({ ...s, instanceTypesLoading: true, availabilityLoading: true }));
+      try {
+        const res = await fetch(`/api/ecs/instances?region=${encodeURIComponent(state.region)}`);
+        const d = await res.json();
+        if (!cancelled) {
+          const instances = d.instances ?? [];
+          const types = instances.map((i: any) => i.spec).filter(Boolean);
+          const availability: Record<string, any> = {};
+          for (const i of instances) {
+            availability[i.instanceTypeId] = i;
+          }
+          setState((s) => ({
+            ...s,
+            instanceTypes: types,
+            instanceAvailability: availability,
+            instanceTypesLoading: false,
+            availabilityLoading: false,
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            instanceTypes: [],
+            instanceAvailability: {},
+            instanceTypesLoading: false,
+            availabilityLoading: false,
+          }));
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [state.region]);
+
+  // Price calculation
   const fetchPrice = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
-    setPriceData((p) => ({ ...p, loading: true }));
+    if (!state.instanceType) {
+      setState((s) => ({ ...s, priceData: { loading: false } }));
+      return;
+    }
     timer.current = setTimeout(async () => {
-      const strategy = billingMode === "spot" ? spotStrategy : "NoSpot";
+      setState((s) => ({ ...s, priceData: { ...s.priceData, loading: true } }));
       const res = await fetch("/api/price/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          region,
-          instanceType,
-          diskCategory: disk.category,
-          diskSize: disk.size,
-          bandwidth: network.bandwidth,
-          spotStrategy: strategy,
-          spotDuration: strategy !== "NoSpot" ? 1 : 1,
+          region: state.region,
+          instanceType: state.instanceType,
+          diskCategory: state.systemDiskCategory,
+          diskSize: state.disk.size,
+          bandwidth: state.network.bandwidth,
+          spotStrategy,
+          spotDuration: spotStrategy !== "NoSpot" ? 1 : 1,
           durationHours: 4,
         }),
       });
       if (res.ok) {
-        setPriceData({ loading: false, ...(await res.json()) });
+        const data: PricePanelData = await res.json();
+        setState((s) => ({
+          ...s,
+          priceData: { ...data, loading: false },
+        }));
       } else {
-        setPriceData({ loading: false });
+        setState((s) => ({ ...s, priceData: { ...s.priceData, loading: false } }));
       }
     }, 300);
-  }, [region, instanceType, disk.category, disk.size, network.bandwidth, billingMode, spotStrategy]);
+  }, [
+    state.region,
+    state.instanceType,
+    state.systemDiskCategory,
+    state.disk.size,
+    state.network.bandwidth,
+    spotStrategy,
+  ]);
 
   useEffect(() => {
     fetchPrice();
@@ -130,33 +197,31 @@ export function NewWorkspaceForm() {
   }, [fetchPrice]);
 
   async function onSubmit() {
-    setLoading(true);
-    setError("");
+    if (stepError) return;
+    setState((s) => ({ ...s, loading: true, error: "" }));
     try {
-      const features = Object.entries(selectedFeatures).map(([id, version]) => ({
-        id,
-        version,
-      }));
-      const strategy = billingMode === "spot" ? spotStrategy : "NoSpot";
+      const features = Object.entries(state.selectedFeatures).map(
+        ([id, version]) => ({ id, version })
+      );
       const res = await fetch("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name,
-          region,
-          instanceType,
-          diskCategory: disk.category,
-          diskSize: disk.size,
-          bandwidth: network.bandwidth,
-          publicIp: network.publicIp,
-          spotStrategy: strategy,
-          spotDuration: strategy !== "NoSpot" ? 1 : 1,
-          imageUri,
+          name: state.name,
+          region: state.region,
+          instanceType: state.instanceType,
+          diskCategory: state.systemDiskCategory,
+          diskSize: state.disk.size,
+          bandwidth: state.network.bandwidth,
+          publicIp: state.network.publicIp,
+          spotStrategy,
+          spotDuration: spotStrategy !== "NoSpot" ? 1 : 1,
+          imageUri: state.imageUri,
           features,
-          gitProvider: gitRepoUrl ? gitProvider : null,
-          gitRepoUrl: gitRepoUrl || null,
-          gitBranch,
-          autoClone,
+          gitProvider: state.gitRepoUrl ? "github" : null,
+          gitRepoUrl: state.gitRepoUrl || null,
+          gitBranch: state.gitBranch,
+          autoClone: state.autoClone,
           releaseHours: null,
           idleMinutes: null,
         }),
@@ -166,363 +231,73 @@ export function NewWorkspaceForm() {
       router.push(`/workspaces/${data.workspaceId}`);
       router.refresh();
     } catch (e) {
-      setError((e as Error).message);
-      setLoading(false);
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: (e as Error).message,
+      }));
     }
   }
 
-  const sectionTitle = "mb-3 text-base font-semibold text-gray-800";
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">新建工作区</h1>
+    <div className="flex h-[calc(100dvh-4rem)]">
+      {/* 左侧内容区域 - 独立滚动 */}
+      <div className="flex-1 overflow-y-auto">
+        {state.currentStep === 1 && <div className="p-6"><StepBasic state={state} setState={setState} /></div>}
+        {state.currentStep === 2 && <StepInstance state={state} setState={setState} />}
+        {state.currentStep === 3 && <div className="p-6"><StepStorage state={state} setState={setState} /></div>}
+        {state.currentStep === 4 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
+        {state.currentStep === 5 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
       </div>
 
-      {/* 付费类型 Tab */}
-      <Card className="p-2">
-        <div className="flex gap-4 px-3 py-2">
-          <button
-            onClick={() => setBillingMode("ondemand")}
-            className={
-              "text-left " +
-              (billingMode === "ondemand"
-                ? "font-medium text-blue-600"
-                : "text-gray-500")
-            }
-          >
-            <div>按量付费</div>
-            <div className="text-xs text-gray-400">先使用后付费，按需开通</div>
-          </button>
-          <button
-            onClick={() => setBillingMode("spot")}
-            className={
-              "text-left " +
-              (billingMode === "spot"
-                ? "font-medium text-blue-600"
-                : "text-gray-500")
-            }
-          >
-            <div>抢占式实例</div>
-            <div className="text-xs text-gray-400">
-              较按量付费最高可省 90%
-            </div>
-          </button>
+      {/* 右侧配置概要 - 固定宽度 */}
+      <div className="w-[320px] border-l flex flex-col bg-background">
+        {/* 配置概要内容 - 独立滚动 */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <StepsSidebar state={state} />
         </div>
-        {billingMode === "spot" && (
-          <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">
-            使用须知：无保护期或 1 小时保护期；超过保护期后当市场价格高于出价或资源供需变化时实例会被自动释放，请做好数据备份。
+
+        {/* 底部导航按钮 - 固定在右侧底部 */}
+        <div className="border-t p-4 space-y-3">
+          <div className="text-xs text-muted-foreground text-center">
+            第 {state.currentStep} / {STEP_CONFIG.length} 步
           </div>
-        )}
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
-        {/* 左侧配置区 */}
-    <div className="space-y-6 pb-20">
-          <Card className="space-y-5 p-6">
-            <div>
-              <Label>名称</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-project" />
-            </div>
-
-            {/* 地域 */}
-            <section>
-              <h2 className={sectionTitle}>地域及可用区</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>地域</Label>
-                  <Select value={region} onChange={(e) => setRegion(e.target.value)}>
-                    {REGIONS.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label>可用区</Label>
-                  <Select defaultValue="">
-                    <option value="">自动分配</option>
-                  </Select>
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-gray-400">
-                实例创建之后地域将无法更改；距离实例所在地域越近，访问速度越快
-              </p>
-            </section>
-
-            {/* 实例规格 */}
-            <section>
-              <h2 className={sectionTitle}>实例规格</h2>
-              {billingMode === "spot" && (
-                <div className="mb-3 space-y-2">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>实例使用时长</Label>
-                      <Select defaultValue="1">
-                        <option value="1">设定实例使用 1 小时</option>
-                        <option value="0">无确定使用时长</option>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>单台实例上限价格</Label>
-                      <Select
-                        value={spotStrategy}
-                        onChange={(e) => setSpotStrategy(e.target.value)}
-                      >
-                        {SPOT_STRATEGIES.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
-                  <button className="text-xs text-blue-600 hover:underline">
-                    查看历史价格
-                  </button>
-                </div>
-              )}
-              <InstanceSelector
-                region={region}
-                value={instanceType}
-                types={instanceTypes}
-                loading={instanceTypesLoading}
-                onChange={setInstanceType}
-              />
-              <p className="mt-2 text-sm text-gray-500">
-                当前选择：{instanceType} ·{" "}
-                {
-                  instanceTypes.find((t) => t.instanceTypeId === instanceType)
-                    ?.cpuCoreCount
-                }
-                vCPU{" "}
-                {
-                  instanceTypes.find((t) => t.instanceTypeId === instanceType)
-                    ?.memorySize
-                }
-                GiB
-              </p>
-            </section>
-
-            {/* 镜像 */}
-            <section>
-              <h2 className={sectionTitle}>镜像</h2>
-              <div>
-                <Label>Docker 镜像地址</Label>
-                <Input
-                  value={imageUri}
-                  onChange={(e) => setImageUri(e.target.value)}
-                  placeholder="registry.cn-hangzhou.aliyuncs.com/ns/repo:tag"
-                />
-                <p className="mt-1 text-xs text-gray-400">
-                  支持任意 Docker 镜像链接（ACR / ghcr.io / Docker Hub）
-                </p>
-              </div>
-            </section>
-
-            {/* 存储 */}
-            <section>
-              <h2 className={sectionTitle}>存储</h2>
-              <DiskSelector value={disk} onChange={setDisk} />
-            </section>
-
-            {/* 网络 */}
-            <section>
-              <h2 className={sectionTitle}>网络和安全组</h2>
-              <NetworkSelector value={network} onChange={setNetwork} />
-            </section>
-
-            {/* 开发工具 */}
-            <section>
-              <h2 className={sectionTitle}>开发工具 (Features)</h2>
-              <div className="grid grid-cols-2 gap-3">
-                {featureDefs.map((f) => (
-                  <div
-                    key={f.id}
-                    className="flex items-center gap-3 rounded-md border border-gray-200 p-3"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={f.id in selectedFeatures}
-                      onChange={(e) => {
-                        setSelectedFeatures((prev) => {
-                          const next = { ...prev };
-                          if (e.target.checked) {
-                            next[f.id] = f.versions[0]?.version ?? "latest";
-                          } else {
-                            delete next[f.id];
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium">{f.name}</div>
-                      <div className="text-xs text-gray-500">配套: {f.companion}</div>
-                    </div>
-                    {f.id in selectedFeatures && (
-                      <Select
-                        className="w-28"
-                        value={selectedFeatures[f.id]}
-                        onChange={(e) =>
-                          setSelectedFeatures((prev) => ({
-                            ...prev,
-                            [f.id]: e.target.value,
-                          }))
-                        }
-                      >
-                        {f.versions.map((v) => (
-                          <option key={v.version} value={v.version}>
-                            {v.label}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Git */}
-            <section>
-              <h2 className={sectionTitle}>Git 仓库</h2>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={autoClone}
-                  onChange={(e) => setAutoClone(e.target.checked)}
-                />
-                自动拉取代码
-              </label>
-              {!gitAuthed ? (
-                <a
-                  href="/api/git/auth?provider=github&returnTo=/workspaces/new"
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  授权 GitHub 后选择仓库 →
-                </a>
-              ) : (
-                <div className="mt-2 grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>仓库</Label>
-                    <Select
-                      value={gitRepoUrl}
-                      onChange={(e) => {
-                        setGitRepoUrl(e.target.value);
-                        const repo = repos.find((r) => r.fullName === e.target.value);
-                        if (repo) setGitBranch(repo.defaultBranch);
-                      }}
-                    >
-                      <option value="">不使用仓库</option>
-                      {repos.map((r) => (
-                        <option key={r.fullName} value={r.fullName}>
-                          {r.fullName}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>分支</Label>
-                    <Input value={gitBranch} onChange={(e) => setGitBranch(e.target.value)} />
-                  </div>
-                </div>
-              )}
-            </section>
-          </Card>
-        </div>
-
-        {/* 右侧配置概要 */}
-        <div className="space-y-4">
-          <Card className="p-5">
-            <h2 className="mb-3 text-base font-semibold text-gray-800">配置概要</h2>
-            <dl className="space-y-2 text-sm">
-              <SummaryRow label="付费类型" value={billingMode === "spot" ? "抢占式实例" : "按量付费"} />
-              <SummaryRow label="地域" value={REGIONS.find((r) => r.id === region)?.label ?? region} />
-              <SummaryRow label="实例规格" value={instanceType} />
-              <SummaryRow
-                label="抢占策略"
-                value={billingMode === "spot" ? SPOT_STRATEGIES.find((s) => s.id === spotStrategy)?.label ?? spotStrategy : "—"}
-              />
-              <SummaryRow label="镜像" value={imageUri.split("/").slice(-1)[0]} />
-              <SummaryRow label="系统盘" value={`${disk.category} ${disk.size}GiB`} />
-              <SummaryRow label="公网带宽" value={`${network.chargeType === "fixed" ? "按固定带宽" : "按使用流量"} ${network.bandwidth}Mbps`} />
-            </dl>
-          </Card>
-
-          {/* 价格明细 */}
-          <Card className="p-5">
-            <h2 className="mb-3 text-base font-semibold text-gray-800">价格明细</h2>
-            {priceData.loading ? (
-              <Spinner />
-            ) : priceData.hourly ? (
-              <div className="space-y-2 text-sm">
-                <PriceRow label="实例" value={priceData.hourly.instance} />
-                <PriceRow label="系统盘" value={priceData.hourly.disk} />
-                <PriceRow label="带宽" value={priceData.hourly.bandwidth} />
-                {billingMode === "spot" && priceData.spotAdvice && (
-                  <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-600">
-                    <div>释放率 {(priceData.spotAdvice.releaseRate * 100).toFixed(0)}%</div>
-                    <div>历史折扣 {(priceData.spotAdvice.historicalDiscount * 100).toFixed(0)}%</div>
-                    <div>预估抢占价 {formatCurrency(priceData.spotAdvice.estimatedSpotPrice)}/时</div>
-                  </div>
-                )}
-                {billingMode === "spot" && (
-                  <div className="mt-3">
-                    <p className="mb-1 text-xs font-medium text-gray-500">近 30 天抢占价格</p>
-                    <SpotPriceChart region={region} instanceType={instanceType} />
-                  </div>
-                )}
-                <div className="space-y-1 border-t border-gray-100 pt-2">
-                  {priceData.estimates?.map((e) => (
-                    <div key={e.hours} className="flex justify-between text-xs text-gray-500">
-                      <span>{e.label}</span>
-                      <span>{formatCurrency(e.total)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">无法获取价格</p>
+          {(state.error || stepError) && (
+            <p className="text-xs text-destructive text-center">
+              {state.error || stepError}
+            </p>
+          )}
+          <div className="flex gap-2">
+            {state.currentStep > 1 && (
+              <Button
+                variant="outline"
+                onClick={goPrev}
+                disabled={state.loading}
+                className="flex-1"
+              >
+                上一步
+              </Button>
             )}
-          </Card>
+            {state.currentStep === STEP_CONFIG.length ? (
+              <Button
+                onClick={onSubmit}
+                disabled={state.loading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600"
+              >
+                {state.loading ? "创建中..." : "创建工作区"}
+              </Button>
+            ) : (
+              <Button
+                onClick={goNext}
+                disabled={state.loading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600"
+              >
+                下一步
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-
-      {error && (
-        <div className="sticky bottom-16 z-10 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-          <button className="ml-2 underline" onClick={() => setError("")}>
-            关闭
-          </button>
-        </div>
-      )}
-
-      {/* 底部 sticky 价格面板 */}
-      <PricePanel
-        data={priceData}
-        billingMode={billingMode}
-        onProceed={onSubmit}
-        proceeding={loading}
-      />
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-gray-500">{label}</dt>
-      <dd className="text-right font-medium text-gray-800">{value}</dd>
-    </div>
-  );
-}
-
-function PriceRow({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium">{formatCurrency(value)}</span>
     </div>
   );
 }
