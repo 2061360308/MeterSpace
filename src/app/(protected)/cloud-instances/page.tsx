@@ -9,6 +9,14 @@ import { ButtonGroup } from "@/components/ui/button-group"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -165,16 +173,25 @@ export default function CloudInstancesPage() {
             <Spinner className="h-8 w-8" />
           </div>
         ) : filtered.length === 0 ? (
-          <Card className="flex flex-col items-center justify-center py-20 space-y-4">
-            <Cloud className="h-12 w-12 text-muted-foreground" />
-            <p className="text-muted-foreground">暂无云实例</p>
-            <Button asChild size="sm">
-              <Link href={`/cloud-instances/new?provider=${provider}`}>
-                <Plus className="mr-1 h-4 w-4" />
-                创建第一个
-              </Link>
-            </Button>
-          </Card>
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Cloud />
+              </EmptyMedia>
+              <EmptyTitle>还没有云实例</EmptyTitle>
+              <EmptyDescription>
+                您还没有创建任何云实例。点击下方按钮开始创建您的第一个弹性空间。
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button asChild>
+                <Link href={`/cloud-instances/new?provider=${provider}`}>
+                  <Plus data-icon="inline-start" />
+                  创建第一个
+                </Link>
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {filtered.map((inst) => (

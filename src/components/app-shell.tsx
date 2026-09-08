@@ -23,7 +23,7 @@ const routes: Record<string, string> = {
   "/workspaces/new": "新建工作区",
   "/settings": "设置",
   "/dashboard": "Dashboard",
-  "/cloud-instances": "云实例",
+  "/cloud-instances": "弹性空间",
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
