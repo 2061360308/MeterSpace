@@ -115,6 +115,34 @@ export const gitTokens = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.userId, t.provider] }) }),
 );
 
+export const instanceCache = pgTable(
+  "instance_cache",
+  {
+    provider: text("provider").notNull().default("aliyun"),
+    region: text("region").notNull(),
+    instanceType: text("instance_type").notNull(),
+    cpuCoreCount: integer("cpu_core_count").notNull(),
+    memorySize: real("memory_size").notNull(),
+    gpuCount: integer("gpu_count").notNull().default(0),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.provider, t.region, t.instanceType] }) }),
+);
+
+export const priceCache = pgTable(
+  "price_cache",
+  {
+    provider: text("provider").notNull().default("aliyun"),
+    region: text("region").notNull(),
+    instanceType: text("instance_type").notNull(),
+    onDemandPrice: real("on_demand_price"),
+    historicalDiscount: real("historical_discount"),
+    releaseRate: real("release_rate"),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.provider, t.region, t.instanceType] }) }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
@@ -123,5 +151,7 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
 export type WorkspaceState = typeof workspaceStates.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type GitToken = typeof gitTokens.$inferSelect;
+export type InstanceCache = typeof instanceCache.$inferSelect;
+export type PriceCache = typeof priceCache.$inferSelect;
 
 export { primaryKey };

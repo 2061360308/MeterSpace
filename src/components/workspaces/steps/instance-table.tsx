@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useReactTable,
@@ -11,6 +11,7 @@ import {
   createColumnHelper,
   type SortingState,
   type ColumnFiltersState,
+  type CellContext,
 } from "@tanstack/react-table";
 import {
   Table,
@@ -31,6 +32,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { formatCurrency } from "@/lib/utils";
 
 interface InstanceTableProps {
+  region: string;
   types: InstanceTypeInfo[];
   loading: boolean;
   value: string;
@@ -51,12 +53,12 @@ const STATUS_CONFIG: Record<string, { label: string; tone: "green" | "gray" | "b
 
 interface PriceInfo {
   historicalDiscount: number;
-  releaseRate: number;
+  releaseRate: number | null;
   onDemandPrice: number;
   averageSpotPrice: number;
 }
 
-export function InstanceTable({ types, loading, value, onChange, availability, availabilityLoading }: InstanceTableProps) {
+export function InstanceTable({ region, types, loading, value, onChange, availability, availabilityLoading }: InstanceTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [architecture, setArchitecture] = useState<"x86" | "arm">("x86");
@@ -66,6 +68,9 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
   const [priceData, setPriceData] = useState<Record<string, PriceInfo>>({});
   const [priceLoading, setPriceLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const fetchedTypesRef = useRef<Set<string>>(new Set());
 
   const filteredTypes = useMemo(() => {
     let result = types;
@@ -89,129 +94,143 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
     return result;
   }, [types, architecture, familyCategory, cpuFilter, memFilter]);
 
-  const handleFetchPrices = async () => {
-    if (filteredTypes.length === 0 || filteredTypes.length > 50) return;
+  const fetchPrices = useCallback(async (typesToFetch: string[]) => {
+    const unfetched = typesToFetch.filter((t) => !fetchedTypesRef.current.has(t));
+    if (unfetched.length === 0) return;
+
+    unfetched.forEach((t) => fetchedTypesRef.current.add(t));
+
     setPriceLoading(true);
     try {
-      const region = "cn-hangzhou";
-      const types = filteredTypes.map((t) => t.instanceTypeId).join(",");
-      const res = await fetch(`/api/ecs/batch-price-info?region=${region}&instanceTypes=${types}`);
+      const res = await fetch(
+        `/api/ecs/aliyun/batch-price-info?region=${region}&instanceTypes=${unfetched.join(",")}`
+      );
       const data = await res.json();
-      if (data && typeof data === "object") setPriceData(data);
+      if (data && typeof data === "object" && !data.error) {
+        setPriceData((prev) => ({ ...prev, ...data }));
+      }
     } catch {
       // ignore
     } finally {
       setPriceLoading(false);
     }
-  };
+  }, [region]);
 
-  const columns = useMemo(() => [
-    columnHelper.display({
-      id: "select",
-      header: "",
-      size: 40,
-    }),
-    columnHelper.accessor("instanceTypeId", {
-      header: "规格",
-      size: 200,
-    }),
-    columnHelper.accessor("cpuCoreCount", {
-      header: "vCPU",
-      cell: (info) => `${info.getValue()} 核`,
-      size: 80,
-    }),
-    columnHelper.accessor("memorySize", {
-      header: "内存",
-      cell: (info) => `${info.getValue()} GiB`,
-      size: 80,
-    }),
-    columnHelper.accessor("instanceTypeFamily", {
-      header: "规格族",
-      cell: (info) => familyLabel(info.getValue()),
-      size: 100,
-    }),
-    {
-      id: "availability",
-      header: "库存状态",
-      cell: (info: any) => {
-        const a = availability[info.row.original.instanceTypeId];
-        if (availabilityLoading) return <Spinner className="h-3 w-3" />;
-        if (!a) return <span className="text-muted-foreground">-</span>;
-        const config = STATUS_CONFIG[a.statusCategory ?? "WithoutStock"] ?? STATUS_CONFIG.WithoutStock;
-        const isDisabled = a.statusCategory === "ClosedWithoutStock";
-        return (
-          <Badge tone={config.tone} className={isDisabled ? "opacity-50" : ""}>
-            {config.label}
-          </Badge>
-        );
-      },
-      size: 100,
-    },
-    {
-      id: "historicalDiscount",
-      header: "折扣率",
-      accessorFn: (row: InstanceTypeInfo) => {
-        const p = priceData[row.instanceTypeId];
-        return p?.historicalDiscount ?? 0;
-      },
-      cell: (info: any) => {
-        const p = priceData[info.row.original.instanceTypeId];
-        if (priceLoading) return <Spinner className="h-3 w-3" />;
-        if (!p) return <span className="text-muted-foreground">-</span>;
-        return `${(p.historicalDiscount * 100).toFixed(0)}%`;
-      },
-      size: 80,
-    },
-    {
-      id: "releaseRate",
-      header: "释放率",
-      accessorFn: (row: InstanceTypeInfo) => {
-        const p = priceData[row.instanceTypeId];
-        return p?.releaseRate ?? 0;
-      },
-      cell: (info: any) => {
-        const p = priceData[info.row.original.instanceTypeId];
-        if (priceLoading) return <Spinner className="h-3 w-3" />;
-        if (!p) return <span className="text-muted-foreground">-</span>;
-        return `${(p.releaseRate * 100).toFixed(0)}%`;
-      },
-      size: 80,
-    },
-    {
-      id: "onDemandPrice",
-      header: "按量价格",
-      accessorFn: (row: InstanceTypeInfo) => {
-        const p = priceData[row.instanceTypeId];
-        return p?.onDemandPrice ?? 0;
-      },
-      cell: (info: any) => {
-        const p = priceData[info.row.original.instanceTypeId];
-        if (priceLoading) return <Spinner className="h-3 w-3" />;
-        if (!p) return <span className="text-muted-foreground">-</span>;
-        return formatCurrency(p.onDemandPrice);
-      },
-      size: 90,
-    },
-    {
-      id: "averageSpotPrice",
-      header: "抢占均价",
-      accessorFn: (row: InstanceTypeInfo) => {
-        const p = priceData[row.instanceTypeId];
-        return p?.averageSpotPrice ?? 0;
-      },
-      cell: (info: any) => {
-        const p = priceData[info.row.original.instanceTypeId];
-        if (priceLoading) return <Spinner className="h-3 w-3" />;
-        if (!p) return <span className="text-muted-foreground">-</span>;
-        return formatCurrency(p.averageSpotPrice);
-      },
-      size: 90,
-    },
-  ], [availability, availabilityLoading, priceData, priceLoading]);
+  const getVisibleTypes = useCallback((): string[] => {
+    const el = scrollContainerRef.current;
+    if (!el || filteredTypes.length === 0) return [];
+    const scrollTop = el.scrollTop;
+    const viewportHeight = el.clientHeight;
+    const startIdx = Math.floor(scrollTop / ROW_HEIGHT);
+    const endIdx = Math.min(filteredTypes.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + 5);
+    return filteredTypes.slice(startIdx, endIdx).map((t) => t.instanceTypeId);
+  }, [filteredTypes]);
 
   const table = useReactTable({
     data: filteredTypes,
-    columns,
+    columns: useMemo(() => [
+      columnHelper.display({
+        id: "select",
+        header: "",
+        size: 40,
+      }),
+      columnHelper.accessor("instanceTypeId", {
+        header: "规格",
+        size: 200,
+      }),
+      columnHelper.accessor("cpuCoreCount", {
+        header: "vCPU",
+        cell: (info) => `${info.getValue()} 核`,
+        size: 80,
+      }),
+      columnHelper.accessor("memorySize", {
+        header: "内存",
+        cell: (info) => `${info.getValue()} GiB`,
+        size: 80,
+      }),
+      columnHelper.accessor("instanceTypeFamily", {
+        header: "规格族",
+        cell: (info) => familyLabel(info.getValue()),
+        size: 100,
+      }),
+      {
+        id: "availability",
+        header: "库存状态",
+        cell: (info: CellContext<InstanceTypeInfo, unknown>) => {
+          const a = availability[info.row.original.instanceTypeId];
+          if (availabilityLoading) return <Spinner className="h-3 w-3" />;
+          if (!a) return <span className="text-muted-foreground">-</span>;
+          const config = STATUS_CONFIG[a.statusCategory ?? "WithoutStock"] ?? STATUS_CONFIG.WithoutStock;
+          const isRowDisabled = a.statusCategory === "ClosedWithoutStock";
+          return (
+            <Badge tone={config.tone} className={isRowDisabled ? "opacity-50" : ""}>
+              {config.label}
+            </Badge>
+          );
+        },
+        size: 100,
+      },
+      {
+        id: "historicalDiscount",
+        header: "折扣率",
+        accessorFn: (row: InstanceTypeInfo) => {
+          const p = priceData[row.instanceTypeId];
+          return p?.historicalDiscount ?? 0;
+        },
+        cell: (info: CellContext<InstanceTypeInfo, unknown>) => {
+          const p = priceData[info.row.original.instanceTypeId];
+          if (priceLoading) return <Spinner className="h-3 w-3" />;
+          if (!p) return <span className="text-muted-foreground">-</span>;
+          return `${(p.historicalDiscount * 100).toFixed(0)}%`;
+        },
+        size: 80,
+      },
+      {
+        id: "releaseRate",
+        header: "释放率",
+        accessorFn: (row: InstanceTypeInfo) => {
+          const p = priceData[row.instanceTypeId];
+          return p?.releaseRate ?? 0;
+        },
+        cell: (info: CellContext<InstanceTypeInfo, unknown>) => {
+          const p = priceData[info.row.original.instanceTypeId];
+          if (priceLoading) return <Spinner className="h-3 w-3" />;
+          if (p?.releaseRate == null) return <span className="text-muted-foreground">—</span>;
+          return `${(p.releaseRate * 100).toFixed(0)}%`;
+        },
+        size: 80,
+      },
+      {
+        id: "onDemandPrice",
+        header: "按量价格",
+        accessorFn: (row: InstanceTypeInfo) => {
+          const p = priceData[row.instanceTypeId];
+          return p?.onDemandPrice ?? 0;
+        },
+        cell: (info: CellContext<InstanceTypeInfo, unknown>) => {
+          const p = priceData[info.row.original.instanceTypeId];
+          if (priceLoading) return <Spinner className="h-3 w-3" />;
+          if (!p) return <span className="text-muted-foreground">-</span>;
+          return formatCurrency(p.onDemandPrice);
+        },
+        size: 90,
+      },
+      {
+        id: "averageSpotPrice",
+        header: "抢占均价",
+        accessorFn: (row: InstanceTypeInfo) => {
+          const p = priceData[row.instanceTypeId];
+          return p?.averageSpotPrice ?? 0;
+        },
+        cell: (info: CellContext<InstanceTypeInfo, unknown>) => {
+          const p = priceData[info.row.original.instanceTypeId];
+          if (priceLoading) return <Spinner className="h-3 w-3" />;
+          if (!p) return <span className="text-muted-foreground">-</span>;
+          return formatCurrency(p.averageSpotPrice);
+        },
+        size: 90,
+      },
+    ], [availability, availabilityLoading, priceData, priceLoading]),
     state: { sorting, columnFilters },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -226,8 +245,33 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
     count: rows.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 10,
+    overscan: 5,
   });
+
+  const handleScroll = useCallback(() => {
+    clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      const types = getVisibleTypes().slice(0, 10);
+      fetchPrices(types);
+    }, 300);
+  }, [getVisibleTypes, fetchPrices]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [handleScroll]);
+
+  useEffect(() => {
+    fetchedTypesRef.current.clear();
+    clearTimeout(fetchTimerRef.current);
+    fetchTimerRef.current = setTimeout(() => {
+      const types = getVisibleTypes().slice(0, 10);
+      fetchPrices(types);
+    }, 500);
+    return () => clearTimeout(fetchTimerRef.current);
+  }, [filteredTypes, getVisibleTypes, fetchPrices]);
 
   if (loading) {
     return (
@@ -239,7 +283,6 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
 
   const selected = types.find((t) => t.instanceTypeId === value);
   const selectedAvailability = value ? availability[value] : undefined;
-  const isDisabled = selectedAvailability?.statusCategory === "ClosedWithoutStock";
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -298,22 +341,6 @@ export function InstanceTable({ types, loading, value, onChange, availability, a
             </option>
           ))}
         </select>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8"
-          onClick={handleFetchPrices}
-          disabled={priceLoading || filteredTypes.length === 0 || filteredTypes.length > 50}
-        >
-          {priceLoading && <Spinner className="h-3 w-3 mr-1" />}
-          查询价格
-        </Button>
-        {filteredTypes.length > 50 && (
-          <span className="text-xs text-destructive self-center">
-            实例超过50个，请缩小范围
-          </span>
-        )}
       </div>
 
       <RadioGroup
