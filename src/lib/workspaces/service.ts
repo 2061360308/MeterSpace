@@ -45,13 +45,14 @@ export interface CreateWorkspaceInput {
   name: string;
   provider: string;
   region: string;
-  cloudInstanceId: string;
+  cloudInstanceId?: string;
   imageUri: string;
-  diskCategory: string;
-  diskSize: number;
-  bandwidth: number;
-  publicIp: boolean;
-  features: { id: string; version: string }[];
+  diskCategory?: string;
+  diskSize?: number;
+  bandwidth?: number;
+  publicIp?: boolean;
+  features: { id: string; version: string; uri?: string }[];
+  scripts?: { id: string; name: string; script: string }[];
   gitProvider?: string | null;
   gitRepoUrl?: string | null;
   gitBranch?: string;
@@ -209,10 +210,25 @@ export async function createWorkspace(
 ) {
   const features = resolveFeatures(input.features ?? []);
 
-  // Resolve the git token from the stored provider OAuth token if not provided.
   let gitTokenEnc = input.gitTokenEnc ?? null;
   if (!gitTokenEnc && input.gitProvider && input.gitRepoUrl) {
     gitTokenEnc = await getGitTokenEnc(userId, input.gitProvider);
+  }
+
+  let cloudInstanceId = input.cloudInstanceId;
+  if (!cloudInstanceId) {
+    const s = await getUserSettings(userId);
+    const [cloudInstance] = await db
+      .insert(cloudInstances)
+      .values({
+        userId,
+        name: `${input.name}-config`,
+        provider: input.provider,
+        region: input.region,
+        instanceType: s.defaultSpec,
+      })
+      .returning();
+    cloudInstanceId = cloudInstance.id;
   }
 
   const [workspace] = await db
@@ -222,7 +238,7 @@ export async function createWorkspace(
       name: input.name,
       provider: input.provider,
       region: input.region,
-      cloudInstanceId: input.cloudInstanceId,
+      cloudInstanceId,
       imageUri: input.imageUri,
       defaultDiskSize: input.diskSize,
       defaultBandwidth: input.bandwidth,

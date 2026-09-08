@@ -10,19 +10,27 @@ import { ok, fail } from "@/lib/api";
 const featureSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
+  uri: z.string().optional(),
+});
+
+const scriptSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  script: z.string().min(1),
 });
 
 const bodySchema = z.object({
   name: z.string().min(1).max(64),
   provider: z.string().default("aliyun"),
   region: z.string().min(1),
-  cloudInstanceId: z.string().uuid(),
+  cloudInstanceId: z.string().uuid().optional(),
   diskCategory: z.string().default("cloud_essd"),
   diskSize: z.number().int().min(20).default(40),
   bandwidth: z.number().int().min(1).default(10),
   publicIp: z.boolean().default(true),
   imageUri: z.string().min(1),
   features: z.array(featureSchema).default([]),
+  scripts: z.array(scriptSchema).default([]),
   gitProvider: z.string().nullable().optional(),
   gitRepoUrl: z.string().nullable().optional(),
   gitBranch: z.string().default("main"),

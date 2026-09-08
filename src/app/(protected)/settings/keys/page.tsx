@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, Trash2, Eye, EyeOff, Key } from "lucide-react"
+import { Plus, Trash2, Key, Copy, Check } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -20,54 +20,83 @@ import {
 interface ApiKey {
   id: string
   name: string
-  key: string
-  createdAt: Date
-  lastUsedAt?: Date
+  keyPrefix: string
+  lastUsedAt: string | null
+  createdAt: string
 }
 
 export default function KeysSettingsPage() {
-  const [keys, setKeys] = useState<ApiKey[]>([
-    {
-      id: "1",
-      name: "开发密钥",
-      key: "sk-1234567890abcdef1234567890abcdef",
-      createdAt: new Date("2024-01-15"),
-      lastUsedAt: new Date("2024-03-10"),
-    },
-    {
-      id: "2",
-      name: "生产密钥",
-      key: "sk-9876543210fedcba9876543210fedcba",
-      createdAt: new Date("2024-02-20"),
-    },
-  ])
+  const [keys, setKeys] = useState<ApiKey[]>([])
+  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [newKey, setNewKey] = useState({ name: "" })
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
-  const handleAddKey = () => {
-    if (!newKey.name) return
-
-    const key: ApiKey = {
-      id: Date.now().toString(),
-      name: newKey.name,
-      key: `sk-${Array.from({ length: 32 }, () =>
-        Math.random().toString(16)[2]
-      ).join("")}`,
-      createdAt: new Date(),
+  const fetchKeys = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/keys")
+      const data = await res.json()
+      setKeys(data.keys ?? [])
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
     }
+  }, [])
 
-    setKeys([...keys, key])
-    setNewKey({ name: "" })
+  useEffect(() => { fetchKeys() }, [fetchKeys])
+
+  const handleAddKey = async () => {
+    if (!newKey.name) return
+    try {
+      const res = await fetch("/api/settings/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newKey),
+      })
+      const data = await res.json()
+      if (data.rawKey) {
+        setCreatedKey(data.rawKey)
+      }
+      await fetchKeys()
+      setNewKey({ name: "" })
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleDeleteKey = async (id: string) => {
+    try {
+      await fetch(`/api/settings/keys/${id}`, { method: "DELETE" })
+      await fetchKeys()
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleCopy = async () => {
+    if (!createdKey) return
+    await navigator.clipboard.writeText(createdKey)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const closeDialog = () => {
     setDialogOpen(false)
+    setCreatedKey(null)
+    setCopied(false)
   }
 
-  const handleDeleteKey = (id: string) => {
-    setKeys(keys.filter((k) => k.id !== id))
-  }
-
-  const toggleShowKey = (id: string) => {
-    setShowKeys((prev) => ({ ...prev, [id]: !prev[id] }))
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <Header title="密钥管理" description="管理 API 密钥" />
+        <div className="flex-1 overflow-auto p-6">
+          <div className="text-muted-foreground">加载中...</div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -84,7 +113,7 @@ export default function KeysSettingsPage() {
                     管理用于 API 访问的密钥
                   </CardDescription>
                 </div>
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) closeDialog() }}>
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="h-4 w-4 mr-2" />
@@ -93,29 +122,58 @@ export default function KeysSettingsPage() {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>创建新密钥</DialogTitle>
+                      <DialogTitle>{createdKey ? "密钥已创建" : "创建新密钥"}</DialogTitle>
                       <DialogDescription>
-                        创建一个新的 API 密钥
+                        {createdKey
+                          ? "请立即复制密钥，之后将无法再次查看完整密钥"
+                          : "创建一个新的 API 密钥"}
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">密钥名称</Label>
-                        <Input
-                          id="name"
-                          placeholder="例如：开发密钥"
-                          value={newKey.name}
-                          onChange={(e) =>
-                            setNewKey({ ...newKey, name: e.target.value })
-                          }
-                        />
+                    {createdKey ? (
+                      <div className="space-y-4">
+                        <div className="p-4 bg-muted rounded-lg font-mono text-sm break-all">
+                          {createdKey}
+                        </div>
+                        <Button onClick={handleCopy} className="w-full">
+                          {copied ? (
+                            <>
+                              <Check className="h-4 w-4 mr-2" />
+                              已复制
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-4 w-4 mr-2" />
+                              复制密钥
+                            </>
+                          )}
+                        </Button>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="name">密钥名称</Label>
+                          <Input
+                            id="name"
+                            placeholder="例如：开发密钥"
+                            value={newKey.name}
+                            onChange={(e) =>
+                              setNewKey({ ...newKey, name: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
                     <DialogFooter>
-                      <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                        取消
-                      </Button>
-                      <Button onClick={handleAddKey}>创建</Button>
+                      {createdKey ? (
+                        <Button onClick={closeDialog}>完成</Button>
+                      ) : (
+                        <>
+                          <Button variant="outline" onClick={closeDialog}>
+                            取消
+                          </Button>
+                          <Button onClick={handleAddKey}>创建</Button>
+                        </>
+                      )}
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
@@ -123,48 +181,42 @@ export default function KeysSettingsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {keys.map((key) => (
-                  <div
-                    key={key.id}
-                    className="flex items-center gap-4 p-4 border rounded-lg"
-                  >
-                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
-                      <Key className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="font-medium">{key.name}</div>
-                      </div>
-                      <div className="font-mono text-sm text-muted-foreground mt-1 flex items-center gap-2">
-                        {showKeys[key.id] ? key.key : `${key.key.slice(0, 8)}...`}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0"
-                          onClick={() => toggleShowKey(key.id)}
-                        >
-                          {showKeys[key.id] ? (
-                            <EyeOff className="h-4 w-4" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        创建于 {key.createdAt.toLocaleDateString()}
-                        {key.lastUsedAt &&
-                          ` · 最后使用 ${key.lastUsedAt.toLocaleDateString()}`}
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteKey(key.id)}
+                {keys.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    暂无密钥
+                  </p>
+                ) : (
+                  keys.map((key) => (
+                    <div
+                      key={key.id}
+                      className="flex items-center gap-4 p-4 border rounded-lg"
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
+                        <Key className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{key.name}</div>
+                        </div>
+                        <div className="font-mono text-sm text-muted-foreground mt-1">
+                          {key.keyPrefix}...
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-1">
+                          创建于 {new Date(key.createdAt).toLocaleDateString()}
+                          {key.lastUsedAt &&
+                            ` · 最后使用 ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteKey(key.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

@@ -245,6 +245,40 @@ export const userScripts = pgTable("user_scripts", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+export const envVariables = pgTable("env_variables", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const storageVolumes = pgTable("storage_volumes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  mountPath: text("mount_path").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const apiKeys = pgTable("api_keys", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 export const instanceCache = pgTable(
   "instance_cache",
   {
@@ -299,5 +333,11 @@ export type UserFeature = typeof userFeatures.$inferSelect;
 export type NewUserFeature = typeof userFeatures.$inferInsert;
 export type UserScript = typeof userScripts.$inferSelect;
 export type NewUserScript = typeof userScripts.$inferInsert;
+export type EnvVariable = typeof envVariables.$inferSelect;
+export type NewEnvVariable = typeof envVariables.$inferInsert;
+export type StorageVolume = typeof storageVolumes.$inferSelect;
+export type NewStorageVolume = typeof storageVolumes.$inferInsert;
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export { primaryKey };

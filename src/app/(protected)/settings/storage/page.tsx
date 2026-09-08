@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,58 +16,72 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Badge } from "@/components/ui/badge"
 
-interface PersistentVolume {
+interface StorageVolume {
   id: string
   name: string
   mountPath: string
-  sizeGi: number
-  workspaceIds: string[]
+  description: string | null
 }
 
 export default function StorageSettingsPage() {
-  const [volumes, setVolumes] = useState<PersistentVolume[]>([
-    {
-      id: "1",
-      name: "home-directory",
-      mountPath: "/home",
-      sizeGi: 10,
-      workspaceIds: ["ws-1", "ws-2"],
-    },
-    {
-      id: "2",
-      name: "project-data",
-      mountPath: "/data",
-      sizeGi: 50,
-      workspaceIds: ["ws-1"],
-    },
-  ])
+  const [volumes, setVolumes] = useState<StorageVolume[]>([])
+  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [newVolume, setNewVolume] = useState({
     name: "",
     mountPath: "",
-    sizeGi: 10,
+    description: "",
   })
 
-  const handleAddVolume = () => {
-    if (!newVolume.name || !newVolume.mountPath) return
-
-    const volume: PersistentVolume = {
-      id: Date.now().toString(),
-      name: newVolume.name,
-      mountPath: newVolume.mountPath,
-      sizeGi: newVolume.sizeGi,
-      workspaceIds: [],
+  const fetchVolumes = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/storage")
+      const data = await res.json()
+      setVolumes(data.volumes ?? [])
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
     }
+  }, [])
 
-    setVolumes([...volumes, volume])
-    setNewVolume({ name: "", mountPath: "", sizeGi: 10 })
-    setDialogOpen(false)
+  useEffect(() => { fetchVolumes() }, [fetchVolumes])
+
+  const handleAddVolume = async () => {
+    if (!newVolume.name || !newVolume.mountPath) return
+    try {
+      await fetch("/api/settings/storage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newVolume),
+      })
+      await fetchVolumes()
+      setNewVolume({ name: "", mountPath: "", description: "" })
+      setDialogOpen(false)
+    } catch {
+      // ignore
+    }
   }
 
-  const handleDeleteVolume = (id: string) => {
-    setVolumes(volumes.filter((v) => v.id !== id))
+  const handleDeleteVolume = async (id: string) => {
+    try {
+      await fetch(`/api/settings/storage/${id}`, { method: "DELETE" })
+      await fetchVolumes()
+    } catch {
+      // ignore
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <Header title="持久化目录" description="管理持久化存储卷" />
+        <div className="flex-1 overflow-auto p-6">
+          <div className="text-muted-foreground">加载中...</div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -125,17 +139,15 @@ export default function StorageSettingsPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="size">大小 (GB)</Label>
+                        <Label htmlFor="description">描述（可选）</Label>
                         <Input
-                          id="size"
-                          type="number"
-                          min={1}
-                          max={500}
-                          value={newVolume.sizeGi}
+                          id="description"
+                          placeholder="存储卷描述"
+                          value={newVolume.description}
                           onChange={(e) =>
                             setNewVolume({
                               ...newVolume,
-                              sizeGi: parseInt(e.target.value) || 10,
+                              description: e.target.value,
                             })
                           }
                         />
@@ -153,37 +165,42 @@ export default function StorageSettingsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {volumes.map((volume) => (
-                  <div
-                    key={volume.id}
-                    className="flex items-center gap-4 p-4 border rounded-lg"
-                  >
-                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
-                      <Folder className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="font-medium">{volume.name}</div>
-                        <Badge tone="gray">
-                          {volume.sizeGi} GB
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-muted-foreground font-mono mt-1">
-                        {volume.mountPath}
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        已关联 {volume.workspaceIds.length} 个工作区
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteVolume(volume.id)}
+                {volumes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    暂无存储卷
+                  </p>
+                ) : (
+                  volumes.map((volume) => (
+                    <div
+                      key={volume.id}
+                      className="flex items-center gap-4 p-4 border rounded-lg"
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
+                        <Folder className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{volume.name}</div>
+                        </div>
+                        <div className="text-sm text-muted-foreground font-mono mt-1">
+                          {volume.mountPath}
+                        </div>
+                        {volume.description && (
+                          <div className="text-sm text-muted-foreground mt-1">
+                            {volume.description}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteVolume(volume.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
