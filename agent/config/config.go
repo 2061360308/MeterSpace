@@ -88,6 +88,7 @@ func loadFromFile(cfg *Config, path string) error {
 
 	var fileCfg struct {
 		WorkspaceID          string   `json:"workspace_id"`
+		InstanceID           string   `json:"instance_id"`
 		BackendURL           string   `json:"backend_url"`
 		BackendToken         string   `json:"backend_token"`
 		HeartbeatInterval    int      `json:"heartbeat_interval"`
@@ -109,6 +110,9 @@ func loadFromFile(cfg *Config, path string) error {
 	// Apply file config
 	if fileCfg.WorkspaceID != "" {
 		cfg.WorkspaceID = fileCfg.WorkspaceID
+	}
+	if fileCfg.InstanceID != "" {
+		cfg.InstanceID = fileCfg.InstanceID
 	}
 	if fileCfg.BackendURL != "" {
 		cfg.BackendURL = fileCfg.BackendURL

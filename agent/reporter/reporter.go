@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/workspace-cloud/agent/access"
@@ -15,35 +16,45 @@ import (
 type Reporter struct {
 	backendURL   string
 	backendToken string
-	workspaceID  string
+	instanceID   string
 	client       *http.Client
+
+	// Log streaming
+	logBuffer []LogEntry
+	logMu     sync.Mutex
+	logCh     chan LogEntry
+	doneCh    chan struct{}
 }
 
 // NewReporter creates a new reporter
-func NewReporter(backendURL, backendToken, workspaceID string) *Reporter {
-	return &Reporter{
+func NewReporter(backendURL, backendToken, instanceID string) *Reporter {
+	r := &Reporter{
 		backendURL:   backendURL,
 		backendToken: backendToken,
-		workspaceID:  workspaceID,
+		instanceID:   instanceID,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		logCh:  make(chan LogEntry, 100),
+		doneCh: make(chan struct{}),
 	}
+	go r.logStreamLoop()
+	return r
 }
 
 // HeartbeatPayload represents the heartbeat data
 type HeartbeatPayload struct {
-	WorkspaceID    string              `json:"workspace_id"`
-	InstanceID     string              `json:"instance_id,omitempty"`
-	Status         string              `json:"status"`
-	Active         bool                `json:"active"`
-	Uptime         int64               `json:"uptime"`
-	LastActiveAt   time.Time           `json:"last_active_at"`
-	ScriptStatus   string              `json:"script_status"`
-	ScriptError    string              `json:"script_error,omitempty"`
-	ResourceUsage  *ResourceUsage      `json:"resource_usage,omitempty"`
+	WorkspaceID    string                `json:"workspace_id"`
+	InstanceID     string                `json:"instance_id,omitempty"`
+	Status         string                `json:"status"`
+	Active         bool                  `json:"active"`
+	Uptime         int64                 `json:"uptime"`
+	LastActiveAt   time.Time             `json:"last_active_at"`
+	ScriptStatus   string                `json:"script_status"`
+	ScriptError    string                `json:"script_error,omitempty"`
+	ResourceUsage  *ResourceUsage        `json:"resource_usage,omitempty"`
 	AccessSummary  *access.AccessSummary `json:"access_summary,omitempty"`
-	Metadata       *Metadata           `json:"metadata,omitempty"`
+	Metadata       *Metadata             `json:"metadata,omitempty"`
 }
 
 // ResourceUsage represents resource usage
@@ -55,31 +66,33 @@ type ResourceUsage struct {
 
 // Metadata represents additional metadata
 type Metadata struct {
-	IDEConnected bool   `json:"ide_connected"`
-	TerminalCount int   `json:"terminal_count"`
-	GitDirty      bool  `json:"git_dirty"`
+	IDEConnected  bool   `json:"ide_connected"`
+	TerminalCount int    `json:"terminal_count"`
+	GitDirty      bool   `json:"git_dirty"`
 	AgentVersion  string `json:"agent_version"`
 }
 
 // ReadyPayload represents the ready notification
 type ReadyPayload struct {
-	AgentToken    string `json:"agent_token"`
-	InstanceID    string `json:"instance_id"`
-	PublicIP      string `json:"public_ip"`
-	AgentVersion  string `json:"agent_version"`
+	AgentToken   string `json:"agent_token"`
+	InstanceID   string `json:"instance_id"`
+	PublicIP     string `json:"public_ip"`
+	AgentVersion string `json:"agent_version"`
 }
 
 // StatusPayload represents status change
 type StatusPayload struct {
 	AgentToken string `json:"agent_token"`
 	Status     string `json:"status"`
-	Reason     string `json:"reason,omitempty"`
+	Phase      string `json:"phase,omitempty"`
+	Message    string `json:"message,omitempty"`
 }
 
 // LogEntry represents a single log entry
 type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
+	Phase     string    `json:"phase,omitempty"`
 	Message   string    `json:"message"`
 }
 
@@ -95,6 +108,63 @@ type ErrorPayload struct {
 	ErrorType    string `json:"error_type"`
 	ErrorMessage string `json:"error_message"`
 	StackTrace   string `json:"stack_trace,omitempty"`
+}
+
+// SendLog queues a log entry for streaming to backend
+func (r *Reporter) SendLog(entry LogEntry) {
+	select {
+	case r.logCh <- entry:
+	default:
+		// Channel full, drop log to avoid blocking
+	}
+}
+
+// logStreamLoop reads logs from channel and sends in batches
+func (r *Reporter) logStreamLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case entry := <-r.logCh:
+			r.logMu.Lock()
+			r.logBuffer = append(r.logBuffer, entry)
+			// Flush if buffer is large
+			if len(r.logBuffer) >= 10 {
+				r.flushLogs()
+			}
+			r.logMu.Unlock()
+		case <-ticker.C:
+			r.logMu.Lock()
+			if len(r.logBuffer) > 0 {
+				r.flushLogs()
+			}
+			r.logMu.Unlock()
+		case <-r.doneCh:
+			// Final flush
+			r.logMu.Lock()
+			r.flushLogs()
+			r.logMu.Unlock()
+			return
+		}
+	}
+}
+
+// flushLogs sends buffered logs to backend
+func (r *Reporter) flushLogs() {
+	if len(r.logBuffer) == 0 {
+		return
+	}
+	logs := r.logBuffer
+	r.logBuffer = nil
+	r.logMu.Unlock()
+	r.ReportLogs(logs)
+	r.logMu.Lock()
+}
+
+// Stop stops the log stream
+func (r *Reporter) Stop() {
+	close(r.doneCh)
 }
 
 // ReportReady notifies the backend that the agent is ready
@@ -114,11 +184,12 @@ func (r *Reporter) ReportHeartbeat(payload *HeartbeatPayload) error {
 }
 
 // ReportStatus reports status change
-func (r *Reporter) ReportStatus(status, reason string) error {
+func (r *Reporter) ReportStatus(status, phase, message string) error {
 	payload := StatusPayload{
 		AgentToken: r.backendToken,
 		Status:     status,
-		Reason:     reason,
+		Phase:      phase,
+		Message:    message,
 	}
 	return r.post("/agent-status", payload)
 }
@@ -148,7 +219,7 @@ func (r *Reporter) ReportError(errorType, errorMessage, stackTrace string) error
 
 // post sends a POST request to the backend
 func (r *Reporter) post(path string, payload interface{}) error {
-	url := fmt.Sprintf("%s/api/health/%s%s", r.backendURL, r.workspaceID, path)
+	url := fmt.Sprintf("%s/api/instances/%s%s", r.backendURL, r.instanceID, path)
 
 	data, err := json.Marshal(payload)
 	if err != nil {

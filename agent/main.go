@@ -27,16 +27,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("[agent] Starting agent v%s for workspace %s\n", agentVersion, cfg.WorkspaceID)
+	fmt.Printf("[agent] Starting agent v%s for instance %s\n", agentVersion, cfg.InstanceID)
 
 	// Create access tracker (30 minute window)
 	tracker := access.NewTracker(30*time.Minute, cfg.AllowedIPs)
 
-	// Create reporter
-	r := reporter.NewReporter(cfg.BackendURL, cfg.BackendToken, cfg.WorkspaceID)
+	// Create reporter with instanceId
+	r := reporter.NewReporter(cfg.BackendURL, cfg.BackendToken, cfg.InstanceID)
 
 	// Create executor
 	exec := executor.NewExecutor(cfg.ScriptPath, cfg.ScriptTimeout)
+
+	// Connect executor log channel to reporter
+	logCh := make(chan executor.LogEntry, 100)
+	exec.SetLogChannel(logCh)
+
+	// Forward logs from executor to reporter
+	go func() {
+		for entry := range logCh {
+			r.SendLog(reporter.LogEntry{
+				Timestamp: entry.Timestamp,
+				Level:     entry.Level,
+				Phase:     entry.Phase,
+				Message:   entry.Message,
+			})
+		}
+	}()
 
 	// Create heartbeat manager
 	hb := heartbeat.NewManager(
@@ -59,13 +75,20 @@ func main() {
 
 	exec.SetOnStatusChange(func(status executor.ScriptStatus, errMsg string) {
 		fmt.Printf("[script] Status changed to: %s\n", status)
-		if status == executor.StatusSuccess {
+		switch status {
+		case executor.StatusSuccess:
 			hb.SetStatus("ready")
 			hb.SetActive(true)
-		} else if status == executor.StatusFailed || status == executor.StatusTimeout {
+			// Report status to backend
+			if err := r.ReportStatus("running", "completed", "startup script completed successfully"); err != nil {
+				fmt.Printf("[agent] Failed to report status: %v\n", err)
+			}
+		case executor.StatusFailed, executor.StatusTimeout:
 			hb.SetStatus("error")
 			// Report error to backend
-			r.ReportError("script_execution_failed", errMsg, "")
+			if err := r.ReportError("script_execution_failed", errMsg, ""); err != nil {
+				fmt.Printf("[agent] Failed to report error: %v\n", err)
+			}
 		}
 	})
 
@@ -77,15 +100,6 @@ func main() {
 		fmt.Printf("[agent] Executing startup script: %s\n", cfg.ScriptPath)
 		if err := exec.Execute(); err != nil {
 			fmt.Printf("[agent] Script execution failed: %v\n", err)
-		}
-	}()
-
-	// Report ready to backend
-	go func() {
-		// Wait a bit for the script to start
-		time.Sleep(2 * time.Second)
-		if err := r.ReportReady(cfg.InstanceID, "", agentVersion); err != nil {
-			fmt.Printf("[agent] Failed to report ready: %v\n", err)
 		}
 	}()
 
@@ -107,6 +121,7 @@ func main() {
 
 	// Graceful shutdown
 	hb.Stop()
+	r.Stop()
 	if err := apiServer.Stop(); err != nil {
 		fmt.Printf("[agent] Error stopping API server: %v\n", err)
 	}

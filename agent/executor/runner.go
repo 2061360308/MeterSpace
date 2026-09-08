@@ -25,19 +25,21 @@ const (
 type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
+	Phase     string    `json:"phase,omitempty"`
 	Message   string    `json:"message"`
 }
 
 // Executor handles script execution
 type Executor struct {
-	scriptPath    string
-	timeout       time.Duration
-	status        ScriptStatus
-	error         string
-	logs          []LogEntry
-	logsMu        sync.RWMutex
-	onLog         func(LogEntry)
+	scriptPath     string
+	timeout        time.Duration
+	status         ScriptStatus
+	error          string
+	logs           []LogEntry
+	logsMu         sync.RWMutex
+	onLog          func(LogEntry)
 	onStatusChange func(ScriptStatus, string)
+	logCh          chan<- LogEntry
 }
 
 // NewExecutor creates a new executor
@@ -58,6 +60,11 @@ func (e *Executor) SetOnLog(fn func(LogEntry)) {
 // SetOnStatusChange sets the callback for status changes
 func (e *Executor) SetOnStatusChange(fn func(ScriptStatus, string)) {
 	e.onStatusChange = fn
+}
+
+// SetLogChannel sets a channel for streaming logs
+func (e *Executor) SetLogChannel(ch chan<- LogEntry) {
+	e.logCh = ch
 }
 
 // GetStatus returns the current script status
@@ -192,6 +199,15 @@ func (e *Executor) addLog(entry LogEntry) {
 
 	if e.onLog != nil {
 		e.onLog(entry)
+	}
+
+	// Send to channel for streaming to backend
+	if e.logCh != nil {
+		select {
+		case e.logCh <- entry:
+		default:
+			// Channel full, drop to avoid blocking
+		}
 	}
 }
 
