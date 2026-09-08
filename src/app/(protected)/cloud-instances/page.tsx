@@ -9,15 +9,11 @@ import { ButtonGroup } from "@/components/ui/button-group"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Separator } from "@/components/ui/separator"
 
 type CloudInstance = {
   id: string
@@ -94,40 +90,64 @@ export default function CloudInstancesPage() {
       {/* 操作栏 */}
       <div className="flex items-center justify-end px-6 py-1.5">
         <ButtonGroup>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Popover>
+            <PopoverTrigger asChild>
               <Button variant="outline" size="icon-sm">
                 <ListFilterIcon data-icon="inline-start" />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuGroup>
-                <DropdownMenuRadioGroup value={cpuFilter} onValueChange={setCpuFilter}>
-                  <div className="px-2 py-1 text-xs text-muted-foreground">CPU</div>
-                  {CPU_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuRadioGroup value={memoryFilter} onValueChange={setMemoryFilter}>
-                  <div className="px-2 py-1 text-xs text-muted-foreground">内存</div>
-                  {MEMORY_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
-              {hasFilter && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}>
-                    清除筛选
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-0">
+              <div className="px-4 py-2.5 text-sm font-medium">规格参数</div>
+              <Separator />
+              <div className="p-4 space-y-3">
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground">CPU</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CPU_OPTIONS.map((opt) => (
+                      <Button
+                        key={opt}
+                        variant={cpuFilter === opt ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => setCpuFilter(opt)}
+                      >
+                        {opt}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground">内存</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MEMORY_OPTIONS.map((opt) => (
+                      <Button
+                        key={opt}
+                        variant={memoryFilter === opt ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => setMemoryFilter(opt)}
+                      >
+                        {opt}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {hasFilter && (
+                  <>
+                    <Separator />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full h-7 text-xs text-muted-foreground"
+                      onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}
+                    >
+                      清除筛选
+                    </Button>
+                  </>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button asChild variant="outline" size="sm">
             <Link href={`/cloud-instances/new?provider=${provider}`}>
               <Plus data-icon="inline-start" />
