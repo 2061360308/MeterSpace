@@ -63,7 +63,7 @@ const MEMORY_VALUES = [0, 4, 8, 16, 32, 64]
 export default function CloudInstancesPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const provider = searchParams.get("provider") ?? "aliyun"
+  const provider = searchParams.get("provider") ?? "all"
 
   const [instances, setInstances] = React.useState<CloudInstance[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -84,7 +84,7 @@ export default function CloudInstancesPage() {
 
   const filtered = React.useMemo(() => {
     return instances.filter((i) => {
-      if (i.provider !== provider) return false
+      if (provider !== "all" && i.provider !== provider) return false
       const cpuVal = CPU_VALUES[cpuIndex]
       const memVal = MEMORY_VALUES[memoryIndex]
       if (cpuVal > 0 && !i.instanceType.includes(String(cpuVal))) return false
