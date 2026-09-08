@@ -48,6 +48,7 @@ const data = {
       title: "弹性空间",
       url: "/cloud-instances",
       icon: Cloud,
+      alwaysOpen: true,
       items: [
         { title: "阿里云", url: "/cloud-instances?provider=aliyun" },
         { title: "腾讯云", url: "/cloud-instances?provider=tencent" },
