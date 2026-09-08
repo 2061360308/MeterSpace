@@ -5,7 +5,6 @@ import {
   integer,
   timestamp,
   boolean,
-  decimal,
   bigint,
   jsonb,
   real,
@@ -40,22 +39,35 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+export const cloudInstances = pgTable("cloud_instances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  provider: text("provider").notNull().default("aliyun"),
+  region: text("region").notNull(),
+  instanceType: text("instance_type").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  provider: text("provider").notNull().default("aliyun"),
   region: text("region").notNull(),
-  instanceType: text("instance_type").notNull(),
+  cloudInstanceId: uuid("cloud_instance_id")
+    .notNull()
+    .references(() => cloudInstances.id, { onDelete: "restrict" }),
+  imageUri: text("image_uri").notNull(),
   diskCategory: text("disk_category").default("cloud_essd"),
   diskSize: integer("disk_size").default(40),
   bandwidth: integer("bandwidth").default(10),
   publicIp: boolean("public_ip").default(true),
-  spotStrategy: text("spot_strategy").default("NoSpot"),
-  spotDuration: integer("spot_duration").default(1),
-  spotPriceLimit: decimal("spot_price_limit", { precision: 8, scale: 4 }),
-  imageUri: text("image_uri").notNull(),
   features: jsonb("features").$type<
     { id: string; name: string; version: string; installScript: string }[]
   >().default([]),
@@ -146,6 +158,8 @@ export const priceCache = pgTable(
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
+export type CloudInstance = typeof cloudInstances.$inferSelect;
+export type NewCloudInstance = typeof cloudInstances.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 export type WorkspaceState = typeof workspaceStates.$inferSelect;

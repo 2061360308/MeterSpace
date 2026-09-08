@@ -16,10 +16,11 @@ const INITIAL_STATE: WizardState = {
   currentStep: 1,
   completedSteps: new Set(),
   name: "",
+  provider: "aliyun",
   region: "",
-  useSpot: false,
-  spotDuration: 0,
-  spotPriceLimit: null,
+  cloudInstanceId: null,
+  cloudInstances: [],
+  cloudInstancesLoading: false,
   instanceType: "",
   instanceTypes: [],
   instanceTypesLoading: false,
@@ -65,7 +66,7 @@ export function NewWorkspaceForm() {
         if (!state.region) return "请选择地域";
         return null;
       case 2:
-        if (!state.instanceType) return "请选择实例规格";
+        if (!state.cloudInstanceId) return "请选择或创建一个云实例";
         return null;
       case 3:
         return null;
@@ -78,13 +79,6 @@ export function NewWorkspaceForm() {
   };
 
   const stepError = validateStep(state.currentStep);
-
-  const spotStrategy =
-    !state.useSpot
-      ? "NoSpot"
-      : state.spotPriceLimit != null
-      ? "SpotWithPriceLimit"
-      : "SpotAsPriceGo";
 
   // Load instance types + availability when region changes
   useEffect(() => {
@@ -128,6 +122,38 @@ export function NewWorkspaceForm() {
     return () => { cancelled = true; };
   }, [state.region]);
 
+  // Load cloud instances when region changes
+  useEffect(() => {
+    if (!state.region) return;
+    let cancelled = false;
+
+    async function loadCloudInstances() {
+      setState((s) => ({ ...s, cloudInstancesLoading: true }));
+      try {
+        const res = await fetch(`/api/cloud-instances?region=${encodeURIComponent(state.region)}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            cloudInstances: data.instances ?? [],
+            cloudInstancesLoading: false,
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            cloudInstances: [],
+            cloudInstancesLoading: false,
+          }));
+        }
+      }
+    }
+
+    loadCloudInstances();
+    return () => { cancelled = true; };
+  }, [state.region]);
+
   // Price calculation
   const fetchPrice = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -146,8 +172,8 @@ export function NewWorkspaceForm() {
           diskCategory: "cloud_essd",
           diskSize: state.diskSize,
           bandwidth: state.bandwidth,
-          spotStrategy,
-          spotDuration: state.spotDuration,
+          spotStrategy: "NoSpot",
+          spotDuration: 1,
           durationHours: 4,
         }),
       });
@@ -166,8 +192,6 @@ export function NewWorkspaceForm() {
     state.instanceType,
     state.diskSize,
     state.bandwidth,
-    spotStrategy,
-    state.spotDuration,
   ]);
 
   useEffect(() => {
@@ -189,15 +213,13 @@ export function NewWorkspaceForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: state.name,
+          provider: state.provider,
           region: state.region,
-          instanceType: state.instanceType,
+          cloudInstanceId: state.cloudInstanceId,
           diskCategory: "cloud_essd",
           diskSize: state.diskSize,
           bandwidth: state.bandwidth,
           publicIp: true,
-          spotStrategy,
-          spotDuration: state.spotDuration,
-          spotPriceLimit: state.spotPriceLimit,
           imageUri: state.imageUri,
           features,
           gitProvider: state.gitRepoUrl ? "github" : null,

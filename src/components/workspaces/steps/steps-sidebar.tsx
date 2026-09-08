@@ -23,12 +23,12 @@ function getStepSummary(step: number, state: WizardState): string {
       return state.name && region ? `${state.name} · ${region.label}` : state.name || region?.label || "未设置";
     }
     case 2: {
-      const instance = state.instanceTypes.find(
-        (t) => t.instanceTypeId === state.instanceType
+      const cloudInstance = state.cloudInstances.find(
+        (i) => i.id === state.cloudInstanceId
       );
       const parts: string[] = [];
-      if (instance) {
-        parts.push(`${instance.cpuCoreCount}核${instance.memorySize}G`);
+      if (cloudInstance) {
+        parts.push(cloudInstance.name);
       }
       parts.push(`${state.diskSize}G 磁盘`);
       parts.push(`${state.bandwidth}Mbps`);
@@ -69,6 +69,12 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
       return (
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between">
+            <dt className="text-muted-foreground">云实例</dt>
+            <dd className="font-medium truncate ml-2">
+              {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.name || "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
             <dt className="text-muted-foreground">规格</dt>
             <dd className="font-medium truncate ml-2">
               {state.instanceType || "—"}
@@ -82,12 +88,6 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
             <dt className="text-muted-foreground">带宽</dt>
             <dd className="font-medium">{state.bandwidth}Mbps</dd>
           </div>
-          {state.useSpot && (
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">计费</dt>
-              <dd className="font-medium">抢占式</dd>
-            </div>
-          )}
           {!state.priceData.loading && state.priceData.hourly && (
             <div className="flex justify-between pt-1 mt-1 border-t">
               <dt className="text-muted-foreground">价格</dt>

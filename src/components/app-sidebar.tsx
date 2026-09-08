@@ -15,6 +15,7 @@ import {
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
+import { NavCloudInstances } from "@/components/nav-cloud-instances"
 import { RegionSwitcher } from "@/components/region-switcher"
 import {
   Sidebar,
@@ -128,6 +129,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
+        <NavCloudInstances />
         <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>

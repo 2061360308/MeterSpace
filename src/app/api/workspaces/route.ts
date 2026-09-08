@@ -14,17 +14,13 @@ const featureSchema = z.object({
 
 const bodySchema = z.object({
   name: z.string().min(1).max(64),
+  provider: z.string().default("aliyun"),
   region: z.string().min(1),
-  instanceType: z.string().min(1),
+  cloudInstanceId: z.string().uuid(),
   diskCategory: z.string().default("cloud_essd"),
   diskSize: z.number().int().min(20).default(40),
   bandwidth: z.number().int().min(1).default(10),
   publicIp: z.boolean().default(true),
-  spotStrategy: z
-    .enum(["NoSpot", "SpotAsPriceGo", "SpotWithPriceLimit"])
-    .default("NoSpot"),
-  spotDuration: z.number().int().default(1),
-  spotPriceLimit: z.number().nullable().optional(),
   imageUri: z.string().min(1),
   features: z.array(featureSchema).default([]),
   gitProvider: z.string().nullable().optional(),

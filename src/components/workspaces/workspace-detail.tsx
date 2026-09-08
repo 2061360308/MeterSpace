@@ -6,10 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { formatBytes, STATUS_META } from "@/lib/utils";
 
 interface Log {
@@ -22,7 +18,11 @@ interface Log {
 interface Detail {
   id: string;
   name: string;
-  instanceType: string;
+  provider: string;
+  region: string;
+  cloudInstanceId: string;
+  cloudInstanceName: string | null;
+  cloudInstanceType: string | null;
   diskCategory: string;
   diskSize: number;
   bandwidth: number;
@@ -30,7 +30,6 @@ interface Detail {
   features: { id: string; name: string; version: string }[];
   gitRepoUrl: string | null;
   gitBranch: string | null;
-  region: string;
   createdAt: string;
   state: {
     status: string;
@@ -50,10 +49,6 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
-  const [spotPopoverOpen, setSpotPopoverOpen] = useState(false);
-  const [spotAutoBid, setSpotAutoBid] = useState(true);
-  const [spotPriceLimit, setSpotPriceLimit] = useState<string>("");
-  const [spotDuration1h, setSpotDuration1h] = useState(true);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/workspaces/${id}`);
@@ -97,20 +92,6 @@ export function WorkspaceDetail({ id }: { id: string }) {
     setBusy(false);
   }
 
-  async function handleSpotStart() {
-    const spotStrategy = spotAutoBid ? "SpotAsPriceGo" : "SpotWithPriceLimit";
-    const spotDuration = spotDuration1h ? 1 : 0;
-    const priceLimit = !spotAutoBid && spotPriceLimit ? parseFloat(spotPriceLimit) : null;
-    
-    await action(`/api/workspaces/${id}/start`, "POST", {
-      mode: "custom",
-      spotStrategy,
-      spotDuration,
-      spotPriceLimit: priceLimit,
-    });
-    setSpotPopoverOpen(false);
-  }
-
   if (!detail) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -132,7 +113,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
         <div>
           <h1 className="text-xl font-semibold">{detail.name}</h1>
           <p className="text-sm text-gray-500">
-            {detail.instanceType} · {detail.diskCategory} {detail.diskSize}GB ·{" "}
+            {detail.cloudInstanceName ?? "未绑定云实例"} · {detail.cloudInstanceType ?? ""} · {detail.diskCategory} {detail.diskSize}GB ·{" "}
             {detail.bandwidth}Mbps
           </p>
         </div>
@@ -207,69 +188,14 @@ export function WorkspaceDetail({ id }: { id: string }) {
         <h2 className="font-medium">操作</h2>
         <div className="flex flex-wrap gap-2">
           {(status === "STOPPED" || status === "FAILED") && (
-            <>
-              <Button
-                disabled={busy}
-                onClick={() => action(`/api/workspaces/${id}/start`, "POST", {
-                  mode: "custom",
-                  spotStrategy: "NoSpot",
-                })}
-              >
-                按量启动
-              </Button>
-              <Popover open={spotPopoverOpen} onOpenChange={setSpotPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="secondary" disabled={busy}>
-                    抢占式启动
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-72" align="start">
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="spot-1h"
-                          checked={spotDuration1h}
-                          onCheckedChange={(checked) => setSpotDuration1h(checked === true)}
-                        />
-                        <Label htmlFor="spot-1h" className="text-sm font-normal cursor-pointer">
-                          保障 1 小时
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="spot-auto"
-                          checked={spotAutoBid}
-                          onCheckedChange={(checked) => setSpotAutoBid(checked === true)}
-                        />
-                        <Label htmlFor="spot-auto" className="text-sm font-normal cursor-pointer">
-                          自动出价
-                        </Label>
-                      </div>
-                    </div>
-                    {!spotAutoBid && (
-                      <div className="space-y-2">
-                        <Label className="text-sm">最高价格（元/时）</Label>
-                        <Input
-                          type="number"
-                          step="0.0001"
-                          placeholder="0.1000"
-                          value={spotPriceLimit}
-                          onChange={(e) => setSpotPriceLimit(e.target.value)}
-                        />
-                      </div>
-                    )}
-                    <Button
-                      className="w-full"
-                      disabled={busy || (!spotAutoBid && !spotPriceLimit)}
-                      onClick={handleSpotStart}
-                    >
-                      确认启动
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </>
+            <Button
+              disabled={busy}
+              onClick={() => action(`/api/workspaces/${id}/start`, "POST", {
+                mode: "quick",
+              })}
+            >
+              启动
+            </Button>
           )}
           {running && (
             <Button

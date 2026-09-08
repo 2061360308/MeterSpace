@@ -8,12 +8,7 @@ type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
   mode: z.enum(["quick", "custom"]).default("quick"),
-  instanceType: z.string().optional(),
-  spotStrategy: z
-    .enum(["NoSpot", "SpotAsPriceGo", "SpotWithPriceLimit"])
-    .optional(),
-  spotDuration: z.number().int().optional(),
-  spotPriceLimit: z.number().nullable().optional(),
+  cloudInstanceId: z.string().uuid().optional(),
   diskCategory: z.string().optional(),
   diskSize: z.number().int().optional(),
   bandwidth: z.number().int().optional(),

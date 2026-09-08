@@ -6,6 +6,7 @@ import {
   workspaceStates,
   auditLogs,
   settings,
+  cloudInstances,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getUserCredentials } from "@/lib/aliyun/auth";
@@ -15,7 +16,6 @@ import {
   runCommand,
   describeInvocationResults,
   modifyInstanceAutoReleaseTime,
-  describeSpotAdvice,
   describePrice,
   findDebianImage,
 } from "@/lib/aliyun/ecs";
@@ -53,16 +53,14 @@ export function generateAccessToken(): string {
 
 export interface CreateWorkspaceInput {
   name: string;
+  provider: string;
   region: string;
-  instanceType: string;
+  cloudInstanceId: string;
+  imageUri: string;
   diskCategory: string;
   diskSize: number;
   bandwidth: number;
   publicIp: boolean;
-  spotStrategy: string;
-  spotDuration: number;
-  spotPriceLimit?: number | null;
-  imageUri: string;
   features: { id: string; version: string }[];
   gitProvider?: string | null;
   gitRepoUrl?: string | null;
@@ -106,11 +104,12 @@ async function buildEntrypointVars(
 
 async function launchInstance(
   workspace: typeof workspaces.$inferSelect,
+  cloudInstance: typeof cloudInstances.$inferSelect,
   accessToken: string,
 ): Promise<string> {
   const creds = await getUserCredentials(workspace.userId);
-  const s = await getUserSettings(workspace.userId);
   const resources = await ensureRegionResources(creds, workspace.region);
+  const s = await getUserSettings(workspace.userId);
   const releaseHours =
     workspace.releaseHours ?? s.defaultReleaseHours;
 
@@ -125,18 +124,16 @@ async function launchInstance(
   const { instanceId } = await runInstances(creds, {
     region: workspace.region,
     imageId: resources.imageId,
-    instanceType: workspace.instanceType,
+    instanceType: cloudInstance.instanceType,
     securityGroupId: resources.securityGroupId,
     vSwitchId: resources.vSwitchId,
     ramRoleName: RAM_ROLE_NAME,
     diskCategory: workspace.diskCategory ?? "cloud_essd",
     diskSize: workspace.diskSize ?? 40,
     bandwidth: workspace.bandwidth ?? 10,
-    spotStrategy: workspace.spotStrategy ?? "NoSpot",
-    spotDuration: workspace.spotDuration ?? 1,
-    spotPriceLimit: workspace.spotPriceLimit
-      ? Number(workspace.spotPriceLimit)
-      : null,
+    spotStrategy: "NoSpot",
+    spotDuration: 1,
+    spotPriceLimit: null,
     autoReleaseTime,
     userData,
     tags: { "workspace-id": workspace.id, "managed-by": "workspace-cloud" },
@@ -148,52 +145,10 @@ async function launchInstance(
 /** Pre-launch validation: spot availability + balance sufficiency. */
 async function preflightCheck(
   workspace: typeof workspaces.$inferSelect,
+  cloudInstance: typeof cloudInstances.$inferSelect,
   releaseHours: number,
 ): Promise<void> {
   const creds = await getUserCredentials(workspace.userId);
-
-  if ((workspace.spotStrategy ?? "NoSpot") !== "NoSpot") {
-    const advice = await describeSpotAdvice(
-      creds,
-      workspace.region,
-      workspace.instanceType,
-      workspace.spotDuration ?? 1,
-    );
-    if (!advice.available) {
-      throw new WorkspaceError(
-        "该规格当前无可用抢占实例，请改用按量付费或更换规格/地域",
-        409,
-      );
-    }
-    
-    // 检查手动出价是否合理
-    if (workspace.spotStrategy === "SpotWithPriceLimit" && workspace.spotPriceLimit) {
-      const imageId = await findDebianImage(creds, workspace.region);
-      const details = await describePrice(creds, {
-        region: workspace.region,
-        imageId,
-        instanceType: workspace.instanceType,
-        spotStrategy: "SpotAsPriceGo",
-        spotDuration: workspace.spotDuration ?? 1,
-        diskCategory: workspace.diskCategory ?? "cloud_essd",
-        diskSize: workspace.diskSize ?? 40,
-        bandwidth: workspace.bandwidth ?? 10,
-      });
-      const instanceDetail = details.find(d => d.resource === "instanceType");
-      const currentSpotPrice = instanceDetail?.tradePrice ?? 0;
-      
-      // 四舍五入到4位小数避免浮点数精度问题
-      const userPrice = Math.round(Number(workspace.spotPriceLimit) * 10000) / 10000;
-      const marketPrice = Math.round(currentSpotPrice * 10000) / 10000;
-      
-      if (userPrice < marketPrice) {
-        throw new WorkspaceError(
-          `出价过低：当前市场价格为 ¥${marketPrice.toFixed(4)}/时，您的出价 ¥${userPrice.toFixed(4)}/时 低于市场价。建议提高出价或改用自动出价`,
-          409,
-        );
-      }
-    }
-  }
 
   try {
     const balance = await queryAccountBalance(creds);
@@ -201,12 +156,10 @@ async function preflightCheck(
     const details = await describePrice(creds, {
       region: workspace.region,
       imageId,
-      instanceType: workspace.instanceType,
-      spotStrategy: workspace.spotStrategy ?? "NoSpot",
-      spotDuration: workspace.spotDuration ?? 1,
-      spotPriceLimit: workspace.spotPriceLimit
-        ? Number(workspace.spotPriceLimit)
-        : null,
+      instanceType: cloudInstance.instanceType,
+      spotStrategy: "NoSpot",
+      spotDuration: 1,
+      spotPriceLimit: null,
       diskCategory: workspace.diskCategory ?? "cloud_essd",
       diskSize: workspace.diskSize ?? 40,
       bandwidth: workspace.bandwidth ?? 10,
@@ -262,18 +215,14 @@ export async function createWorkspace(
     .values({
       userId,
       name: input.name,
+      provider: input.provider,
       region: input.region,
-      instanceType: input.instanceType,
+      cloudInstanceId: input.cloudInstanceId,
+      imageUri: input.imageUri,
       diskCategory: input.diskCategory,
       diskSize: input.diskSize,
       bandwidth: input.bandwidth,
       publicIp: input.publicIp,
-      spotStrategy: input.spotStrategy,
-      spotDuration: input.spotDuration,
-      spotPriceLimit: input.spotPriceLimit
-        ? String(input.spotPriceLimit)
-        : null,
-      imageUri: input.imageUri,
       features,
       gitProvider: input.gitProvider ?? null,
       gitRepoUrl: input.gitRepoUrl ?? null,
@@ -282,7 +231,7 @@ export async function createWorkspace(
       autoClone: input.autoClone ?? true,
       releaseHours: input.releaseHours ?? null,
       idleMinutes: input.idleMinutes ?? null,
-      ossWorkspacePath: null, // filled below after id is known
+      ossWorkspacePath: null,
     })
     .returning();
 
@@ -304,7 +253,7 @@ export async function createWorkspace(
     userId,
     workspaceId: workspace.id,
     action: "CREATE",
-    details: { name: input.name, instanceType: input.instanceType },
+    details: { name: input.name, provider: input.provider, region: input.region },
   });
 
   // Ensure OSS bucket exists (per region).
@@ -329,10 +278,7 @@ export async function createWorkspace(
 
 export interface StartWorkspaceInput {
   mode: "quick" | "custom";
-  instanceType?: string;
-  spotStrategy?: string;
-  spotDuration?: number;
-  spotPriceLimit?: number | null;
+  cloudInstanceId?: string;
   diskCategory?: string;
   diskSize?: number;
   bandwidth?: number;
@@ -352,24 +298,22 @@ export async function startWorkspace(
     const patch: Partial<typeof workspaces.$inferInsert> = {
       updatedAt: new Date(),
     };
-    if (input.instanceType) patch.instanceType = input.instanceType;
-    if (input.spotStrategy) patch.spotStrategy = input.spotStrategy;
-    if (input.spotDuration !== undefined)
-      patch.spotDuration = input.spotDuration;
-    if (input.spotPriceLimit !== undefined)
-      patch.spotPriceLimit = input.spotPriceLimit
-        ? String(input.spotPriceLimit)
-        : null;
+    if (input.cloudInstanceId) patch.cloudInstanceId = input.cloudInstanceId;
     if (input.diskCategory) patch.diskCategory = input.diskCategory;
     if (input.diskSize) patch.diskSize = input.diskSize;
     if (input.bandwidth) patch.bandwidth = input.bandwidth;
     await db.update(workspaces).set(patch).where(eq(workspaces.id, workspaceId));
-    workspace.instanceType = input.instanceType ?? workspace.instanceType;
-    workspace.spotStrategy = input.spotStrategy ?? workspace.spotStrategy;
-    workspace.diskCategory = input.diskCategory ?? workspace.diskCategory;
-    workspace.diskSize = input.diskSize ?? workspace.diskSize;
-    workspace.bandwidth = input.bandwidth ?? workspace.bandwidth;
+    if (input.cloudInstanceId) workspace.cloudInstanceId = input.cloudInstanceId;
+    if (input.diskCategory) workspace.diskCategory = input.diskCategory;
+    if (input.diskSize) workspace.diskSize = input.diskSize;
+    if (input.bandwidth) workspace.bandwidth = input.bandwidth;
   }
+
+  // Load cloud instance to get instanceType
+  const cloudInstance = await db.query.cloudInstances.findFirst({
+    where: eq(cloudInstances.id, workspace.cloudInstanceId),
+  });
+  if (!cloudInstance) throw new WorkspaceError("Cloud instance not found", 404);
 
   const accessToken = generateAccessToken();
   await db
@@ -381,15 +325,15 @@ export async function startWorkspace(
     userId,
     workspaceId,
     action: "START",
-    details: { mode: input.mode, instanceType: workspace.instanceType },
+    details: { mode: input.mode, instanceType: cloudInstance.instanceType },
   });
 
   // Pre-launch validation + launch with FAILED rollback on error.
   const s = await getUserSettings(userId);
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
   try {
-    await preflightCheck(workspace, releaseHours);
-    const instanceId = await launchInstance(workspace, accessToken);
+    await preflightCheck(workspace, cloudInstance, releaseHours);
+    const instanceId = await launchInstance(workspace, cloudInstance, accessToken);
     await db
       .update(workspaceStates)
       .set({ instanceId, status: "PROVISIONING" })

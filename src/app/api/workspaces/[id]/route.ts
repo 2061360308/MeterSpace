@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { workspaces, workspaceStates, auditLogs } from "@/lib/db/schema";
+import { workspaces, workspaceStates, auditLogs, cloudInstances } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { deleteWorkspace } from "@/lib/workspaces/service";
 import { getUserCredentials } from "@/lib/aliyun/auth";
@@ -29,6 +29,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
       .orderBy(desc(auditLogs.createdAt))
       .limit(50);
 
+    // Load cloud instance
+    const cloudInstance = await db.query.cloudInstances.findFirst({
+      where: eq(cloudInstances.id, workspace.cloudInstanceId),
+    });
+
     // Live ECS status (best-effort).
     let ecs: Awaited<ReturnType<typeof describeInstances>> = null;
     if (state?.instanceId) {
@@ -40,7 +45,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
       }
     }
 
-    return ok({ workspace: { ...workspace, state, logs, ecs } });
+    return ok({
+      workspace: {
+        ...workspace,
+        cloudInstanceName: cloudInstance?.name ?? null,
+        cloudInstanceType: cloudInstance?.instanceType ?? null,
+        state,
+        logs,
+        ecs,
+      },
+    });
   } catch (e) {
     return fail(e);
   }

@@ -2,14 +2,23 @@ import { type InstanceTypeInfo } from "@/components/workspaces/instance-selector
 import { type PricePanelData } from "@/components/workspaces/price-panel";
 import { type InstanceAvailability } from "@/lib/aliyun/ecs";
 
+type CloudInstance = {
+  id: string;
+  name: string;
+  provider: string;
+  region: string;
+  instanceType: string;
+};
+
 export interface WizardState {
   currentStep: number;
   completedSteps: Set<number>;
   name: string;
+  provider: string;
   region: string;
-  useSpot: boolean;
-  spotDuration: number;
-  spotPriceLimit: number | null;
+  cloudInstanceId: string | null;
+  cloudInstances: CloudInstance[];
+  cloudInstancesLoading: boolean;
   instanceType: string;
   instanceTypes: InstanceTypeInfo[];
   instanceTypesLoading: boolean;
