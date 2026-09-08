@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
+import { getAliyunProvider } from "@/lib/providers";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
-import { ensureBucket } from "@/lib/aliyun/oss";
 import { ok, fail } from "@/lib/api";
 
 export async function GET() {
@@ -37,11 +36,10 @@ export async function PUT(req: NextRequest) {
       return fail({ status: 400, message: "Aliyun credentials not configured" });
     }
 
-    // Ensure bucket exists for ALL enabled regions (not just new ones)
     if (row.aliAccessKeyId) {
-      const creds = await getUserCredentials(userId);
+      const provider = getAliyunProvider();
       for (const region of regions) {
-        await ensureBucket(creds, region, `meterspace-${region}`).catch(() => {});
+        await provider.ensureStorage(region, `meterspace-${region}`).catch(() => {});
       }
     }
 

@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeZones } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -13,13 +12,13 @@ export async function GET(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
-    const zones = await describeZones(creds, region);
+    await requireUserId();
+    const provider = getAliyunProvider();
+    const zones = await provider.getZones(region);
     const result = {
       zones: zones.map((z) => ({
-        zoneId: z.zoneId,
-        localName: z.localName,
+        zoneId: z.id,
+        localName: z.label,
       })),
     };
     cacheSet(key, result, TTL.WEEK);

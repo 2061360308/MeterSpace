@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { queryAccountBalance } from "@/lib/aliyun/bss";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -16,8 +15,8 @@ export async function GET(req: NextRequest) {
       if (cached) return ok(cached);
     }
 
-    const creds = await getUserCredentials(userId);
-    const balance = await queryAccountBalance(creds);
+    const provider = getAliyunProvider();
+    const balance = await provider.getBalance();
     cacheSet(key, balance, TTL.MINUTE * 5);
     return ok(balance);
   } catch (e) {

@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { findDebianImage } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { calculatePrice } from "@/lib/price/calculator";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
@@ -39,8 +38,9 @@ export async function POST(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const creds = await getUserCredentials(userId);
-    const imageId = await findDebianImage(creds, body.region);
+    const provider = getAliyunProvider();
+    const creds = await provider.getCredentials(userId);
+    const imageId = await provider.findImage(body.region, "debian", "12");
     const result = await calculatePrice(creds, {
       region: body.region,
       imageId,

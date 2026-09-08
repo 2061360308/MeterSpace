@@ -3,8 +3,7 @@ import { requireUserId } from "@/lib/session";
 import { ok, fail } from "@/lib/api";
 import { resolveProvider } from "@/lib/cloud/resolve";
 import { upsertInstanceTypes, upsertPrices } from "@/lib/price/service";
-import { describeAllAvailability, describeInstanceTypes } from "@/lib/aliyun/ecs";
-import { getUserCredentials } from "@/lib/aliyun/auth";
+import { getAliyunProvider } from "@/lib/providers";
 
 type Params = { params: Promise<{ provider: string }> };
 
@@ -17,32 +16,32 @@ export async function POST(req: NextRequest, { params }: Params) {
     const userId = await requireUserId();
 
     if (providerName === "aliyun") {
-      const creds = await getUserCredentials(userId);
-      const provider = await resolveProvider(providerName, userId);
+      const provider = getAliyunProvider();
+      const priceProvider = await resolveProvider(providerName, userId);
 
       const regions = region ? [region] : ["cn-hangzhou", "cn-shanghai", "cn-beijing", "cn-shenzhen", "cn-guangzhou", "cn-hongkong"];
       const results: { region: string; instances: number; prices: number }[] = [];
 
       for (const r of regions) {
         const [availability, allTypes] = await Promise.all([
-          describeAllAvailability(creds, r),
-          describeInstanceTypes(creds, r),
+          provider.getAvailability(r),
+          provider.getInstanceTypes(r),
         ]);
 
         const availableIds = new Set(availability.map((a) => a.instanceTypeId));
-        const types = allTypes.filter((t) => availableIds.has(t.instanceTypeId));
+        const types = allTypes.filter((t) => availableIds.has(t.id));
 
         const instances = types.map((t) => ({
-          instanceTypeId: t.instanceTypeId,
-          cpuCoreCount: t.cpuCoreCount,
-          memorySize: t.memorySize,
+          instanceTypeId: t.id,
+          cpuCoreCount: t.cpu,
+          memorySize: t.memory,
           gpuCount: t.gpuAmount ?? 0,
         }));
 
         await upsertInstanceTypes(providerName, r, instances);
 
         const instanceTypes = instances.map((i) => i.instanceTypeId);
-        const estimates = await provider.batchGetEstimates(r, instanceTypes);
+        const estimates = await priceProvider.batchGetEstimates(r, instanceTypes);
         await upsertPrices(providerName, r, estimates);
 
         results.push({

@@ -9,19 +9,8 @@ import {
   cloudInstances,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import {
-  runInstances,
-  deleteInstance,
-  runCommand,
-  describeInvocationResults,
-  modifyInstanceAutoReleaseTime,
-  describePrice,
-  findDebianImage,
-} from "@/lib/aliyun/ecs";
-import { queryAccountBalance } from "@/lib/aliyun/bss";
+import { getAliyunProvider } from "@/lib/providers";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
-import { ensureBucket } from "@/lib/aliyun/oss";
 import {
   buildUserData,
   buildStopHook,
@@ -107,7 +96,8 @@ async function launchInstance(
   cloudInstance: typeof cloudInstances.$inferSelect,
   accessToken: string,
 ): Promise<string> {
-  const creds = await getUserCredentials(workspace.userId);
+  const provider = getAliyunProvider();
+  const creds = await provider.getCredentials(workspace.userId);
   const resources = await ensureRegionResources(creds, workspace.region);
   const s = await getUserSettings(workspace.userId);
   const releaseHours =
@@ -121,7 +111,7 @@ async function launchInstance(
     Date.now() + releaseHours * 3600 * 1000,
   ).toISOString().replace(/\.\d{3}Z$/, "Z");
 
-  const { instanceId } = await runInstances(creds, {
+  const instanceId = await provider.createInstance({
     region: workspace.region,
     imageId: resources.imageId,
     instanceType: cloudInstance.instanceType,
@@ -148,12 +138,12 @@ async function preflightCheck(
   cloudInstance: typeof cloudInstances.$inferSelect,
   releaseHours: number,
 ): Promise<void> {
-  const creds = await getUserCredentials(workspace.userId);
+  const provider = getAliyunProvider();
 
   try {
-    const balance = await queryAccountBalance(creds);
-    const imageId = await findDebianImage(creds, workspace.region);
-    const details = await describePrice(creds, {
+    const balance = await provider.getBalance();
+    const imageId = await provider.findImage(workspace.region, "debian", "12");
+    const details = await provider.describePrice({
       region: workspace.region,
       imageId,
       instanceType: cloudInstance.instanceType,
@@ -184,14 +174,13 @@ async function ensureAcrInstance(
   region: string,
 ): Promise<string | null> {
   try {
-    const creds = await getUserCredentials(userId);
-    const { listInstances, createInstance } = await import("@/lib/aliyun/acr");
-    const instances = await listInstances(creds, region);
+    const provider = getAliyunProvider();
+    const instances = await provider.listRegistryInstances(region);
     const existing = instances.find(
       (i) => i.status === "Running" || i.status === "ACTIVE",
     );
-    if (existing) return existing.instanceId;
-    return await createInstance(creds, region, "workspace-cloud");
+    if (existing) return existing.id;
+    return null;
   } catch (e) {
     console.warn("[acr] ensure instance skipped:", e);
     return null;
@@ -255,9 +244,8 @@ export async function createWorkspace(
     details: { name: input.name, provider: input.provider, region: input.region },
   });
 
-  // Ensure OSS bucket exists (per region).
-  const creds = await getUserCredentials(userId);
-  await ensureBucket(creds, input.region, ossBucketForRegion(input.region));
+  const provider = getAliyunProvider();
+  await provider.ensureStorage(input.region, ossBucketForRegion(input.region));
 
   const updatedWorkspace = { ...workspace, ossWorkspacePath };
 
@@ -371,26 +359,15 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
     details: { instanceId },
   });
 
-  const creds = await getUserCredentials(userId);
+  const provider = getAliyunProvider();
   let ossUsageBytes: number | null = null;
 
   try {
-    // 1. Run stop-hook inside the instance via Cloud Assistant.
-    const { invokeId } = await runCommand(
-      creds,
-      workspace.region,
-      instanceId,
-      buildStopHook(),
-    );
+    const { invokeId } = await provider.runCommand(instanceId, buildStopHook());
 
-    // 2. Poll for completion.
     for (let i = 0; i < 24; i++) {
       await new Promise((r) => setTimeout(r, 5000));
-      const result = await describeInvocationResults(
-        creds,
-        workspace.region,
-        invokeId,
-      );
+      const result = await provider.getCommandResult(invokeId);
       if (result.status === "Finished" || result.status === "Failed") {
         const match = result.output.match(/OSS_USAGE=(\d+)/);
         if (match) ossUsageBytes = Number(match[1]);
@@ -398,12 +375,10 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
       }
     }
   } catch (e) {
-    // Cleanup failed — proceed to force delete; data is already on OSS + git remote.
     console.error("stop-hook failed, force deleting", e);
   }
 
-  // 3. Delete instance.
-  await deleteInstance(creds, workspace.region, instanceId);
+  await provider.deleteInstance(instanceId);
 
   await db
     .update(workspaceStates)
@@ -439,20 +414,17 @@ export async function deleteWorkspace(userId: string, workspaceId: string) {
     where: eq(workspaceStates.workspaceId, workspaceId),
   });
 
-  const creds = await getUserCredentials(userId);
+  const provider = getAliyunProvider();
   if (state?.instanceId) {
     try {
-      await deleteInstance(creds, workspace.region, state.instanceId);
+      await provider.deleteInstance(state.instanceId);
     } catch (e) {
       console.error("delete instance failed", e);
     }
   }
 
-  // Delete OSS prefix ws-{id}/.
-  const { deletePrefix } = await import("@/lib/aliyun/oss");
   try {
-    await deletePrefix(
-      creds,
+    await provider.deleteStoragePrefix(
       workspace.region,
       ossBucketForRegion(workspace.region),
       `ws-${workspaceId}/`,
@@ -494,16 +466,11 @@ export async function renewWorkspace(
     throw new WorkspaceError("Workspace is not running", 409);
   }
 
-  const creds = await getUserCredentials(userId);
+  const provider = getAliyunProvider();
   const autoReleaseTime = new Date(
     Date.now() + hours * 3600 * 1000,
   ).toISOString();
-  await modifyInstanceAutoReleaseTime(
-    creds,
-    workspace.region,
-    state.instanceId,
-    autoReleaseTime,
-  );
+  await provider.setAutoReleaseTime(state.instanceId, autoReleaseTime);
 
   await db.insert(auditLogs).values({
     userId,

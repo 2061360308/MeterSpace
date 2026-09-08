@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeAllAvailability, describeInstanceTypes } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -16,18 +15,18 @@ export async function GET(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
+    await requireUserId();
+    const provider = getAliyunProvider();
 
     const [availability, allTypes] = await Promise.all([
-      describeAllAvailability(creds, region),
-      describeInstanceTypes(creds, region),
+      provider.getAvailability(region),
+      provider.getInstanceTypes(region),
     ]);
 
     const availableIds = new Set(availability.map((a) => a.instanceTypeId));
-    const types = allTypes.filter((t) => availableIds.has(t.instanceTypeId));
+    const types = allTypes.filter((t) => availableIds.has(t.id));
 
-    const typeMap = new Map(types.map((t) => [t.instanceTypeId, t]));
+    const typeMap = new Map(types.map((t) => [t.id, t]));
     const result = {
       instances: availability.map((a) => ({
         ...a,

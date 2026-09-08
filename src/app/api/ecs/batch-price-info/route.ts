@@ -1,11 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import {
-  describeSpotAdvice,
-  describePrice,
-  findDebianImage,
-} from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -27,21 +22,19 @@ export async function GET(req: NextRequest) {
     if (instanceTypes.length === 0) return fail(new Error("instanceTypes is empty"));
     if (instanceTypes.length > 50) return fail(new Error("instanceTypes exceeds 50 limit"));
 
-    // Check cache for the whole batch
     const sortedTypes = [...instanceTypes].sort().join(",");
     const key = cacheKey("batch-price-info", region, sortedTypes);
     const cached = cacheGet<Record<string, PriceInfo>>(key);
     if (cached) return ok(cached);
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
+    await requireUserId();
+    const provider = getAliyunProvider();
 
-    // 1. Batch query SpotAdvice (10 at a time)
     const spotMap: Record<string, { historicalDiscount: number; releaseRate: number }> = {};
     for (let i = 0; i < instanceTypes.length; i += 10) {
       const batch = instanceTypes.slice(i, i + 10);
       const results = await Promise.allSettled(
-        batch.map((t) => describeSpotAdvice(creds, region, t, 1))
+        batch.map((t) => provider.getSpotAdvice(region, t, 1))
     );
       results.forEach((r, idx) => {
         if (r.status === "fulfilled" && r.value.available) {
@@ -53,15 +46,14 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 2. Query on-demand price for each instance (concurrency 5)
     const priceMap: Record<string, number> = {};
-    const imageId = await findDebianImage(creds, region);
+    const imageId = await provider.findImage(region, "debian", "12");
     const concurrency = 5;
     for (let i = 0; i < instanceTypes.length; i += concurrency) {
       const batch = instanceTypes.slice(i, i + concurrency);
       const results = await Promise.allSettled(
         batch.map((t) =>
-          describePrice(creds, {
+          provider.describePrice({
             region,
             imageId,
             instanceType: t,
@@ -83,7 +75,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 3. Merge and calculate
     const result: Record<string, PriceInfo> = {};
     for (const t of instanceTypes) {
       const spot = spotMap[t] ?? { historicalDiscount: 0, releaseRate: 0 };

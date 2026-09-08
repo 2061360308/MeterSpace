@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { workspaces, workspaceStates, auditLogs, cloudInstances } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { deleteWorkspace } from "@/lib/workspaces/service";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeInstances } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
+import type { CloudInstance } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 
 type Params = { params: Promise<{ id: string }> };
@@ -29,17 +29,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
       .orderBy(desc(auditLogs.createdAt))
       .limit(50);
 
-    // Load cloud instance
     const cloudInstance = await db.query.cloudInstances.findFirst({
       where: eq(cloudInstances.id, workspace.cloudInstanceId),
     });
 
-    // Live ECS status (best-effort).
-    let ecs: Awaited<ReturnType<typeof describeInstances>> = null;
+    let ecs: CloudInstance | null = null;
     if (state?.instanceId) {
       try {
-        const creds = await getUserCredentials(userId);
-        ecs = await describeInstances(creds, workspace.region, state.instanceId);
+        const provider = getAliyunProvider();
+        ecs = await provider.getInstance(state.instanceId);
       } catch {
         ecs = null;
       }

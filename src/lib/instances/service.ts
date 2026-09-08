@@ -9,13 +9,8 @@ import {
   auditLogs,
   cloudInstances,
 } from "@/lib/db/schema";
-import { getUserSettings, getUserCredentials } from "@/lib/aliyun/auth";
-import {
-  runInstances,
-  deleteInstance,
-  runCommand,
-  describeInvocationResults,
-} from "@/lib/aliyun/ecs";
+import { getUserSettings } from "@/lib/aliyun/auth";
+import { getAliyunProvider } from "@/lib/providers";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
 import {
   buildUserData,
@@ -122,7 +117,8 @@ export async function createInstance(
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
 
   try {
-    const creds = await getUserCredentials(userId);
+    const provider = getAliyunProvider();
+    const creds = await provider.getCredentials(userId);
     const resources = await ensureRegionResources(creds, workspace.region);
 
     const gitTokenEnc = workspace.gitTokenEnc
@@ -169,7 +165,7 @@ export async function createInstance(
       Date.now() + releaseHours * 3600 * 1000,
     ).toISOString().replace(/\.\d{3}Z$/, "Z");
 
-    const ecsInstanceId = await runInstances(creds, {
+    const ecsInstanceId = await provider.createInstance({
       region: workspace.region,
       imageId: resources.imageId,
       instanceType: cloudInstance.instanceType,
@@ -189,7 +185,7 @@ export async function createInstance(
 
     await db
       .update(instances)
-      .set({ ecsInstanceId: ecsInstanceId.instanceId })
+      .set({ ecsInstanceId })
       .where(eq(instances.id, instance.id));
 
     return { instanceId: instance.id, ecsInstanceId, personalCode };
@@ -287,11 +283,9 @@ export async function stopInstance(userId: string, instanceId: string) {
 
   if (instance.ecsInstanceId) {
     try {
-      const creds = await getUserCredentials(userId);
+      const provider = getAliyunProvider();
       const hookScript = buildStopHook();
-      const commandResult = await runCommand(
-        creds,
-        workspace.region,
+      const commandResult = await provider.runCommand(
         instance.ecsInstanceId,
         hookScript,
       );
@@ -299,11 +293,7 @@ export async function stopInstance(userId: string, instanceId: string) {
       let ossUsageBytes: number | null = null;
       for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 5000));
-        const results = await describeInvocationResults(
-          creds,
-          workspace.region,
-          commandResult.invokeId,
-        );
+        const results = await provider.getCommandResult(commandResult.invokeId);
         const output = results.output ?? "";
         const match = output.match(/OSS_USAGE=(\d+)/);
         if (match) {
@@ -312,7 +302,7 @@ export async function stopInstance(userId: string, instanceId: string) {
         }
       }
 
-      await deleteInstance(creds, workspace.region, instance.ecsInstanceId);
+      await provider.deleteInstance(instance.ecsInstanceId);
 
       await db
         .update(instances)

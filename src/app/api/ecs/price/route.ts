@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describePrice, findDebianImage } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -33,9 +32,9 @@ export async function GET(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const creds = await getUserCredentials(userId);
-    const imageId = await findDebianImage(creds, region);
-    const details = await describePrice(creds, {
+    const provider = getAliyunProvider();
+    const imageId = await provider.findImage(region, "debian", "12");
+    const details = await provider.describePrice({
       region,
       imageId,
       instanceType,

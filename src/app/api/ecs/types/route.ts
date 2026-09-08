@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeInstanceTypes } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -13,20 +12,18 @@ export async function GET(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
-    const types = await describeInstanceTypes(creds, region);
+    await requireUserId();
+    const provider = getAliyunProvider();
+    const types = await provider.getInstanceTypes(region);
     const result = {
       types: types.map((t) => ({
-        instanceTypeId: t.instanceTypeId,
-        cpuCoreCount: t.cpuCoreCount,
-        memorySize: t.memorySize,
-        instanceTypeFamily: t.instanceTypeFamily,
-        cpuArchitecture: t.cpuArchitecture,
+        instanceTypeId: t.id,
+        cpuCoreCount: t.cpu,
+        memorySize: t.memory,
+        instanceTypeFamily: t.family,
+        cpuArchitecture: t.architecture,
         gpuAmount: t.gpuAmount,
         gpuSpec: t.gpuSpec,
-        localStorage: t.localStorage,
-        internetMaxBandwidthOut: t.internetMaxBandwidthOut,
       })),
     };
     cacheSet(key, result, TTL.DAY);

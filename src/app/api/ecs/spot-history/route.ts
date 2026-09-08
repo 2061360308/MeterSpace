@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeSpotPriceHistory } from "@/lib/aliyun/ecs";
+import { getAliyunProvider } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
@@ -16,9 +15,9 @@ export async function GET(req: NextRequest) {
     const cached = cacheGet(key);
     if (cached) return ok(cached);
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
-    const history = await describeSpotPriceHistory(creds, region, instanceType);
+    await requireUserId();
+    const provider = getAliyunProvider();
+    const history = await provider.getSpotPriceHistory(region, instanceType);
     cacheSet(key, history, TTL.HOUR);
     return ok(history);
   } catch (e) {

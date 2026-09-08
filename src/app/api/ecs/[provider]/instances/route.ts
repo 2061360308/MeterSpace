@@ -5,8 +5,7 @@ import {
   getCachedInstanceTypes,
   upsertInstanceTypes,
 } from "@/lib/price/service";
-import { describeAllAvailability, describeInstanceTypes } from "@/lib/aliyun/ecs";
-import { getUserCredentials } from "@/lib/aliyun/auth";
+import { getAliyunProvider } from "@/lib/providers";
 
 type Params = { params: Promise<{ provider: string }> };
 
@@ -25,22 +24,22 @@ export async function GET(req: NextRequest, { params }: Params) {
       });
     }
 
-    const userId = await requireUserId();
+    await requireUserId();
 
     if (providerName === "aliyun") {
-      const creds = await getUserCredentials(userId);
+      const provider = getAliyunProvider();
       const [availability, allTypes] = await Promise.all([
-        describeAllAvailability(creds, region),
-        describeInstanceTypes(creds, region),
+        provider.getAvailability(region),
+        provider.getInstanceTypes(region),
       ]);
 
       const availableIds = new Set(availability.map((a) => a.instanceTypeId));
-      const types = allTypes.filter((t) => availableIds.has(t.instanceTypeId));
+      const types = allTypes.filter((t) => availableIds.has(t.id));
 
       const instances = types.map((t) => ({
-        instanceTypeId: t.instanceTypeId,
-        cpuCoreCount: t.cpuCoreCount,
-        memorySize: t.memorySize,
+        instanceTypeId: t.id,
+        cpuCoreCount: t.cpu,
+        memorySize: t.memory,
         gpuCount: t.gpuAmount ?? 0,
       }));
 
@@ -51,7 +50,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         availability: availability.map((a) => ({
           instanceTypeId: a.instanceTypeId,
           status: a.status,
-          statusCategory: a.statusCategory,
+          statusCategory: a.zones[0]?.status,
           availableZones: a.availableZones,
           totalZones: a.totalZones,
           zones: a.zones,
