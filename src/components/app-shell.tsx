@@ -23,6 +23,13 @@ const routes: Record<string, string> = {
   "/workspaces/new": "新建工作区",
   "/settings": "设置",
   "/dashboard": "Dashboard",
+  "/cloud-instances": "云实例",
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  aliyun: "阿里云",
+  tencent: "腾讯云",
+  aws: "AWS",
 }
 
 function getBreadcrumbs(pathname: string) {
@@ -37,6 +44,8 @@ function getBreadcrumbs(pathname: string) {
       crumbs.push({ label, href: path })
     } else if (path.match(/^\/workspaces\/[^/]+$/)) {
       crumbs.push({ label: `工作区详情`, href: path })
+    } else if (path.match(/^\/cloud-instances\/[^/]+$/)) {
+      crumbs.push({ label: `实例详情`, href: path })
     }
   }
 

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Cloud, Trash2 } from "lucide-react"
 
 type CloudInstance = {
@@ -32,6 +33,9 @@ const REGION_LABELS: Record<string, string> = {
   "us-east-1": "弗吉尼亚",
 }
 
+const CPU_OPTIONS = ["全部", "2核", "4核", "8核", "16核", "32核"]
+const MEMORY_OPTIONS = ["全部", "4G", "8G", "16G", "32G", "64G"]
+
 export default function CloudInstancesPage() {
   const searchParams = useSearchParams()
   const provider = searchParams.get("provider") ?? "aliyun"
@@ -39,6 +43,8 @@ export default function CloudInstancesPage() {
   const [instances, setInstances] = React.useState<CloudInstance[]>([])
   const [loading, setLoading] = React.useState(true)
   const [deleting, setDeleting] = React.useState<string | null>(null)
+  const [cpuFilter, setCpuFilter] = React.useState("全部")
+  const [memoryFilter, setMemoryFilter] = React.useState("全部")
 
   React.useEffect(() => {
     setLoading(true)
@@ -51,10 +57,14 @@ export default function CloudInstancesPage() {
       .catch(() => setLoading(false))
   }, [])
 
-  const filtered = React.useMemo(
-    () => instances.filter((i) => i.provider === provider),
-    [instances, provider]
-  )
+  const filtered = React.useMemo(() => {
+    return instances.filter((i) => {
+      if (i.provider !== provider) return false
+      if (cpuFilter !== "全部" && !i.instanceType.includes(cpuFilter.replace("核", ""))) return false
+      if (memoryFilter !== "全部" && !i.instanceType.includes(memoryFilter.replace("G", ""))) return false
+      return true
+    })
+  }, [instances, provider, cpuFilter, memoryFilter])
 
   const currentProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
 
@@ -69,74 +79,90 @@ export default function CloudInstancesPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{currentProvider.label}</h1>
-          <p className="text-sm text-muted-foreground">管理云实例规格，创建工作区时可绑定使用</p>
+    <div className="flex flex-col h-full">
+      {/* 操作栏 */}
+      <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+        <div className="flex items-center gap-3">
+          <Select value={cpuFilter} onValueChange={setCpuFilter}>
+            <SelectTrigger className="w-[100px]">
+              <SelectValue placeholder="CPU" />
+            </SelectTrigger>
+            <SelectContent>
+              {CPU_OPTIONS.map((opt) => (
+                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={memoryFilter} onValueChange={setMemoryFilter}>
+            <SelectTrigger className="w-[100px]">
+              <SelectValue placeholder="内存" />
+            </SelectTrigger>
+            <SelectContent>
+              {MEMORY_OPTIONS.map((opt) => (
+                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Button asChild>
+        <Button asChild size="sm">
           <Link href={`/cloud-instances/new?provider=${provider}`}>
-            <Plus className="mr-2 h-4 w-4" />
-            创建实例
+            <Plus className="mr-1 h-4 w-4" />
+            添加
           </Link>
         </Button>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Spinner className="h-8 w-8" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center py-20 space-y-4">
-          <Cloud className="h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">暂无云实例</p>
-          <Button asChild>
-            <Link href={`/cloud-instances/new?provider=${provider}`}>
-              <Plus className="mr-2 h-4 w-4" />
-              创建第一个云实例
-            </Link>
-          </Button>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((inst) => (
-            <Card key={inst.id} className="p-4 space-y-3">
-              <div className="flex items-start justify-between">
-                <Link
-                  href={`/cloud-instances/${inst.id}`}
-                  className="font-medium hover:underline"
-                >
-                  {inst.name}
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => handleDelete(inst.id)}
-                  disabled={deleting === inst.id}
-                >
-                  {deleting === inst.id ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              <dl className="text-sm space-y-1">
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">地域</dt>
-                  <dd>{REGION_LABELS[inst.region] ?? inst.region}</dd>
+      {/* 实例列表 */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Spinner className="h-8 w-8" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <Card className="flex flex-col items-center justify-center py-20 space-y-4">
+            <Cloud className="h-12 w-12 text-muted-foreground" />
+            <p className="text-muted-foreground">暂无云实例</p>
+            <Button asChild size="sm">
+              <Link href={`/cloud-instances/new?provider=${provider}`}>
+                <Plus className="mr-1 h-4 w-4" />
+                创建第一个
+              </Link>
+            </Button>
+          </Card>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((inst) => (
+              <Card key={inst.id} className="p-4 space-y-2">
+                <div className="flex items-start justify-between">
+                  <Link
+                    href={`/cloud-instances/${inst.id}`}
+                    className="font-medium hover:underline text-sm"
+                  >
+                    {inst.name}
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDelete(inst.id)}
+                    disabled={deleting === inst.id}
+                  >
+                    {deleting === inst.id ? (
+                      <Spinner className="h-3.5 w-3.5" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">规格</dt>
-                  <dd className="font-mono text-xs">{inst.instanceType}</dd>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <div>{REGION_LABELS[inst.region] ?? inst.region}</div>
+                  <div className="font-mono">{inst.instanceType}</div>
                 </div>
-              </dl>
-            </Card>
-          ))}
-        </div>
-      )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
