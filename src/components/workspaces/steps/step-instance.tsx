@@ -48,7 +48,7 @@ export function StepInstance({ state, setState }: StepProps) {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="instance">云实例</TabsTrigger>
+            <TabsTrigger value="instance">弹性规格</TabsTrigger>
             <TabsTrigger value="advanced">高级配置</TabsTrigger>
           </TabsList>
         </Tabs>

@@ -55,7 +55,7 @@ export default function CloudInstanceDetailPage({
   }, [load])
 
   async function handleDelete() {
-    if (!confirm("确定删除此云实例？")) return
+    if (!confirm("确定删除此弹性规格？")) return
     setBusy(true)
     setError("")
     const { id } = await params

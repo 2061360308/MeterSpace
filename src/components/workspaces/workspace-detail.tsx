@@ -113,7 +113,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
         <div>
           <h1 className="text-xl font-semibold">{detail.name}</h1>
           <p className="text-sm text-gray-500">
-            {detail.cloudInstanceName ?? "未绑定云实例"} · {detail.cloudInstanceType ?? ""} · {detail.diskCategory} {detail.diskSize}GB ·{" "}
+            {detail.cloudInstanceName ?? "未绑定弹性规格"} · {detail.cloudInstanceType ?? ""} · {detail.diskCategory} {detail.diskSize}GB ·{" "}
             {detail.bandwidth}Mbps
           </p>
         </div>

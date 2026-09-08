@@ -102,7 +102,7 @@ export default function NewCloudInstancePage() {
       <div className="flex-1 overflow-y-auto">
         {/* 顶部配置区 */}
         <div className="sticky top-0 z-10 bg-background px-6 pt-6 pb-4 space-y-4 border-b">
-          <h1 className="text-lg font-semibold">创建云实例</h1>
+          <h1 className="text-lg font-semibold">创建弹性规格</h1>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">名称</label>

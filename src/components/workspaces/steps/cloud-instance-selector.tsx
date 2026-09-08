@@ -81,7 +81,7 @@ export function CloudInstanceSelector({
             </div>
           ) : compatibleInstances.length === 0 ? (
             <div className="text-sm text-muted-foreground py-4">
-              当前地域没有可用的云实例，请新建一个
+              当前地域没有可用的弹性规格，请新建一个
             </div>
           ) : (
             <div className="space-y-2">

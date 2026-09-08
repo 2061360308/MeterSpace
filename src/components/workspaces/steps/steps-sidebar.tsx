@@ -69,7 +69,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
       return (
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">云实例</dt>
+            <dt className="text-muted-foreground">弹性规格</dt>
             <dd className="font-medium truncate ml-2">
               {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.name || "—"}
             </dd>

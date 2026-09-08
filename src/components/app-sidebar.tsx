@@ -45,7 +45,7 @@ const data = {
       icon: SquareTerminal,
     },
     {
-      title: "弹性空间",
+      title: "弹性规格",
       url: "/cloud-instances",
       icon: Cloud,
       alwaysOpen: true,

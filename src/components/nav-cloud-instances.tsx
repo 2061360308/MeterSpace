@@ -27,14 +27,14 @@ const PROVIDERS = [
 export function NavCloudInstances() {
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>弹性空间</SidebarGroupLabel>
+      <SidebarGroupLabel>弹性规格</SidebarGroupLabel>
       <SidebarMenu>
         <Collapsible asChild defaultOpen className="group/collapsible">
           <SidebarMenuItem>
             <CollapsibleTrigger asChild>
-              <SidebarMenuButton tooltip="弹性空间">
+              <SidebarMenuButton tooltip="弹性规格">
                 <Cloud className="size-4" />
-                <span>弹性空间</span>
+                <span>弹性规格</span>
                 <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
               </SidebarMenuButton>
             </CollapsibleTrigger>

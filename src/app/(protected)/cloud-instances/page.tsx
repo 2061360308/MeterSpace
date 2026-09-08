@@ -113,7 +113,7 @@ export default function CloudInstancesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("确定删除此云实例？")) return
+    if (!confirm("确定删除此弹性规格？")) return
     setDeleting(id)
     const res = await fetch(`/api/cloud-instances/${id}`, { method: "DELETE" })
     if (res.ok) {
@@ -212,9 +212,9 @@ export default function CloudInstancesPage() {
               <EmptyMedia variant="icon">
                 <Cloud />
               </EmptyMedia>
-              <EmptyTitle>还没有云实例</EmptyTitle>
+              <EmptyTitle>还没有弹性规格</EmptyTitle>
               <EmptyDescription>
-                您还没有创建任何云实例。点击下方按钮开始创建您的第一个弹性空间。
+                您还没有创建任何弹性规格。点击下方按钮开始创建您的第一个弹性规格。
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>

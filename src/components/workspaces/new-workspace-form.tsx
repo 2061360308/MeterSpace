@@ -66,7 +66,7 @@ export function NewWorkspaceForm() {
         if (!state.region) return "请选择地域";
         return null;
       case 2:
-        if (!state.cloudInstanceId) return "请选择或创建一个云实例";
+        if (!state.cloudInstanceId) return "请选择或创建一个弹性规格";
         return null;
       case 3:
         return null;
