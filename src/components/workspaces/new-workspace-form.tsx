@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { DEFAULT_IMAGE_URI } from "@/lib/constants";
 import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
-import { StepFeatures } from "./steps/step-features";
 import { StepGit } from "./steps/step-git";
+import { StepEnvironment } from "./steps/step-environment";
+import { StepConfirm } from "./steps/step-confirm";
 import { STEP_CONFIG, type WizardState } from "./steps/types";
 
 const INITIAL_STATE: WizardState = {
@@ -16,14 +16,18 @@ const INITIAL_STATE: WizardState = {
   name: "",
   provider: "aliyun",
   region: "",
-  imageUri: DEFAULT_IMAGE_URI,
-  featureDefs: [],
-  selectedFeatures: {},
+  imageUri: "",
   autoClone: true,
   gitRepoUrl: "",
   gitBranch: "main",
   repos: [],
   gitAuthed: false,
+  myImages: [],
+  myFeatures: [],
+  myScripts: [],
+  selectedImageId: "",
+  selectedFeatureIds: [],
+  selectedScriptIds: [],
   priceData: { loading: false },
   loading: false,
   error: "",
@@ -53,9 +57,10 @@ export function NewWorkspaceForm() {
         if (!state.region) return "请选择地域";
         return null;
       case 2:
+        if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
         return null;
       case 3:
-        if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
+        if (!state.selectedImageId) return "请选择运行镜像";
         return null;
       default:
         return null;
@@ -68,9 +73,14 @@ export function NewWorkspaceForm() {
     if (stepError) return;
     setState((s) => ({ ...s, loading: true, error: "" }));
     try {
-      const features = Object.entries(state.selectedFeatures).map(
-        ([id, version]) => ({ id, version })
-      );
+      const selectedImage = state.myImages.find((img) => img.id === state.selectedImageId);
+      const selectedFeatures = state.myFeatures
+        .filter((f) => state.selectedFeatureIds.includes(f.id))
+        .map((f) => ({ id: f.id, version: "latest", uri: f.featureUri }));
+      const selectedScripts = state.myScripts
+        .filter((s) => state.selectedScriptIds.includes(s.id))
+        .map((s) => ({ id: s.id, name: s.name, script: s.script }));
+
       const res = await fetch("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,8 +89,9 @@ export function NewWorkspaceForm() {
           provider: state.provider,
           region: state.region,
           publicIp: true,
-          imageUri: state.imageUri,
-          features,
+          imageUri: selectedImage?.imageUri ?? "",
+          features: selectedFeatures,
+          scripts: selectedScripts,
           gitProvider: state.gitRepoUrl ? "github" : null,
           gitRepoUrl: state.gitRepoUrl || null,
           gitBranch: state.gitBranch,
@@ -104,21 +115,18 @@ export function NewWorkspaceForm() {
 
   return (
     <div className="flex h-[calc(100dvh-4rem)]">
-      {/* 左侧内容区域 - 独立滚动 */}
       <div className="flex-1 overflow-y-auto">
         {state.currentStep === 1 && <div className="p-6"><StepBasic state={state} setState={setState} /></div>}
-        {state.currentStep === 2 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
-        {state.currentStep === 3 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
+        {state.currentStep === 2 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
+        {state.currentStep === 3 && <div className="p-6"><StepEnvironment state={state} setState={setState} /></div>}
+        {state.currentStep === 4 && <div className="p-6"><StepConfirm state={state} setState={setState} /></div>}
       </div>
 
-      {/* 右侧配置概要 - 固定宽度 */}
       <div className="w-[320px] border-l flex flex-col bg-background">
-        {/* 配置概要内容 - 独立滚动 */}
         <div className="flex-1 overflow-y-auto p-4">
           <StepsSidebar state={state} />
         </div>
 
-        {/* 底部导航按钮 - 固定在右侧底部 */}
         <div className="border-t p-4 space-y-3">
           <div className="text-xs text-muted-foreground text-center">
             第 {state.currentStep} / {STEP_CONFIG.length} 步

@@ -22,14 +22,20 @@ function getStepSummary(step: number, state: WizardState): string {
       return state.name && region ? `${state.name} · ${region.label}` : state.name || region?.label || "未设置";
     }
     case 2: {
-      const count = Object.keys(state.selectedFeatures).length;
-      return count > 0 ? `${count} 个工具` : "无";
-    }
-    case 3: {
       if (!state.autoClone) return "不拉取";
       if (state.gitRepoUrl) return state.gitRepoUrl.split("/").pop() || "已配置";
       return "未配置";
     }
+    case 3: {
+      const image = state.myImages.find((i) => i.id === state.selectedImageId);
+      const parts = [];
+      if (image) parts.push(image.name);
+      if (state.selectedFeatureIds.length > 0) parts.push(`${state.selectedFeatureIds.length} Features`);
+      if (state.selectedScriptIds.length > 0) parts.push(`${state.selectedScriptIds.length} 脚本`);
+      return parts.length > 0 ? parts.join(" · ") : "未配置";
+    }
+    case 4:
+      return "检查配置";
     default:
       return "";
   }
@@ -52,25 +58,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
           </div>
         </dl>
       );
-    case 2: {
-      const selected = Object.keys(state.selectedFeatures);
-      return (
-        <dl className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">已选工具</dt>
-            <dd className="font-medium">
-              {selected.length > 0 ? selected.length : "无"}
-            </dd>
-          </div>
-          {selected.length > 0 && (
-            <dd className="text-xs text-muted-foreground truncate">
-              {selected.join(", ")}
-            </dd>
-          )}
-        </dl>
-      );
-    }
-    case 3:
+    case 2:
       return (
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between">
@@ -92,6 +80,47 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
             </>
           )}
         </dl>
+      );
+    case 3: {
+      const image = state.myImages.find((i) => i.id === state.selectedImageId);
+      const features = state.myFeatures.filter((f) =>
+        state.selectedFeatureIds.includes(f.id)
+      );
+      const scripts = state.myScripts.filter((s) =>
+        state.selectedScriptIds.includes(s.id)
+      );
+      return (
+        <dl className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">镜像</dt>
+            <dd className="font-medium truncate ml-2">{image?.name || "—"}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Features</dt>
+            <dd className="font-medium">{features.length}</dd>
+          </div>
+          {features.length > 0 && (
+            <dd className="text-xs text-muted-foreground truncate">
+              {features.map((f) => f.name).join(", ")}
+            </dd>
+          )}
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">脚本</dt>
+            <dd className="font-medium">{scripts.length}</dd>
+          </div>
+          {scripts.length > 0 && (
+            <dd className="text-xs text-muted-foreground truncate">
+              {scripts.map((s) => s.name).join(", ")}
+            </dd>
+          )}
+        </dl>
+      );
+    }
+    case 4:
+      return (
+        <p className="text-sm text-muted-foreground">
+          确认所有配置无误后，点击创建工作区
+        </p>
       );
     default:
       return null;

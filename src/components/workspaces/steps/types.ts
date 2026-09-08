@@ -1,5 +1,32 @@
 import { type PricePanelData } from "@/components/workspaces/price-panel";
 
+export interface UserImage {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUri: string;
+  architecture: string | null;
+  source: string | null;
+}
+
+export interface UserFeature {
+  id: string;
+  name: string;
+  description: string | null;
+  featureUri: string;
+  options: Record<string, unknown>;
+  source: string | null;
+}
+
+export interface UserScript {
+  id: string;
+  name: string;
+  description: string | null;
+  script: string;
+  sortOrder: number | null;
+  enabled: boolean | null;
+}
+
 export interface WizardState {
   currentStep: number;
   completedSteps: Set<number>;
@@ -7,24 +34,20 @@ export interface WizardState {
   provider: string;
   region: string;
   imageUri: string;
-  featureDefs: FeatureDef[];
-  selectedFeatures: Record<string, string>;
   autoClone: boolean;
   gitRepoUrl: string;
   gitBranch: string;
   repos: { fullName: string; defaultBranch: string }[];
   gitAuthed: boolean;
+  myImages: UserImage[];
+  myFeatures: UserFeature[];
+  myScripts: UserScript[];
+  selectedImageId: string;
+  selectedFeatureIds: string[];
+  selectedScriptIds: string[];
   priceData: PricePanelData;
   loading: boolean;
   error: string;
-}
-
-export interface FeatureDef {
-  id: string;
-  name: string;
-  description: string;
-  companion: string;
-  versions: { version: string; label: string }[];
 }
 
 export interface StepProps {
@@ -34,6 +57,7 @@ export interface StepProps {
 
 export const STEP_CONFIG = [
   { id: 1, title: "基本信息", description: "实例名称与地域" },
-  { id: 2, title: "开发工具", description: "选择预装工具" },
-  { id: 3, title: "代码仓库", description: "配置代码拉取" },
+  { id: 2, title: "代码仓库", description: "配置代码拉取" },
+  { id: 3, title: "环境配置", description: "选择镜像、工具与脚本" },
+  { id: 4, title: "确认创建", description: "检查配置并创建" },
 ] as const;
