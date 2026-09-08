@@ -3,11 +3,21 @@
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
+import { ListFilterIcon, Plus, Cloud, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Cloud, Trash2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type CloudInstance = {
   id: string
@@ -66,6 +76,7 @@ export default function CloudInstancesPage() {
     })
   }, [instances, provider, cpuFilter, memoryFilter])
 
+  const hasFilter = cpuFilter !== "全部" || memoryFilter !== "全部"
   const currentProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
 
   async function handleDelete(id: string) {
@@ -81,39 +92,59 @@ export default function CloudInstancesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* 操作栏 */}
-      <div className="flex items-center justify-between px-6 py-1.5">
-        <div className="flex items-center gap-1.5">
-          <Select value={cpuFilter} onValueChange={setCpuFilter}>
-            <SelectTrigger size="sm" className="w-[80px] !h-7 !py-0 !text-[11px] !px-2">
-              <SelectValue placeholder="CPU" />
-            </SelectTrigger>
-            <SelectContent>
-              {CPU_OPTIONS.map((opt) => (
-                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={memoryFilter} onValueChange={setMemoryFilter}>
-            <SelectTrigger size="sm" className="w-[80px] !h-7 !py-0 !text-[11px] !px-2">
-              <SelectValue placeholder="内存" />
-            </SelectTrigger>
-            <SelectContent>
-              {MEMORY_OPTIONS.map((opt) => (
-                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button asChild className="h-7 px-2 text-[11px]">
-          <Link href={`/cloud-instances/new?provider=${provider}`}>
-            <Plus className="mr-1 h-3 w-3" />
-            添加
-          </Link>
-        </Button>
+      <div className="flex items-center justify-end px-6 py-1.5">
+        <ButtonGroup>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]">
+                <ListFilterIcon className="h-3 w-3" />
+                筛选
+                {hasFilter && (
+                  <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[9px] h-3.5 w-3.5 flex items-center justify-center">
+                    {(cpuFilter !== "全部" ? 1 : 0) + (memoryFilter !== "全部" ? 1 : 0)}
+                  </span>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuGroup>
+                <DropdownMenuRadioGroup value={cpuFilter} onValueChange={setCpuFilter}>
+                  <div className="px-2 py-1 text-xs text-muted-foreground">CPU</div>
+                  {CPU_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuRadioGroup value={memoryFilter} onValueChange={setMemoryFilter}>
+                  <div className="px-2 py-1 text-xs text-muted-foreground">内存</div>
+                  {MEMORY_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuGroup>
+              {hasFilter && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}>
+                    清除筛选
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button asChild variant="outline" size="sm" className="h-7 px-2 text-[11px]">
+            <Link href={`/cloud-instances/new?provider=${provider}`}>
+              <Plus className="h-3 w-3" />
+              添加
+            </Link>
+          </Button>
+        </ButtonGroup>
       </div>
 
       {/* 实例列表 */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Spinner className="h-8 w-8" />
