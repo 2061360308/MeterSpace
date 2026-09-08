@@ -84,7 +84,7 @@ export default function CloudInstancesPage() {
       <div className="flex items-center justify-between px-6 py-1.5">
         <div className="flex items-center gap-1.5">
           <Select value={cpuFilter} onValueChange={setCpuFilter}>
-            <SelectTrigger className="h-7 w-[80px] text-[11px] px-2">
+            <SelectTrigger size="sm" className="w-[80px] !h-7 !py-0 !text-[11px] !px-2">
               <SelectValue placeholder="CPU" />
             </SelectTrigger>
             <SelectContent>
@@ -94,7 +94,7 @@ export default function CloudInstancesPage() {
             </SelectContent>
           </Select>
           <Select value={memoryFilter} onValueChange={setMemoryFilter}>
-            <SelectTrigger className="h-7 w-[80px] text-[11px] px-2">
+            <SelectTrigger size="sm" className="w-[80px] !h-7 !py-0 !text-[11px] !px-2">
               <SelectValue placeholder="内存" />
             </SelectTrigger>
             <SelectContent>
