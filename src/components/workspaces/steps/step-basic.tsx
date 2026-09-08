@@ -14,10 +14,19 @@ import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/
 import { REGIONS, PROVIDERS } from "@/lib/constants";
 import { type StepProps, type CloudInstance } from "./types";
 
+interface PriceDetail {
+  resource: string;
+  originalPrice: number;
+  tradePrice: number;
+  discountPrice?: number;
+}
+
 export function StepBasic({ state, setState }: StepProps) {
   const [enabledRegions, setEnabledRegions] = useState<string[]>([]);
   const [cloudInstances, setCloudInstances] = useState<CloudInstance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [priceDetails, setPriceDetails] = useState<PriceDetail[]>([]);
+  const [priceLoading, setPriceLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/user/regions")
@@ -48,10 +57,32 @@ export function StepBasic({ state, setState }: StepProps) {
       });
   }, [state.provider, state.region, state.cloudInstanceId, setState]);
 
+  useEffect(() => {
+    if (!state.cloudInstanceId || !state.region) return;
+    
+    const selectedInstance = cloudInstances.find((i) => i.id === state.cloudInstanceId);
+    if (!selectedInstance) return;
+
+    setPriceLoading(true);
+    fetch(`/api/ecs/price?region=${state.region}&instanceType=${selectedInstance.instanceType}&diskSize=${state.diskSize}&bandwidth=${state.bandwidth}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setPriceDetails(data.details ?? []);
+      })
+      .catch(() => {
+        setPriceDetails([]);
+      })
+      .finally(() => {
+        setPriceLoading(false);
+      });
+  }, [state.cloudInstanceId, state.region, state.diskSize, state.bandwidth, cloudInstances]);
+
   const enabledRegionList = REGIONS.filter((r) => enabledRegions.includes(r.id));
   const filteredInstances = cloudInstances.filter(
     (i) => i.provider === state.provider && i.region === state.region
   );
+
+  const totalHourlyPrice = priceDetails.reduce((sum, d) => sum + d.tradePrice, 0);
 
   return (
     <div className="space-y-6">
@@ -198,6 +229,36 @@ export function StepBasic({ state, setState }: StepProps) {
           </FieldContent>
         </Field>
       </div>
+
+      {state.cloudInstanceId && state.region && (
+        <div className="rounded-lg border bg-muted/50 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">预估费用</h3>
+            {priceLoading ? (
+              <Spinner className="h-4 w-4" />
+            ) : (
+              <div className="text-right">
+                <div className="text-lg font-bold text-primary">
+                  ¥{totalHourlyPrice.toFixed(4)}/小时
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  约 ¥{(totalHourlyPrice * 24).toFixed(2)}/天
+                </div>
+              </div>
+            )}
+          </div>
+          {!priceLoading && priceDetails.length > 0 && (
+            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+              {priceDetails.map((detail, index) => (
+                <div key={index} className="flex justify-between">
+                  <span>{detail.resource === "instanceType" ? "实例" : detail.resource === "systemDisk" ? "系统盘" : detail.resource}</span>
+                  <span>¥{detail.tradePrice.toFixed(4)}/小时</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
