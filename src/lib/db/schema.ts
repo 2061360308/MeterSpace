@@ -204,6 +204,47 @@ export const gitTokens = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.userId, t.provider] }) }),
 );
 
+export const userImages = pgTable("user_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  imageUri: text("image_uri").notNull(),
+  architecture: text("architecture").default("amd64"),
+  source: text("source"), // "marketplace" | "custom"
+  marketplaceId: text("marketplace_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const userFeatures = pgTable("user_features", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  featureUri: text("feature_uri").notNull(),
+  options: jsonb("options").$type<Record<string, unknown>>().default({}),
+  source: text("source"),
+  marketplaceId: text("marketplace_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const userScripts = pgTable("user_scripts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  script: text("script").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  enabled: boolean("enabled").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 export const instanceCache = pgTable(
   "instance_cache",
   {
@@ -252,5 +293,11 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type GitToken = typeof gitTokens.$inferSelect;
 export type InstanceCache = typeof instanceCache.$inferSelect;
 export type PriceCache = typeof priceCache.$inferSelect;
+export type UserImage = typeof userImages.$inferSelect;
+export type NewUserImage = typeof userImages.$inferInsert;
+export type UserFeature = typeof userFeatures.$inferSelect;
+export type NewUserFeature = typeof userFeatures.$inferInsert;
+export type UserScript = typeof userScripts.$inferSelect;
+export type NewUserScript = typeof userScripts.$inferInsert;
 
 export { primaryKey };

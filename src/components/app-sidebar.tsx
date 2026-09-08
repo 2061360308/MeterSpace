@@ -5,16 +5,14 @@ import {
   BookOpen,
   Bot,
   Cloud,
-  Frame,
+  Code,
   LayoutDashboard,
-  Map,
-  PieChart,
   Settings2,
   SquareTerminal,
+  Terminal,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
-import { NavProjects } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -27,112 +25,81 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 
-// This is sample data.
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
+const navGroups = [
+  {
+    label: "工作区",
+    items: [
+      {
+        title: "概览",
+        url: "/",
+        icon: LayoutDashboard,
+        isActive: true,
+      },
+      {
+        title: "工作区",
+        url: "/workspaces",
+        icon: SquareTerminal,
+      },
+      {
+        title: "弹性规格",
+        url: "/cloud-instances",
+        icon: Cloud,
+        alwaysOpen: true,
+        items: [
+          { title: "阿里云", url: "/cloud-instances?provider=aliyun" },
+          { title: "腾讯云", url: "/cloud-instances?provider=tencent" },
+          { title: "AWS", url: "/cloud-instances?provider=aws" },
+        ],
+      },
+    ],
   },
-  navMain: [
-    {
-      title: "概览",
-      url: "/",
-      icon: LayoutDashboard,
-      isActive: true,
-    },
-    {
-      title: "工作区",
-      url: "/workspaces",
-      icon: SquareTerminal,
-    },
-    {
-      title: "弹性规格",
-      url: "/cloud-instances",
-      icon: Cloud,
-      alwaysOpen: true,
-      items: [
-        { title: "阿里云", url: "/cloud-instances?provider=aliyun" },
-        { title: "腾讯云", url: "/cloud-instances?provider=tencent" },
-        { title: "AWS", url: "/cloud-instances?provider=aws" },
-      ],
-    },
-    {
-      title: "Playground",
-      url: "#",
-      icon: Bot,
-      items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "镜像",
-      url: "#",
-      icon: BookOpen,
-      items: [
-        {
-          title: "我的镜像",
-          url: "#",
-        },
-        {
-          title: "镜像市场",
-          url: "#",
-        },
-        {
-          title: "构建记录",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "设置",
-      url: "/settings",
-      icon: Settings2,
-      items: [
-        {
-          title: "通用",
-          url: "/settings",
-        },
-        {
-          title: "密钥管理",
-          url: "/settings/keys",
-        },
-        {
-          title: "计费",
-          url: "/settings/billing",
-        },
-      ],
-    },
-  ],
-  projects: [
-    {
-      name: "开发环境",
-      url: "#",
-      icon: Frame,
-    },
-    {
-      name: "测试环境",
-      url: "#",
-      icon: PieChart,
-    },
-    {
-      name: "生产环境",
-      url: "#",
-      icon: Map,
-    },
-  ],
-}
+  {
+    label: "资源管理",
+    items: [
+      {
+        title: "镜像",
+        url: "/my-resources/images",
+        icon: BookOpen,
+      },
+      {
+        title: "开发环境",
+        url: "/my-resources/features",
+        icon: Code,
+      },
+      {
+        title: "脚本",
+        url: "/my-resources/scripts",
+        icon: Terminal,
+      },
+    ],
+  },
+  {
+    label: "其他",
+    items: [
+      {
+        title: "Playground",
+        url: "#",
+        icon: Bot,
+        items: [
+          { title: "History", url: "#" },
+          { title: "Starred", url: "#" },
+          { title: "Settings", url: "#" },
+        ],
+      },
+      {
+        title: "设置",
+        url: "/settings",
+        icon: Settings2,
+        items: [
+          { title: "通用", url: "/settings" },
+          { title: "密钥管理", url: "/settings/keys" },
+          { title: "环境变量", url: "/settings/env" },
+          { title: "持久化目录", url: "/settings/storage" },
+        ],
+      },
+    ],
+  },
+]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
@@ -153,11 +120,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
+        <NavMain groups={navGroups} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={{ name: "shadcn", email: "m@example.com" }} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
