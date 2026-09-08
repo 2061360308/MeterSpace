@@ -1,15 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { type PricePanelData } from "@/components/workspaces/price-panel";
-import { type InstanceTypeInfo } from "@/components/workspaces/instance-selector";
-import { type InstanceAvailability } from "@/lib/aliyun/ecs";
 import { DEFAULT_IMAGE_URI } from "@/lib/constants";
 import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
-import { StepInstance } from "./steps/step-instance";
 import { StepFeatures } from "./steps/step-features";
 import { StepGit } from "./steps/step-git";
 import { STEP_CONFIG, type WizardState } from "./steps/types";
@@ -20,16 +16,6 @@ const INITIAL_STATE: WizardState = {
   name: "",
   provider: "aliyun",
   region: "",
-  cloudInstanceId: null,
-  cloudInstances: [],
-  cloudInstancesLoading: false,
-  instanceType: "",
-  instanceTypes: [],
-  instanceTypesLoading: false,
-  instanceAvailability: {},
-  availabilityLoading: false,
-  diskSize: 40,
-  bandwidth: 10,
   imageUri: DEFAULT_IMAGE_URI,
   featureDefs: [],
   selectedFeatures: {},
@@ -46,7 +32,6 @@ const INITIAL_STATE: WizardState = {
 export function NewWorkspaceForm() {
   const router = useRouter();
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const goPrev = () =>
     setState((s) => ({ ...s, currentStep: Math.max(1, s.currentStep - 1) }));
@@ -68,11 +53,8 @@ export function NewWorkspaceForm() {
         if (!state.region) return "请选择地域";
         return null;
       case 2:
-        if (!state.cloudInstanceId) return "请选择或创建一个弹性规格";
         return null;
       case 3:
-        return null;
-      case 4:
         if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
         return null;
       default:
@@ -81,127 +63,6 @@ export function NewWorkspaceForm() {
   };
 
   const stepError = validateStep(state.currentStep);
-
-  // Load instance types + availability when region changes
-  useEffect(() => {
-    if (!state.region) return;
-    let cancelled = false;
-
-    async function load() {
-      setState((s) => ({ ...s, instanceTypesLoading: true, availabilityLoading: true }));
-      try {
-        const res = await fetch(`/api/ecs/instances?region=${encodeURIComponent(state.region)}`);
-        const d = await res.json();
-        if (!cancelled) {
-          const instances = d.instances ?? [];
-          const types = instances.map((i: { spec: InstanceTypeInfo | null }) => i.spec).filter(Boolean);
-          const availability: Record<string, InstanceAvailability> = {};
-          for (const i of instances) {
-            availability[i.instanceTypeId] = i;
-          }
-          setState((s) => ({
-            ...s,
-            instanceTypes: types,
-            instanceAvailability: availability,
-            instanceTypesLoading: false,
-            availabilityLoading: false,
-          }));
-        }
-      } catch {
-        if (!cancelled) {
-          setState((s) => ({
-            ...s,
-            instanceTypes: [],
-            instanceAvailability: {},
-            instanceTypesLoading: false,
-            availabilityLoading: false,
-          }));
-        }
-      }
-    }
-
-    load();
-    return () => { cancelled = true; };
-  }, [state.region]);
-
-  // Load cloud instances when region changes
-  useEffect(() => {
-    if (!state.region) return;
-    let cancelled = false;
-
-    async function loadCloudInstances() {
-      setState((s) => ({ ...s, cloudInstancesLoading: true }));
-      try {
-        const res = await fetch(`/api/cloud-instances?region=${encodeURIComponent(state.region)}`);
-        const data = await res.json();
-        if (!cancelled) {
-          setState((s) => ({
-            ...s,
-            cloudInstances: data.instances ?? [],
-            cloudInstancesLoading: false,
-          }));
-        }
-      } catch {
-        if (!cancelled) {
-          setState((s) => ({
-            ...s,
-            cloudInstances: [],
-            cloudInstancesLoading: false,
-          }));
-        }
-      }
-    }
-
-    loadCloudInstances();
-    return () => { cancelled = true; };
-  }, [state.region]);
-
-  // Price calculation
-  const fetchPrice = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    if (!state.instanceType) {
-      setState((s) => ({ ...s, priceData: { loading: false } }));
-      return;
-    }
-    timer.current = setTimeout(async () => {
-      setState((s) => ({ ...s, priceData: { ...s.priceData, loading: true } }));
-      const res = await fetch("/api/price/calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          region: state.region,
-          instanceType: state.instanceType,
-          diskCategory: "cloud_essd",
-          diskSize: state.diskSize,
-          bandwidth: state.bandwidth,
-          spotStrategy: "NoSpot",
-          spotDuration: 1,
-          durationHours: 4,
-        }),
-      });
-      if (res.ok) {
-        const data: PricePanelData = await res.json();
-        setState((s) => ({
-          ...s,
-          priceData: { ...data, loading: false },
-        }));
-      } else {
-        setState((s) => ({ ...s, priceData: { ...s.priceData, loading: false } }));
-      }
-    }, 300);
-  }, [
-    state.region,
-    state.instanceType,
-    state.diskSize,
-    state.bandwidth,
-  ]);
-
-  useEffect(() => {
-    fetchPrice();
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [fetchPrice]);
 
   async function onSubmit() {
     if (stepError) return;
@@ -217,10 +78,6 @@ export function NewWorkspaceForm() {
           name: state.name,
           provider: state.provider,
           region: state.region,
-          cloudInstanceId: state.cloudInstanceId,
-          diskCategory: "cloud_essd",
-          diskSize: state.diskSize,
-          bandwidth: state.bandwidth,
           publicIp: true,
           imageUri: state.imageUri,
           features,
@@ -250,9 +107,8 @@ export function NewWorkspaceForm() {
       {/* 左侧内容区域 - 独立滚动 */}
       <div className="flex-1 overflow-y-auto">
         {state.currentStep === 1 && <div className="p-6"><StepBasic state={state} setState={setState} /></div>}
-        {state.currentStep === 2 && <StepInstance state={state} setState={setState} />}
-        {state.currentStep === 3 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
-        {state.currentStep === 4 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
+        {state.currentStep === 2 && <div className="p-6"><StepFeatures state={state} setState={setState} /></div>}
+        {state.currentStep === 3 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
       </div>
 
       {/* 右侧配置概要 - 固定宽度 */}

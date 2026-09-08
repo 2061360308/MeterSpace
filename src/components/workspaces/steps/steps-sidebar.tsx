@@ -7,7 +7,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { formatCurrency } from "@/lib/utils";
 import { REGIONS } from "@/lib/constants";
 import { Check, Circle, ChevronDown, ChevronRight } from "lucide-react";
 import { type WizardState, STEP_CONFIG } from "./types";
@@ -23,22 +22,10 @@ function getStepSummary(step: number, state: WizardState): string {
       return state.name && region ? `${state.name} · ${region.label}` : state.name || region?.label || "未设置";
     }
     case 2: {
-      const cloudInstance = state.cloudInstances.find(
-        (i) => i.id === state.cloudInstanceId
-      );
-      const parts: string[] = [];
-      if (cloudInstance) {
-        parts.push(cloudInstance.name);
-      }
-      parts.push(`${state.diskSize}G 磁盘`);
-      parts.push(`${state.bandwidth}Mbps`);
-      return parts.join(" · ") || "未选择";
-    }
-    case 3: {
       const count = Object.keys(state.selectedFeatures).length;
       return count > 0 ? `${count} 个工具` : "无";
     }
-    case 4: {
+    case 3: {
       if (!state.autoClone) return "不拉取";
       if (state.gitRepoUrl) return state.gitRepoUrl.split("/").pop() || "已配置";
       return "未配置";
@@ -65,40 +52,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
           </div>
         </dl>
       );
-    case 2:
-      return (
-        <dl className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">弹性规格</dt>
-            <dd className="font-medium truncate ml-2">
-              {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.name || "—"}
-            </dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">规格</dt>
-            <dd className="font-medium truncate ml-2">
-              {state.instanceType || "—"}
-            </dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">系统盘</dt>
-            <dd className="font-medium">{state.diskSize}G</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">带宽</dt>
-            <dd className="font-medium">{state.bandwidth}Mbps</dd>
-          </div>
-          {!state.priceData.loading && state.priceData.hourly && (
-            <div className="flex justify-between pt-1 mt-1 border-t">
-              <dt className="text-muted-foreground">价格</dt>
-              <dd className="font-medium text-orange-500">
-                {formatCurrency(state.priceData.hourly.total)}/时
-              </dd>
-            </div>
-          )}
-        </dl>
-      );
-    case 3: {
+    case 2: {
       const selected = Object.keys(state.selectedFeatures);
       return (
         <dl className="space-y-1 text-sm">
@@ -116,7 +70,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
         </dl>
       );
     }
-    case 4:
+    case 3:
       return (
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between">
