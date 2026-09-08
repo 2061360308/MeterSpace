@@ -20,45 +20,105 @@ export interface MarketplaceFeature {
   options?: Record<string, unknown>;
 }
 
-export interface MarketplaceManifest {
-  version: string;
-  images: MarketplaceImage[];
-  features: MarketplaceFeature[];
+interface RawImage {
+  id: string;
+  name: string;
+  description: string;
+  uri: string;
+  architecture: string;
+  tags: string[];
+  source: string;
 }
 
-const MANIFEST_URL =
-  process.env.MARKETPLACE_URL ??
-  "https://oilu.cn/MeterSpaceMarket/api/manifest.json";
+interface RawFeature {
+  id: string;
+  name: string;
+  description: string;
+  uri: string;
+  tags: string[];
+  source: string;
+  options?: Record<string, unknown>;
+}
 
-let cachedManifest: MarketplaceManifest | null = null;
+interface ImagesIndex {
+  count: number;
+  updatedAt: string;
+  images: RawImage[];
+}
+
+interface FeaturesIndex {
+  count: number;
+  updatedAt: string;
+  features: RawFeature[];
+}
+
+const BASE_URL =
+  process.env.MARKETPLACE_URL ??
+  "https://oilu.cn/MeterSpaceMarket";
+
+let cachedImages: MarketplaceImage[] | null = null;
+let cachedFeatures: MarketplaceFeature[] | null = null;
 let cachedAt = 0;
 const CACHE_TTL = 10 * 60 * 1000;
 
-export async function fetchManifest(): Promise<MarketplaceManifest> {
-  if (cachedManifest && Date.now() - cachedAt < CACHE_TTL) {
-    return cachedManifest;
+function mapImage(raw: RawImage): MarketplaceImage {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description,
+    imageUri: raw.uri,
+    architecture: raw.architecture,
+    category: raw.source,
+    tags: raw.tags,
+  };
+}
+
+function mapFeature(raw: RawFeature): MarketplaceFeature {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description,
+    featureUri: raw.uri,
+    category: raw.source,
+    tags: raw.tags,
+    options: raw.options,
+  };
+}
+
+export async function getMarketplaceImages(): Promise<MarketplaceImage[]> {
+  if (cachedImages && Date.now() - cachedAt < CACHE_TTL) {
+    return cachedImages;
   }
 
-  const res = await fetch(MANIFEST_URL, {
+  const res = await fetch(`${BASE_URL}/api/images.json`, {
     next: { revalidate: 600 },
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch marketplace manifest: ${res.status}`);
+    throw new Error(`Failed to fetch marketplace images: ${res.status}`);
   }
 
-  const data = (await res.json()) as MarketplaceManifest;
-  cachedManifest = data;
+  const data = (await res.json()) as ImagesIndex;
+  cachedImages = data.images.map(mapImage);
   cachedAt = Date.now();
-  return data;
-}
-
-export async function getMarketplaceImages(): Promise<MarketplaceImage[]> {
-  const manifest = await fetchManifest();
-  return manifest.images ?? [];
+  return cachedImages;
 }
 
 export async function getMarketplaceFeatures(): Promise<MarketplaceFeature[]> {
-  const manifest = await fetchManifest();
-  return manifest.features ?? [];
+  if (cachedFeatures && Date.now() - cachedAt < CACHE_TTL) {
+    return cachedFeatures;
+  }
+
+  const res = await fetch(`${BASE_URL}/api/features.json`, {
+    next: { revalidate: 600 },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch marketplace features: ${res.status}`);
+  }
+
+  const data = (await res.json()) as FeaturesIndex;
+  cachedFeatures = data.features.map(mapFeature);
+  cachedAt = Date.now();
+  return cachedFeatures;
 }
