@@ -14,6 +14,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
 
 type CloudInstance = {
   id: string
@@ -40,7 +41,9 @@ const REGION_LABELS: Record<string, string> = {
 }
 
 const CPU_OPTIONS = ["全部", "2核", "4核", "8核", "16核", "32核"]
+const CPU_VALUES = [0, 2, 4, 8, 16, 32]
 const MEMORY_OPTIONS = ["全部", "4G", "8G", "16G", "32G", "64G"]
+const MEMORY_VALUES = [0, 4, 8, 16, 32, 64]
 
 export default function CloudInstancesPage() {
   const searchParams = useSearchParams()
@@ -51,6 +54,8 @@ export default function CloudInstancesPage() {
   const [deleting, setDeleting] = React.useState<string | null>(null)
   const [cpuFilter, setCpuFilter] = React.useState("全部")
   const [memoryFilter, setMemoryFilter] = React.useState("全部")
+  const [cpuIndex, setCpuIndex] = React.useState(0)
+  const [memoryIndex, setMemoryIndex] = React.useState(0)
 
   React.useEffect(() => {
     setLoading(true)
@@ -66,13 +71,15 @@ export default function CloudInstancesPage() {
   const filtered = React.useMemo(() => {
     return instances.filter((i) => {
       if (i.provider !== provider) return false
-      if (cpuFilter !== "全部" && !i.instanceType.includes(cpuFilter.replace("核", ""))) return false
-      if (memoryFilter !== "全部" && !i.instanceType.includes(memoryFilter.replace("G", ""))) return false
+      const cpuVal = CPU_VALUES[cpuIndex]
+      const memVal = MEMORY_VALUES[memoryIndex]
+      if (cpuVal > 0 && !i.instanceType.includes(String(cpuVal))) return false
+      if (memVal > 0 && !i.instanceType.includes(String(memVal))) return false
       return true
     })
-  }, [instances, provider, cpuFilter, memoryFilter])
+  }, [instances, provider, cpuIndex, memoryIndex])
 
-  const hasFilter = cpuFilter !== "全部" || memoryFilter !== "全部"
+  const hasFilter = cpuIndex !== 0 || memoryIndex !== 0
   const currentProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
 
   async function handleDelete(id: string) {
@@ -96,41 +103,35 @@ export default function CloudInstancesPage() {
                 <ListFilterIcon data-icon="inline-start" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-0">
+            <PopoverContent align="end" className="w-64 p-0">
               <div className="px-4 py-2.5 text-sm font-medium">规格参数</div>
               <Separator />
-              <div className="p-4 space-y-3">
-                <div className="space-y-1.5">
-                  <div className="text-xs text-muted-foreground">CPU</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CPU_OPTIONS.map((opt) => (
-                      <Button
-                        key={opt}
-                        variant={cpuFilter === opt ? "default" : "outline"}
-                        size="sm"
-                        className="h-7 px-2.5 text-xs"
-                        onClick={() => setCpuFilter(opt)}
-                      >
-                        {opt}
-                      </Button>
-                    ))}
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">CPU</div>
+                    <div className="text-xs font-medium">{CPU_OPTIONS[cpuIndex]}</div>
                   </div>
+                  <Slider
+                    value={[cpuIndex]}
+                    onValueChange={([v]) => setCpuIndex(v)}
+                    min={0}
+                    max={CPU_OPTIONS.length - 1}
+                    step={1}
+                  />
                 </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs text-muted-foreground">内存</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {MEMORY_OPTIONS.map((opt) => (
-                      <Button
-                        key={opt}
-                        variant={memoryFilter === opt ? "default" : "outline"}
-                        size="sm"
-                        className="h-7 px-2.5 text-xs"
-                        onClick={() => setMemoryFilter(opt)}
-                      >
-                        {opt}
-                      </Button>
-                    ))}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">内存</div>
+                    <div className="text-xs font-medium">{MEMORY_OPTIONS[memoryIndex]}</div>
                   </div>
+                  <Slider
+                    value={[memoryIndex]}
+                    onValueChange={([v]) => setMemoryIndex(v)}
+                    min={0}
+                    max={MEMORY_OPTIONS.length - 1}
+                    step={1}
+                  />
                 </div>
                 {hasFilter && (
                   <>
@@ -139,7 +140,7 @@ export default function CloudInstancesPage() {
                       variant="ghost"
                       size="sm"
                       className="w-full h-7 text-xs text-muted-foreground"
-                      onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}
+                      onClick={() => { setCpuIndex(0); setMemoryIndex(0) }}
                     >
                       清除筛选
                     </Button>
