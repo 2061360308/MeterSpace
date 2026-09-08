@@ -3,7 +3,7 @@ import { requireUserId } from "@/lib/session";
 import { getUserCredentials } from "@/lib/aliyun/auth";
 import { queryAccountBalance } from "@/lib/aliyun/bss";
 import { ok, fail } from "@/lib/api";
-import { cacheGet, cacheSet, cacheDelete, cacheKey, TTL } from "@/lib/cache";
+import { cacheGet, cacheSet, cacheKey, TTL } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   try {

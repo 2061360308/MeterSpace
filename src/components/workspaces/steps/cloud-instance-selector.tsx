@@ -46,8 +46,6 @@ export function CloudInstanceSelector({
   )
   const [newInstanceType, setNewInstanceType] = React.useState("")
 
-  const selected = cloudInstances.find((i) => i.id === selectedId)
-
   const compatibleInstances = React.useMemo(
     () => cloudInstances.filter((i) => i.region === region),
     [cloudInstances, region]

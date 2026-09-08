@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   REGIONS,
@@ -129,36 +128,45 @@ export function SetupForm() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>默认地域</Label>
-            <Select value={region} onChange={(e) => setRegion(e.target.value)}>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
               {REGIONS.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label}
                 </option>
               ))}
-            </Select>
+            </select>
           </div>
           <div>
             <Label>默认实例规格</Label>
-            <Select value={spec} onChange={(e) => setSpec(e.target.value)}>
+            <select
+              value={spec}
+              onChange={(e) => setSpec(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
               {INSTANCE_TYPES.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.id} ({t.note})
                 </option>
               ))}
-            </Select>
+            </select>
           </div>
           <div>
             <Label>默认磁盘类型</Label>
-            <Select
+            <select
               value={diskCategory}
               onChange={(e) => setDiskCategory(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               {DISK_CATEGORIES.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.label}
                 </option>
               ))}
-            </Select>
+            </select>
           </div>
           <div>
             <Label>默认磁盘大小 (GB)</Label>
@@ -194,26 +202,28 @@ export function SetupForm() {
           </div>
           <div>
             <Label>默认抢占策略</Label>
-            <Select
+            <select
               value={spotStrategy}
               onChange={(e) => setSpotStrategy(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               {SPOT_STRATEGIES.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>
               ))}
-            </Select>
+            </select>
           </div>
           <div>
             <Label>抢占保障时长 (小时)</Label>
-            <Select
+            <select
               value={spotDuration}
               onChange={(e) => setSpotDuration(Number(e.target.value))}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value={0}>0（无保障）</option>
               <option value={1}>1 小时</option>
-            </Select>
+            </select>
           </div>
         </div>
       </section>

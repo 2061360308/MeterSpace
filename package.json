@@ -4,7 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run build:agent && next build",
+    "build:agent": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../public/agent-linux-amd64 .",
+    "build:agent:arm64": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags=\"-s -w\" -o ../public/agent-linux-arm64 .",
+    "build:agent:all": "npm run build:agent && npm run build:agent:arm64",
+    "build:agent:debug": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../public/agent-linux-amd64 .",
     "start": "next start",
     "lint": "next lint"
   },

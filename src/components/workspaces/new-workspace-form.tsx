@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { type PricePanelData } from "@/components/workspaces/price-panel";
+import { type InstanceTypeInfo } from "@/components/workspaces/instance-selector";
+import { type InstanceAvailability } from "@/lib/aliyun/ecs";
 import { DEFAULT_IMAGE_URI } from "@/lib/constants";
 import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
@@ -92,8 +94,8 @@ export function NewWorkspaceForm() {
         const d = await res.json();
         if (!cancelled) {
           const instances = d.instances ?? [];
-          const types = instances.map((i: any) => i.spec).filter(Boolean);
-          const availability: Record<string, any> = {};
+          const types = instances.map((i: { spec: InstanceTypeInfo | null }) => i.spec).filter(Boolean);
+          const availability: Record<string, InstanceAvailability> = {};
           for (const i of instances) {
             availability[i.instanceTypeId] = i;
           }

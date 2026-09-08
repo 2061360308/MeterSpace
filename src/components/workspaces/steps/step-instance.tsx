@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { CloudInstanceSelector } from "./cloud-instance-selector";
@@ -71,7 +70,7 @@ export function StepInstance({ state, setState }: StepProps) {
                     instanceType: inst?.instanceType ?? "",
                   }))
                 }
-                onCreateNew={(instanceType) => {
+                onCreateNew={() => {
                   // TODO: open create dialog
                 }}
                 instanceTypes={state.instanceTypes}

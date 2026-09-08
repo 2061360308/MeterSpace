@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Select } from "@/components/ui/select";
 import { FAMILY_CATEGORIES } from "@/lib/constants";
 
 export interface InstanceTypeInfo {
@@ -102,8 +101,8 @@ export function InstanceSelector({
       {/* 筛选行 */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-gray-500">筛选</span>
-        <Select
-          className="w-28"
+        <select
+          className="w-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
           value={cpuFilter}
           onChange={(e) => setCpuFilter(e.target.value)}
         >
@@ -113,9 +112,9 @@ export function InstanceSelector({
               {c} 核
             </option>
           ))}
-        </Select>
-        <Select
-          className="w-28"
+        </select>
+        <select
+          className="w-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
           value={memFilter}
           onChange={(e) => setMemFilter(e.target.value)}
         >
@@ -125,9 +124,9 @@ export function InstanceSelector({
               {m} GiB
             </option>
           ))}
-        </Select>
-        <Select
-          className="w-28"
+        </select>
+        <select
+          className="w-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
           value={genFilter}
           onChange={(e) => setGenFilter(e.target.value)}
         >
@@ -137,7 +136,7 @@ export function InstanceSelector({
               {g} 代
             </option>
           ))}
-        </Select>
+        </select>
         <button
           className="text-blue-600 hover:underline"
           onClick={() => setShowMoreFilters((v) => !v)}

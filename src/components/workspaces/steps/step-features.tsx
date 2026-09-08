@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { type StepProps } from "./types";
 
@@ -85,8 +84,8 @@ export function StepFeatures({ state, setState }: StepProps) {
               )}
             </div>
             {isSelected && feature.versions.length > 0 && (
-              <Select
-                className="w-32"
+              <select
+                className="w-32 rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={state.selectedFeatures[feature.id]}
                 onChange={(e) => updateVersion(feature.id, e.target.value)}
               >
@@ -95,7 +94,7 @@ export function StepFeatures({ state, setState }: StepProps) {
                     {v.label}
                   </option>
                 ))}
-              </Select>
+              </select>
             )}
           </div>
         );

@@ -6,7 +6,6 @@ import Link from "next/link"
 import { ListFilterIcon, Plus, Cloud, Trash2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
-import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Empty,
@@ -30,6 +29,14 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 type CloudInstance = {
   id: string
@@ -51,8 +58,24 @@ const REGION_LABELS: Record<string, string> = {
   "cn-shanghai": "上海",
   "cn-beijing": "北京",
   "cn-shenzhen": "深圳",
+  "cn-guangzhou": "广州",
+  "cn-hongkong": "香港",
   "ap-guangzhou": "广州",
+  "ap-shanghai": "上海",
+  "ap-beijing": "北京",
+  "ap-shenzhen": "深圳",
+  "ap-hongkong": "香港",
   "us-east-1": "弗吉尼亚",
+  "us-west-2": "俄勒冈",
+  "ap-northeast-1": "东京",
+  "ap-southeast-1": "新加坡",
+  "eu-west-1": "爱尔兰",
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  aliyun: "阿里云",
+  tencent: "腾讯云",
+  aws: "AWS",
 }
 
 const CPU_OPTIONS = ["全部", "2核", "4核", "8核", "16核", "32核"]
@@ -95,7 +118,6 @@ export default function CloudInstancesPage() {
 
   const hasFilter = cpuIndex !== 0 || memoryIndex !== 0
   const hasInstances = instances.length > 0
-  const currentProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
 
   function handleProviderChange(value: string) {
     const params = new URLSearchParams(searchParams.toString())
@@ -244,36 +266,47 @@ export default function CloudInstancesPage() {
             </EmptyContent>
           </Empty>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((inst) => (
-              <Card key={inst.id} className="p-4 space-y-2">
-                <div className="flex items-start justify-between">
-                  <Link
-                    href={`/cloud-instances/${inst.id}`}
-                    className="font-medium hover:underline text-sm"
-                  >
-                    {inst.name}
-                  </Link>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDelete(inst.id)}
-                    disabled={deleting === inst.id}
-                  >
-                    {deleting === inst.id ? (
-                      <Spinner className="h-3.5 w-3.5" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </div>
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  <div>{REGION_LABELS[inst.region] ?? inst.region}</div>
-                  <div className="font-mono">{inst.instanceType}</div>
-                </div>
-              </Card>
-            ))}
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[200px]">名称</TableHead>
+                  <TableHead className="w-[100px]">提供商</TableHead>
+                  <TableHead className="w-[120px]">地域</TableHead>
+                  <TableHead>实例规格</TableHead>
+                  <TableHead className="w-[160px]">创建时间</TableHead>
+                  <TableHead className="w-[60px]"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((inst) => (
+                  <TableRow key={inst.id}>
+                    <TableCell className="font-medium">{inst.name}</TableCell>
+                    <TableCell>{PROVIDER_LABELS[inst.provider] ?? inst.provider}</TableCell>
+                    <TableCell>{REGION_LABELS[inst.region] ?? inst.region}</TableCell>
+                    <TableCell className="font-mono text-sm">{inst.instanceType}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {new Date(inst.createdAt).toLocaleString("zh-CN")}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDelete(inst.id)}
+                        disabled={deleting === inst.id}
+                      >
+                        {deleting === inst.id ? (
+                          <Spinner className="h-3.5 w-3.5" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
-export function WizardHeader() {
+interface WizardHeaderProps {
+  title?: string;
+}
+
+export function WizardHeader({ title = "新建工作区" }: WizardHeaderProps) {
   const router = useRouter();
 
   return (
@@ -21,10 +25,10 @@ export function WizardHeader() {
         </Button>
         <div className="flex items-center gap-2">
           <Link href="/" className="text-lg font-semibold">
-            Workspace Cloud
+            MeterSpace
           </Link>
           <span className="text-muted-foreground">/</span>
-          <span className="text-sm text-muted-foreground">新建工作区</span>
+          <span className="text-sm text-muted-foreground">{title}</span>
         </div>
       </div>
     </header>

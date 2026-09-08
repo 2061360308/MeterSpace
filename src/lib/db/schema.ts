@@ -9,6 +9,7 @@ import {
   jsonb,
   real,
   primaryKey,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -36,6 +37,9 @@ export const settings = pgTable("settings", {
   acrInstanceId: text("acr_instance_id"),
   ossBucket: text("oss_bucket"),
   enabledRegions: jsonb("enabled_regions").$type<string[]>().default(["cn-hangzhou"]),
+  logRetentionDays: integer("log_retention_days").default(7),
+  githubMirror: text("github_mirror"),
+  dockerMirror: text("docker_mirror"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -64,9 +68,8 @@ export const workspaces = pgTable("workspaces", {
     .notNull()
     .references(() => cloudInstances.id, { onDelete: "restrict" }),
   imageUri: text("image_uri").notNull(),
-  diskCategory: text("disk_category").default("cloud_essd"),
-  diskSize: integer("disk_size").default(40),
-  bandwidth: integer("bandwidth").default(10),
+  defaultDiskSize: integer("default_disk_size").default(40),
+  defaultBandwidth: integer("default_bandwidth").default(10),
   publicIp: boolean("public_ip").default(true),
   features: jsonb("features").$type<
     { id: string; name: string; version: string; installScript: string }[]
@@ -99,6 +102,80 @@ export const workspaceStates = pgTable("workspace_states", {
   releasedAt: timestamp("released_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+export const instances = pgTable("instances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  diskSize: integer("disk_size").notNull().default(40),
+  bandwidth: integer("bandwidth").notNull().default(10),
+  status: text("status").notNull().default("PROVISIONING"),
+  ecsInstanceId: text("ecs_instance_id"),
+  publicIp: text("public_ip"),
+  port: integer("port"),
+  bootToken: text("boot_token"),
+  bootPhase: text("boot_phase"),
+  bootStartedAt: timestamp("boot_started_at", { withTimezone: true }),
+  bootCompletedAt: timestamp("boot_completed_at", { withTimezone: true }),
+  bootError: text("boot_error"),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+  idleTriggered: boolean("idle_triggered").default(false),
+  ossUsageBytes: bigint("oss_usage_bytes", { mode: "number" }),
+  stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+  stopReason: text("stop_reason"),
+  logsExpireAt: timestamp("logs_expire_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_instances_workspace").on(table.workspaceId),
+  index("idx_instances_status").on(table.status),
+]);
+
+export const instanceLogs = pgTable("instance_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  instanceId: uuid("instance_id")
+    .notNull()
+    .references(() => instances.id, { onDelete: "cascade" }),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  level: text("level").notNull(),
+  phase: text("phase"),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_instance_logs_instance").on(table.instanceId, table.timestamp),
+]);
+
+export const instanceScripts = pgTable("instance_scripts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  script: text("script").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  enabled: boolean("enabled").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const instanceAccessCodes = pgTable("instance_access_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  instanceId: uuid("instance_id")
+    .notNull()
+    .references(() => instances.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  isPersonal: boolean("is_personal").default(false),
+  allowedPorts: integer("allowed_ports").array().default([8080]),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  maxUses: integer("max_uses"),
+  useCount: integer("use_count").default(0),
+  label: text("label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_access_codes_instance").on(table.instanceId),
+  index("idx_access_codes_code").on(table.code),
+]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -163,6 +240,14 @@ export type NewCloudInstance = typeof cloudInstances.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 export type WorkspaceState = typeof workspaceStates.$inferSelect;
+export type Instance = typeof instances.$inferSelect;
+export type NewInstance = typeof instances.$inferInsert;
+export type InstanceLog = typeof instanceLogs.$inferSelect;
+export type NewInstanceLog = typeof instanceLogs.$inferInsert;
+export type InstanceScript = typeof instanceScripts.$inferSelect;
+export type NewInstanceScript = typeof instanceScripts.$inferInsert;
+export type InstanceAccessCode = typeof instanceAccessCodes.$inferSelect;
+export type NewInstanceAccessCode = typeof instanceAccessCodes.$inferInsert;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type GitToken = typeof gitTokens.$inferSelect;
 export type InstanceCache = typeof instanceCache.$inferSelect;

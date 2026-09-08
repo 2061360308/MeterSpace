@@ -1,21 +1,27 @@
-import { requireUserId } from "@/lib/session";
-import { getUserCredentials } from "@/lib/aliyun/auth";
-import { describeRegions } from "@/lib/aliyun/ecs";
+import { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
+import { getProvider } from "@/lib/providers";
 
-const CACHE_KEY = "ecs:regions";
-
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const cached = cacheGet(CACHE_KEY);
-    if (cached) return ok(cached);
+    const providerName = req.nextUrl.searchParams.get("provider") ?? "aliyun";
 
-    const userId = await requireUserId();
-    const creds = await getUserCredentials(userId);
-    const regions = await describeRegions(creds);
-    cacheSet(CACHE_KEY, regions, TTL.WEEK);
-    return ok(regions);
+    const provider = getProvider(providerName);
+    if (!provider) {
+      return fail({ status: 400, message: `Unsupported provider: ${providerName}` });
+    }
+
+    // Check cache first
+    const cacheKey = `regions:${providerName}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return ok({ regions: cached, provider: providerName });
+
+    // Fetch from provider
+    const regions = await provider.getRegions();
+    cacheSet(cacheKey, regions, TTL.WEEK);
+
+    return ok({ regions, provider: providerName });
   } catch (e) {
     return fail(e);
   }

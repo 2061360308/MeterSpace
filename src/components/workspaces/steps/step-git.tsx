@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select } from "@/components/ui/select";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { FolderGit2 } from "lucide-react";
 import { type StepProps } from "./types";
@@ -69,8 +68,9 @@ export function StepGit({ state, setState }: StepProps) {
               <Field orientation="vertical">
                 <FieldLabel htmlFor="git-repo">仓库</FieldLabel>
                 <FieldContent>
-                  <Select
+                  <select
                     id="git-repo"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={state.gitRepoUrl}
                     onChange={(e) => {
                       const repo = state.repos.find(
@@ -89,7 +89,7 @@ export function StepGit({ state, setState }: StepProps) {
                         {repo.fullName}
                       </option>
                     ))}
-                  </Select>
+                  </select>
                 </FieldContent>
               </Field>
 

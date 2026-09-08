@@ -1,7 +1,6 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 
 export interface DiskSelection {
   category: string;
@@ -55,13 +54,17 @@ export function DiskSelector({
       </div>
 
       <div className="flex items-center gap-4">
-        <Select className="w-40" value={value.category} onChange={(e) => onChange({ ...value, category: e.target.value })}>
+        <select
+          className="w-40 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          value={value.category}
+          onChange={(e) => onChange({ ...value, category: e.target.value })}
+        >
           {DISK_OPTIONS.map((d) => (
             <option key={d.id} value={d.id}>
               {d.label}
             </option>
           ))}
-        </Select>
+        </select>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">容量</span>
           <Input

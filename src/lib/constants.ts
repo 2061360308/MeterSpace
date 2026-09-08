@@ -7,6 +7,31 @@ export const REGIONS = [
   { id: "cn-hongkong", label: "香港 (cn-hongkong)" },
 ];
 
+export const REGIONS_BY_PROVIDER: Record<string, { id: string; label: string }[]> = {
+  aliyun: [
+    { id: "cn-hangzhou", label: "杭州 (cn-hangzhou)" },
+    { id: "cn-shanghai", label: "上海 (cn-shanghai)" },
+    { id: "cn-beijing", label: "北京 (cn-beijing)" },
+    { id: "cn-shenzhen", label: "深圳 (cn-shenzhen)" },
+    { id: "cn-guangzhou", label: "广州 (cn-guangzhou)" },
+    { id: "cn-hongkong", label: "香港 (cn-hongkong)" },
+  ],
+  tencent: [
+    { id: "ap-guangzhou", label: "广州 (ap-guangzhou)" },
+    { id: "ap-shanghai", label: "上海 (ap-shanghai)" },
+    { id: "ap-beijing", label: "北京 (ap-beijing)" },
+    { id: "ap-shenzhen", label: "深圳 (ap-shenzhen)" },
+    { id: "ap-hongkong", label: "香港 (ap-hongkong)" },
+  ],
+  aws: [
+    { id: "us-east-1", label: "弗吉尼亚 (us-east-1)" },
+    { id: "us-west-2", label: "俄勒冈 (us-west-2)" },
+    { id: "ap-northeast-1", label: "东京 (ap-northeast-1)" },
+    { id: "ap-southeast-1", label: "新加坡 (ap-southeast-1)" },
+    { id: "eu-west-1", label: "爱尔兰 (eu-west-1)" },
+  ],
+};
+
 export const INSTANCE_TYPES = [
   { id: "ecs.c6.large", cpu: 2, mem: 4, note: "2核4G" },
   { id: "ecs.g6.xlarge", cpu: 4, mem: 8, note: "4核8G" },
