@@ -97,8 +97,8 @@ export default function CloudInstancesPage() {
           <ButtonGroup>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]">
-                  <ListFilterIcon className="h-3 w-3" />
+                <Button variant="outline" size="sm">
+                  <ListFilterIcon className="h-3.5 w-3.5" />
                   筛选
                   {hasFilter && (
                     <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[9px] h-3.5 w-3.5 flex items-center justify-center">
@@ -137,9 +137,9 @@ export default function CloudInstancesPage() {
             </DropdownMenu>
           </ButtonGroup>
           <ButtonGroup>
-            <Button asChild variant="outline" size="sm" className="h-7 px-2 text-[11px]">
+            <Button asChild variant="outline" size="sm">
               <Link href={`/cloud-instances/new?provider=${provider}`}>
-                <Plus className="h-3 w-3" />
+                <Plus className="h-3.5 w-3.5" />
                 添加
               </Link>
             </Button>
