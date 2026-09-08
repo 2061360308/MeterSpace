@@ -128,9 +128,9 @@ async function launchInstance(
     securityGroupId: resources.securityGroupId,
     vSwitchId: resources.vSwitchId,
     ramRoleName: RAM_ROLE_NAME,
-    diskCategory: workspace.diskCategory ?? "cloud_essd",
-    diskSize: workspace.diskSize ?? 40,
-    bandwidth: workspace.bandwidth ?? 10,
+    diskCategory: "cloud_essd",
+    diskSize: workspace.defaultDiskSize ?? 40,
+    bandwidth: workspace.defaultBandwidth ?? 10,
     spotStrategy: "NoSpot",
     spotDuration: 1,
     spotPriceLimit: null,
@@ -160,9 +160,9 @@ async function preflightCheck(
       spotStrategy: "NoSpot",
       spotDuration: 1,
       spotPriceLimit: null,
-      diskCategory: workspace.diskCategory ?? "cloud_essd",
-      diskSize: workspace.diskSize ?? 40,
-      bandwidth: workspace.bandwidth ?? 10,
+      diskCategory: "cloud_essd",
+      diskSize: workspace.defaultDiskSize ?? 40,
+      bandwidth: workspace.defaultBandwidth ?? 10,
     });
     const hourlyTotal = details.reduce((s, d) => s + (d.tradePrice ?? 0), 0);
     const estimated = hourlyTotal * releaseHours;
@@ -219,9 +219,8 @@ export async function createWorkspace(
       region: input.region,
       cloudInstanceId: input.cloudInstanceId,
       imageUri: input.imageUri,
-      diskCategory: input.diskCategory,
-      diskSize: input.diskSize,
-      bandwidth: input.bandwidth,
+      defaultDiskSize: input.diskSize,
+      defaultBandwidth: input.bandwidth,
       publicIp: input.publicIp,
       features,
       gitProvider: input.gitProvider ?? null,
@@ -299,14 +298,12 @@ export async function startWorkspace(
       updatedAt: new Date(),
     };
     if (input.cloudInstanceId) patch.cloudInstanceId = input.cloudInstanceId;
-    if (input.diskCategory) patch.diskCategory = input.diskCategory;
-    if (input.diskSize) patch.diskSize = input.diskSize;
-    if (input.bandwidth) patch.bandwidth = input.bandwidth;
+    if (input.diskSize) patch.defaultDiskSize = input.diskSize;
+    if (input.bandwidth) patch.defaultBandwidth = input.bandwidth;
     await db.update(workspaces).set(patch).where(eq(workspaces.id, workspaceId));
     if (input.cloudInstanceId) workspace.cloudInstanceId = input.cloudInstanceId;
-    if (input.diskCategory) workspace.diskCategory = input.diskCategory;
-    if (input.diskSize) workspace.diskSize = input.diskSize;
-    if (input.bandwidth) workspace.bandwidth = input.bandwidth;
+    if (input.diskSize) workspace.defaultDiskSize = input.diskSize;
+    if (input.bandwidth) workspace.defaultBandwidth = input.bandwidth;
   }
 
   // Load cloud instance to get instanceType

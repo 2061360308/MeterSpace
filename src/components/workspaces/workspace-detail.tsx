@@ -2,16 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { formatBytes, STATUS_META } from "@/lib/utils";
+import { STATUS_META } from "@/lib/utils";
 
-interface Log {
+interface Instance {
   id: string;
-  action: string;
-  details: Record<string, unknown> | null;
+  diskSize: number;
+  bandwidth: number;
+  status: string;
+  publicIp: string | null;
+  port: number | null;
+  bootError: string | null;
+  stoppedAt: string | null;
+  stopReason: string | null;
   createdAt: string;
 }
 
@@ -20,34 +27,22 @@ interface Detail {
   name: string;
   provider: string;
   region: string;
-  cloudInstanceId: string;
   cloudInstanceName: string | null;
   cloudInstanceType: string | null;
-  diskCategory: string;
-  diskSize: number;
-  bandwidth: number;
+  defaultDiskSize: number | null;
+  defaultBandwidth: number | null;
   imageUri: string;
   features: { id: string; name: string; version: string }[];
   gitRepoUrl: string | null;
   gitBranch: string | null;
   createdAt: string;
-  state: {
-    status: string;
-    instanceId: string | null;
-    publicIp: string | null;
-    port: number | null;
-    accessToken: string | null;
-    ossUsageBytes: number | null;
-    releasedAt: string | null;
-  } | null;
-  logs: Log[];
 }
 
 export function WorkspaceDetail({ id }: { id: string }) {
   const router = useRouter();
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [instances, setInstances] = useState<Instance[]>([]);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -60,35 +55,54 @@ export function WorkspaceDetail({ id }: { id: string }) {
       const data = await res.json();
       setDetail(data.workspace);
     }
+
+    const instancesRes = await fetch(`/api/workspaces/${id}/instances`);
+    if (instancesRes.ok) {
+      const instancesData = await instancesRes.json();
+      setInstances(instancesData.instances ?? []);
+    }
   }, [id, router]);
 
   useEffect(() => {
     load();
-    const t = setInterval(() => {
-      if (
-        detail?.state?.status === "PROVISIONING" ||
-        detail?.state?.status === "TERMINATING"
-      ) {
-        load();
-      }
-    }, 8000);
-    return () => clearInterval(t);
-  }, [load, detail?.state?.status]);
+  }, [load]);
 
-  async function action(path: string, method: string, body?: object) {
+  useEffect(() => {
+    const hasActiveInstance = instances.some(
+      (i) => i.status === "PROVISIONING" || i.status === "BOOTING" || i.status === "RUNNING",
+    );
+    if (!hasActiveInstance) return;
+
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [instances, load]);
+
+  async function handleStart() {
     setBusy(true);
     setError("");
-    const res = await fetch(path, {
-      method,
+    const res = await fetch(`/api/workspaces/${id}/instances`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : "{}",
+      body: JSON.stringify({}),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "操作失败，请重试");
+      setError(data.error ?? "启动失败");
     }
     await load();
-    router.refresh();
+    setBusy(false);
+  }
+
+  async function handleDelete() {
+    if (!confirm("确定删除该工作区？所有实例数据将被清除，不可恢复。")) return;
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/workspaces/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/");
+    } else {
+      setError("删除失败");
+    }
     setBusy(false);
   }
 
@@ -100,12 +114,16 @@ export function WorkspaceDetail({ id }: { id: string }) {
     );
   }
 
-  const status = detail.state?.status ?? "STOPPED";
-  const meta = STATUS_META[status] ?? STATUS_META.STOPPED;
-  const running = status === "RUNNING";
-  const ideUrl = running
-    ? `http://${detail.state?.publicIp}:${detail.state?.port ?? 8080}`
-    : null;
+  const currentInstance = instances.find(
+    (i) => i.status === "RUNNING" || i.status === "BOOTING" || i.status === "PROVISIONING",
+  );
+  const historyInstances = instances.filter(
+    (i) => i.status === "STOPPED" || i.status === "FAILED",
+  );
+
+  const isRunning = currentInstance?.status === "RUNNING";
+  const isBooting =
+    currentInstance?.status === "PROVISIONING" || currentInstance?.status === "BOOTING";
 
   return (
     <div className="space-y-6">
@@ -113,11 +131,10 @@ export function WorkspaceDetail({ id }: { id: string }) {
         <div>
           <h1 className="text-xl font-semibold">{detail.name}</h1>
           <p className="text-sm text-gray-500">
-            {detail.cloudInstanceName ?? "未绑定弹性规格"} · {detail.cloudInstanceType ?? ""} · {detail.diskCategory} {detail.diskSize}GB ·{" "}
-            {detail.bandwidth}Mbps
+            {detail.region} · {detail.cloudInstanceName ?? "未绑定弹性规格"} ·{" "}
+            {detail.cloudInstanceType ?? ""} · {detail.imageUri.split("/").pop()}
           </p>
         </div>
-        <Badge tone={meta.tone}>{meta.label}</Badge>
       </div>
 
       {error && (
@@ -129,125 +146,137 @@ export function WorkspaceDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {status === "FAILED" && (
-        <Card className="flex items-center justify-between p-4">
-          <p className="text-sm text-red-600">
-            上次启动失败，可修改配置后重试。
-          </p>
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => action(`/api/workspaces/${id}/start`, "POST")}
-          >
-            重试启动
-          </Button>
-        </Card>
-      )}
-
-      {running && ideUrl && (
+      {currentInstance && (
         <Card className="space-y-3 p-6">
-          <h2 className="font-medium">进入 IDE</h2>
-          <p className="text-sm text-gray-600">
-            地址:{" "}
-            <a href={ideUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-              {ideUrl}
-            </a>
-          </p>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-gray-600">密码:</span>
-            <code className="rounded bg-gray-100 px-2 py-1">
-              {detail.state?.accessToken}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                navigator.clipboard.writeText(detail.state?.accessToken ?? "");
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
-            >
-              {copied ? "已复制" : "复制"}
-            </Button>
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">当前实例</h2>
+            <Badge tone={STATUS_META[currentInstance.status]?.tone ?? "gray"}>
+              {STATUS_META[currentInstance.status]?.label ?? currentInstance.status}
+            </Badge>
+          </div>
+          <div className="text-sm text-gray-600">
+            <p>
+              配置: {currentInstance.diskSize}GB · {currentInstance.bandwidth}Mbps
+            </p>
+            {currentInstance.publicIp && (
+              <p>
+                地址: {currentInstance.publicIp}:{currentInstance.port ?? 8080}
+              </p>
+            )}
+            {currentInstance.bootError && (
+              <p className="text-red-600">错误: {currentInstance.bootError}</p>
+            )}
           </div>
           <div className="flex gap-2">
-            <a href={ideUrl} target="_blank" rel="noreferrer">
-              <Button>🔗 进入 IDE</Button>
-            </a>
-            <Button
-              variant="secondary"
-              onClick={() => action(`/api/workspaces/${id}/renew`, "POST").catch(() => {})}
-            >
-              续期 +1h
-            </Button>
+            <Link href={`/instances/${currentInstance.id}`}>
+              <Button size="sm">
+                {isRunning ? "查看详情" : isBooting ? "查看进度" : "查看详情"}
+              </Button>
+            </Link>
+            {isRunning && (
+              <a
+                href={`http://${currentInstance.publicIp}:${currentInstance.port ?? 8080}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button size="sm" variant="secondary">
+                  进入 IDE
+                </Button>
+              </a>
+            )}
           </div>
         </Card>
       )}
 
-      <Card className="space-y-4 p-6">
-        <h2 className="font-medium">操作</h2>
-        <div className="flex flex-wrap gap-2">
-          {(status === "STOPPED" || status === "FAILED") && (
-            <Button
-              disabled={busy}
-              onClick={() => action(`/api/workspaces/${id}/start`, "POST", {
-                mode: "quick",
-              })}
-            >
-              启动
-            </Button>
-          )}
-          {running && (
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => action(`/api/workspaces/${id}/stop`, "POST")}
-            >
-              停止
-            </Button>
-          )}
-          <Button
-            variant="destructive"
-            disabled={busy}
-            onClick={async () => {
-              if (confirm("确定删除该工作区？OSS 数据将被清除，不可恢复。")) {
-                await action(`/api/workspaces/${id}`, "DELETE");
-                router.push("/");
-              }
-            }}
-          >
-            删除工作区
+      {!currentInstance && (
+        <Card className="p-6">
+          <h2 className="font-medium">启动新实例</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            当前没有运行中的实例。启动后将创建一个新的 ECS 实例。
+          </p>
+          <Button className="mt-4" disabled={busy} onClick={handleStart}>
+            {busy ? <Spinner className="mr-2 h-4 w-4" /> : null}
+            启动实例
           </Button>
-        </div>
-        <p className="text-sm text-gray-500">
-          OSS 占用: {formatBytes(detail.state?.ossUsageBytes)} · 最后释放:{" "}
-          {detail.state?.releasedAt
-            ? new Date(detail.state.releasedAt).toLocaleString()
-            : "—"}
-        </p>
+        </Card>
+      )}
+
+      {historyInstances.length > 0 && (
+        <Card className="p-6">
+          <h2 className="mb-4 font-medium">历史实例</h2>
+          <div className="space-y-3">
+            {historyInstances.map((instance) => (
+              <div
+                key={instance.id}
+                className="flex items-center justify-between rounded border p-3"
+              >
+                <div className="text-sm">
+                  <div className="flex items-center gap-2">
+                    <Badge tone={STATUS_META[instance.status]?.tone ?? "gray"}>
+                      {STATUS_META[instance.status]?.label ?? instance.status}
+                    </Badge>
+                    <span className="text-gray-500">
+                      {new Date(instance.createdAt).toLocaleString()}
+                    </span>
+                    {instance.stoppedAt && (
+                      <span className="text-gray-400">
+                        → {new Date(instance.stoppedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    {instance.diskSize}GB · {instance.bandwidth}Mbps
+                    {instance.stopReason && <> · {instance.stopReason}</>}
+                  </div>
+                </div>
+                <Link href={`/instances/${instance.id}`}>
+                  <Button size="sm" variant="ghost">
+                    查看详情
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-6">
+        <h2 className="mb-4 font-medium">工作区配置</h2>
+        <dl className="grid grid-cols-2 gap-2 text-sm">
+          <dt className="text-gray-500">区域</dt>
+          <dd>{detail.region}</dd>
+          <dt className="text-gray-500">规格</dt>
+          <dd>{detail.cloudInstanceName ?? "未绑定"}</dd>
+          <dt className="text-gray-500">镜像</dt>
+          <dd className="font-mono text-xs">{detail.imageUri}</dd>
+          <dt className="text-gray-500">默认磁盘</dt>
+          <dd>{detail.defaultDiskSize ?? 40}GB</dd>
+          <dt className="text-gray-500">默认带宽</dt>
+          <dd>{detail.defaultBandwidth ?? 10}Mbps</dd>
+          {detail.gitRepoUrl && (
+            <>
+              <dt className="text-gray-500">代码仓库</dt>
+              <dd className="font-mono text-xs">{detail.gitRepoUrl}</dd>
+              <dt className="text-gray-500">分支</dt>
+              <dd>{detail.gitBranch ?? "main"}</dd>
+            </>
+          )}
+          {detail.features && detail.features.length > 0 && (
+            <>
+              <dt className="text-gray-500">开发环境</dt>
+              <dd>{detail.features.map((f) => f.name).join(", ")}</dd>
+            </>
+          )}
+        </dl>
       </Card>
 
       <Card className="p-6">
-        <h2 className="mb-4 font-medium">操作历史</h2>
-        {detail.logs.length === 0 ? (
-          <p className="text-sm text-gray-400">暂无记录</p>
-        ) : (
-          <ul className="space-y-2 text-sm">
-            {detail.logs.map((log) => (
-              <li key={log.id} className="flex items-center gap-3">
-                <span className="text-gray-400">
-                  {new Date(log.createdAt).toLocaleString()}
-                </span>
-                <Badge tone="gray">{log.action}</Badge>
-                <span className="text-gray-600">
-                  {log.details?.instanceId
-                    ? `ecs.${log.details.instanceId}`
-                    : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <h2 className="mb-4 font-medium">操作</h2>
+        <div className="flex gap-2">
+          <Button variant="destructive" disabled={busy} onClick={handleDelete}>
+            删除工作区
+          </Button>
+        </div>
       </Card>
     </div>
   );

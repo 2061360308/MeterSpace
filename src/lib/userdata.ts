@@ -8,72 +8,102 @@ export interface Feature {
 }
 
 export interface EntrypointVars {
+  instanceId?: string;
   workspaceId: string;
   ossBucket: string;
-  ossWorkspacePath: string; // ws-{id}/workspace
+  ossWorkspacePath: string;
   region: string;
   imageUri: string;
   ramRoleName: string;
   callbackUrl: string;
   accessToken: string;
+  agentVersion?: string;
   gitRepoUrl?: string | null;
   gitBranch: string;
   gitAuthedUrl?: string | null;
   gitAutoClone: boolean;
   idleMinutes: number;
   features: Feature[];
+  customScripts?: { name: string; script: string }[];
 }
 
-/** Single-quote escape a value for safe embedding in shell. */
 function q(v: string): string {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
-const IDLE_WATCHER = `#!/bin/bash
-WORKSPACE_ID=__WSID__
-IDLE_MINUTES=__IDLE__
-CALLBACK_URL=__CB__
-ACCESS_TOKEN=__TOKEN__
-CHECK_INTERVAL=60
+export function buildEntrypoint(vars: EntrypointVars): string {
+  const agentVersion = vars.agentVersion ?? "latest";
+  const agentDownloadUrl = `https://github.com/workspace-cloud/agent/releases/download/${agentVersion}/agent-linux-amd64`;
 
-touch /tmp/.last_activity
+  const startupScript = buildStartupScript(vars);
 
-get_last_activity() {
-  local ws_activity=\$(ss -tnp 2>/dev/null | grep -c ':8080' || echo 0)
-  local file_activity=\$(find /workspace -maxdepth 3 -newer /tmp/.last_activity -type f 2>/dev/null | head -1)
-  local term_activity=\$(docker exec workspace ps aux 2>/dev/null | grep -cE 'bash|zsh|node' || echo 0)
-  if [ "\$ws_activity" -gt 0 ] || [ -n "\$file_activity" ] || [ "\$term_activity" -gt 1 ]; then
-    date +%s > /tmp/.last_activity
-  fi
-  cat /tmp/.last_activity 2>/dev/null || date +%s
+  return `#!/bin/bash
+set -e
+
+# === 环境变量 ===
+INSTANCE_ID=${q(vars.instanceId ?? "")}
+WORKSPACE_ID=${q(vars.workspaceId)}
+OSS_BUCKET=${q(vars.ossBucket)}
+OSS_WORKSPACE_PATH=${q(vars.ossWorkspacePath)}
+REGION=${q(vars.region)}
+IMAGE_URI=${q(vars.imageUri)}
+RAM_ROLE_NAME=${q(vars.ramRoleName)}
+CALLBACK_URL=${q(vars.callbackUrl)}
+ACCESS_TOKEN=${q(vars.accessToken)}
+GIT_REPO_URL=${q(vars.gitRepoUrl ?? "")}
+GIT_BRANCH=${q(vars.gitBranch)}
+GIT_AUTHED_URL=${q(vars.gitAuthedUrl ?? "")}
+GIT_AUTO_CLONE=${vars.gitAutoClone ? "true" : "false"}
+IDLE_MINUTES=${String(vars.idleMinutes)}
+
+# === 1. 基础环境 ===
+apt-get update && apt-get install -y docker.io git curl jq tar ossfs rsync
+
+# === 2. 启动 Docker ===
+systemctl enable --now docker
+
+# === 3. 下载并启动 Agent ===
+mkdir -p /opt/agent/scripts /opt/agent/logs
+
+# 下载 agent 二进制
+curl -sfL "${agentDownloadUrl}" -o /opt/agent/agent || {
+  echo "[agent] Failed to download agent from ${agentDownloadUrl}"
+  exit 1
+}
+chmod +x /opt/agent/agent
+
+# 写入启动脚本
+cat > /opt/agent/scripts/startup.sh <<'STARTUP_SCRIPT'
+${startupScript}
+STARTUP_SCRIPT
+chmod +x /opt/agent/scripts/startup.sh
+
+# 写入 agent 配置
+cat > /opt/agent/config.json <<AGENTCFG
+{
+  "instance_id": "${vars.instanceId}",
+  "workspace_id": "${vars.workspaceId}",
+  "backend_url": "${vars.callbackUrl}",
+  "backend_token": "${vars.accessToken}",
+  "script_path": "/opt/agent/scripts/startup.sh",
+  "heartbeat_interval": 30,
+  "script_timeout": 600
+}
+AGENTCFG
+
+# 启动 agent
+/opt/agent/agent &
+AGENT_PID=$!
+echo "[agent] Started with PID $AGENT_PID"
+
+# === 4. 保持运行 ===
+wait $AGENT_PID
+tail -f /dev/null`;
 }
 
-while true; do
-  LAST_ACTIVE=\$(get_last_activity)
-  NOW=\$(date +%s)
-  IDLE_SECONDS=\$((IDLE_MINUTES * 60))
-  IDLE_TIME=\$((NOW - LAST_ACTIVE))
-  if [ "\$IDLE_TIME" -ge "\$IDLE_SECONDS" ]; then
-    if [ ! -f "/tmp/.idle_triggered" ]; then
-      touch /tmp/.idle_triggered
-      curl -s -X POST "\${CALLBACK_URL}/api/health/\${WORKSPACE_ID}/idle" \\
-        -H "Content-Type: application/json" \\
-        -d "{\\"idleSeconds\\": \${IDLE_TIME}, \\"accessToken\\": \\"\${ACCESS_TOKEN}\\"}"
-    fi
-  else
-    rm -f /tmp/.idle_triggered
-  fi
-  sleep \$CHECK_INTERVAL
-done`;
-
-/** Build the full ECS UserData entrypoint script (matches PLAN.md 第九章). */
-export function buildEntrypoint(vars: EntrypointVars): string {
+function buildStartupScript(vars: EntrypointVars): string {
   const featuresJson = JSON.stringify(vars.features);
-
-  const idleWatcher = IDLE_WATCHER.replace("__WSID__", vars.workspaceId)
-    .replace("__IDLE__", String(vars.idleMinutes))
-    .replace("__CB__", vars.callbackUrl)
-    .replace("__TOKEN__", vars.accessToken);
+  const customScriptsJson = JSON.stringify(vars.customScripts ?? []);
 
   const acrLogin =
     vars.imageUri.match(/registry\..*\.aliyuncs\.com\//)
@@ -105,35 +135,23 @@ fi
   echo "[feature] \${FEATURE_ID} installed."
 done`;
 
+  const customScriptsLoop = `echo ${q(customScriptsJson)} | jq -c '.[]' | while read -r script; do
+  SCRIPT_NAME=$(echo "$script" | jq -r '.name')
+  SCRIPT_CONTENT=$(echo "$script" | jq -r '.script')
+  echo "[script] Running \${SCRIPT_NAME}..."
+  echo "\$SCRIPT_CONTENT" | bash
+  echo "[script] \${SCRIPT_NAME} completed."
+done`;
+
   return `#!/bin/bash
 set -e
 
-# === 环境变量（由后端注入）===
-WORKSPACE_ID=${q(vars.workspaceId)}
-OSS_BUCKET=${q(vars.ossBucket)}
-OSS_WORKSPACE_PATH=${q(vars.ossWorkspacePath)}
-REGION=${q(vars.region)}
-IMAGE_URI=${q(vars.imageUri)}
-RAM_ROLE_NAME=${q(vars.ramRoleName)}
-CALLBACK_URL=${q(vars.callbackUrl)}
-ACCESS_TOKEN=${q(vars.accessToken)}
-GIT_REPO_URL=${q(vars.gitRepoUrl ?? "")}
-GIT_BRANCH=${q(vars.gitBranch)}
-GIT_AUTHED_URL=${q(vars.gitAuthedUrl ?? "")}
-GIT_AUTO_CLONE=${vars.gitAutoClone ? "true" : "false"}
-IDLE_MINUTES=${String(vars.idleMinutes)}
-FEATURES=${q(featuresJson)}
+echo "[startup] Beginning workspace setup..."
 
-# === 1. 基础环境 ===
-apt-get update && apt-get install -y docker.io git curl jq tar ossfs rsync
-
-# === 2. 启动 Docker ===
-systemctl enable --now docker
-
-# === 3. 登录 ACR（仅当镜像来自 ACR）===
+# === 1. 登录 ACR ===
 ${acrLogin}
 
-# === 4. 挂载 /workspace 与 /mnt/config（ossfs）===
+# === 2. 挂载 OSS ===
 mkdir -p /workspace /mnt/config
 ossfs "\${OSS_BUCKET}:/${vars.ossWorkspacePath}" /workspace \\
   -ourl="http://oss-\${REGION}-internal.aliyuncs.com" \\
@@ -142,7 +160,7 @@ ossfs "\${OSS_BUCKET}:/ws-\${WORKSPACE_ID}/config" /mnt/config \\
   -ourl="http://oss-\${REGION}-internal.aliyuncs.com" \\
   -o ram_role="\${RAM_ROLE_NAME}" -o allow_other
 
-# === 5. 启动容器 ===
+# === 3. 启动容器 ===
 docker pull "\${IMAGE_URI}"
 docker run -d --name workspace \\
   -p 8080:8080 \\
@@ -151,14 +169,14 @@ docker run -d --name workspace \\
   --restart unless-stopped \\
   "\${IMAGE_URI}" /workspace
 
-# === 6. 恢复漫游配置 ===
+# === 4. 恢复漫游配置 ===
 if [ -f "/mnt/config/roaming.tar.gz" ]; then
   docker cp /mnt/config/roaming.tar.gz workspace:/tmp/roaming.tar.gz
   docker exec workspace bash -c "tar -xzf /tmp/roaming.tar.gz -C /home/coder && rm -f /tmp/roaming.tar.gz"
   echo "[roaming] Restored."
 fi
 
-# === 7. 恢复快照 ===
+# === 5. 恢复快照 ===
 if [ -f "/workspace/.snapshots/latest.tar.gz" ]; then
   TMPDIR=$(mktemp -d)
   tar -xzf /workspace/.snapshots/latest.tar.gz -C "$TMPDIR"
@@ -167,42 +185,74 @@ if [ -f "/workspace/.snapshots/latest.tar.gz" ]; then
   echo "[snapshot] Restore complete."
 fi
 
-# === 8. Git Clone / Pull ===
+# === 6. Git Clone / Pull ===
 ${gitBlock}
 
-# === 9. 安装 Features ===
+# === 7. 安装 Features ===
 ${featuresLoop}
 
-# === 10. 写并启动 idle-watcher ===
-cat > /opt/idle-watcher.sh <<'WATCHER'
-${idleWatcher}
-WATCHER
+# === 8. 执行自定义脚本 ===
+${customScriptsLoop}
+
+# === 9. 启动 idle-watcher ===
+cat > /opt/idle-watcher.sh <<'IDLE_WATCHER'
+#!/bin/bash
+WORKSPACE_ID="${vars.workspaceId}"
+IDLE_MINUTES=${vars.idleMinutes}
+CALLBACK_URL="${vars.callbackUrl}"
+ACCESS_TOKEN="${vars.accessToken}"
+CHECK_INTERVAL=60
+
+touch /tmp/.last_activity
+
+get_last_activity() {
+  local ws_activity=\\$(ss -tnp 2>/dev/null | grep -c ':8080' || echo 0)
+  local file_activity=\\$(find /workspace -maxdepth 3 -newer /tmp/.last_activity -type f 2>/dev/null | head -1)
+  local term_activity=\\$(docker exec workspace ps aux 2>/dev/null | grep -cE 'bash|zsh|node' || echo 0)
+  if [ "\$ws_activity" -gt 0 ] || [ -n "\$file_activity" ] || [ "\$term_activity" -gt 1 ]; then
+    date +%s > /tmp/.last_activity
+  fi
+  cat /tmp/.last_activity 2>/dev/null || date +%s
+}
+
+while true; do
+  LAST_ACTIVE=\\$(get_last_activity)
+  NOW=\\$(date +%s)
+  IDLE_SECONDS=\\$((IDLE_MINUTES * 60))
+  IDLE_TIME=\\$((NOW - LAST_ACTIVE))
+  if [ "\$IDLE_TIME" -ge "\$IDLE_SECONDS" ]; then
+    if [ ! -f "/tmp/.idle_triggered" ]; then
+      touch /tmp/.idle_triggered
+      curl -s -X POST "\${CALLBACK_URL}/api/health/\${WORKSPACE_ID}/idle" \\
+        -H "Content-Type: application/json" \\
+        -d "{\\"idleSeconds\\": \${IDLE_TIME}, \\"accessToken\\": \\"\${ACCESS_TOKEN}\\"}"
+    fi
+  else
+    rm -f /tmp/.idle_triggered
+  fi
+  sleep \$CHECK_INTERVAL
+done
+IDLE_WATCHER
 chmod +x /opt/idle-watcher.sh
 nohup bash /opt/idle-watcher.sh >/var/log/idle-watcher.log 2>&1 &
 
-# === 11. 健康上报 ===
-PUBLIC_IP=$(curl -s http://100.100.100.200/latest/meta-data/public-ipv4)
-INSTANCE_ID=$(curl -s http://100.100.100.200/latest/meta-data/instance-id)
+echo "[startup] Workspace setup complete."
+echo "[health] Waiting for container to be ready..."
+
+# === 10. 等待容器就绪 ===
 for i in $(seq 1 30); do
   if curl -sf http://localhost:8080 >/dev/null 2>&1; then
-    curl -s -X POST "\${CALLBACK_URL}/api/health/\${WORKSPACE_ID}" \\
-      -H "Content-Type: application/json" \\
-      -d "{\\"instanceId\\": \\"\${INSTANCE_ID}\\", \\"publicIp\\": \\"\${PUBLIC_IP}\\", \\"port\\": 8080, \\"accessToken\\": \\"\${ACCESS_TOKEN}\\"}"
-    echo "[health] Reported healthy."
+    echo "[health] Container is ready."
     break
   fi
   sleep 5
-done
-
-# === 12. 保持运行 ===
-tail -f /dev/null`;
+done`;
 }
 
 export function buildUserData(vars: EntrypointVars): string {
   return Buffer.from(buildEntrypoint(vars)).toString("base64");
 }
 
-/** Build the stop-hook script executed via RunCommand (matches PLAN.md 第十章). */
 export function buildStopHook(): string {
   return `#!/bin/bash
 set -e
@@ -230,7 +280,6 @@ echo "[cleanup] Tracked files removed."
 echo "OSS_USAGE=$(du -sb /workspace | cut -f1)"`;
 }
 
-/** Decrypt a workspace's git token (if present). */
 export function decryptGitToken(gitTokenEnc: string | null): string | null {
   if (!gitTokenEnc) return null;
   return decrypt(gitTokenEnc);
