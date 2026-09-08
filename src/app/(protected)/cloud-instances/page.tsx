@@ -81,10 +81,10 @@ export default function CloudInstancesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* 操作栏 */}
-      <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-6 py-2 bg-background">
+        <div className="flex items-center gap-2">
           <Select value={cpuFilter} onValueChange={setCpuFilter}>
-            <SelectTrigger className="w-[100px]">
+            <SelectTrigger className="h-8 w-[90px] text-xs">
               <SelectValue placeholder="CPU" />
             </SelectTrigger>
             <SelectContent>
@@ -94,7 +94,7 @@ export default function CloudInstancesPage() {
             </SelectContent>
           </Select>
           <Select value={memoryFilter} onValueChange={setMemoryFilter}>
-            <SelectTrigger className="w-[100px]">
+            <SelectTrigger className="h-8 w-[90px] text-xs">
               <SelectValue placeholder="内存" />
             </SelectTrigger>
             <SelectContent>
@@ -104,9 +104,9 @@ export default function CloudInstancesPage() {
             </SelectContent>
           </Select>
         </div>
-        <Button asChild size="sm">
+        <Button asChild size="sm" className="h-8 px-3 text-xs">
           <Link href={`/cloud-instances/new?provider=${provider}`}>
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="mr-1 h-3.5 w-3.5" />
             添加
           </Link>
         </Button>
