@@ -94,52 +94,56 @@ export default function CloudInstancesPage() {
       {/* 操作栏 */}
       <div className="flex items-center justify-end px-6 py-1.5">
         <ButtonGroup>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]">
-                <ListFilterIcon className="h-3 w-3" />
-                筛选
+          <ButtonGroup>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]">
+                  <ListFilterIcon className="h-3 w-3" />
+                  筛选
+                  {hasFilter && (
+                    <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[9px] h-3.5 w-3.5 flex items-center justify-center">
+                      {(cpuFilter !== "全部" ? 1 : 0) + (memoryFilter !== "全部" ? 1 : 0)}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuGroup>
+                  <DropdownMenuRadioGroup value={cpuFilter} onValueChange={setCpuFilter}>
+                    <div className="px-2 py-1 text-xs text-muted-foreground">CPU</div>
+                    {CPU_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuRadioGroup value={memoryFilter} onValueChange={setMemoryFilter}>
+                    <div className="px-2 py-1 text-xs text-muted-foreground">内存</div>
+                    {MEMORY_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuGroup>
                 {hasFilter && (
-                  <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[9px] h-3.5 w-3.5 flex items-center justify-center">
-                    {(cpuFilter !== "全部" ? 1 : 0) + (memoryFilter !== "全部" ? 1 : 0)}
-                  </span>
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}>
+                      清除筛选
+                    </DropdownMenuItem>
+                  </>
                 )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuGroup>
-                <DropdownMenuRadioGroup value={cpuFilter} onValueChange={setCpuFilter}>
-                  <div className="px-2 py-1 text-xs text-muted-foreground">CPU</div>
-                  {CPU_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuRadioGroup value={memoryFilter} onValueChange={setMemoryFilter}>
-                  <div className="px-2 py-1 text-xs text-muted-foreground">内存</div>
-                  {MEMORY_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt} value={opt}>{opt}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
-              {hasFilter && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { setCpuFilter("全部"); setMemoryFilter("全部") }}>
-                    清除筛选
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button asChild variant="outline" size="sm" className="h-7 px-2 text-[11px]">
-            <Link href={`/cloud-instances/new?provider=${provider}`}>
-              <Plus className="h-3 w-3" />
-              添加
-            </Link>
-          </Button>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+          <ButtonGroup>
+            <Button asChild variant="outline" size="sm" className="h-7 px-2 text-[11px]">
+              <Link href={`/cloud-instances/new?provider=${provider}`}>
+                <Plus className="h-3 w-3" />
+                添加
+              </Link>
+            </Button>
+          </ButtonGroup>
         </ButtonGroup>
       </div>
 
