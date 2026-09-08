@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -23,64 +23,86 @@ import { Textarea } from "@/components/ui/textarea"
 interface UserFeature {
   id: string
   name: string
-  description: string
+  description: string | null
   featureUri: string
   options: Record<string, unknown>
-  source: "marketplace" | "custom"
+  source: string | null
 }
 
 export default function MyFeaturesPage() {
   const [search, setSearch] = useState("")
-  const [features, setFeatures] = useState<UserFeature[]>([
-    {
-      id: "1",
-      name: "Node.js",
-      description: "从市场安装的 Node.js Feature",
-      featureUri: "ghcr.io/devcontainers/features/node:1",
-      options: { version: "22" },
-      source: "marketplace",
-    },
-    {
-      id: "2",
-      name: "Docker",
-      description: "Docker in Docker Feature",
-      featureUri: "ghcr.io/devcontainers/features/docker-in-docker:2",
-      options: {},
-      source: "marketplace",
-    },
-  ])
+  const [features, setFeatures] = useState<UserFeature[]>([])
+  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [newFeature, setNewFeature] = useState({
-    name: "",
-    description: "",
-    featureUri: "",
-  })
+  const [editFeature, setEditFeature] = useState<UserFeature | null>(null)
+  const [form, setForm] = useState({ name: "", description: "", featureUri: "" })
+
+  const fetchFeatures = useCallback(async () => {
+    try {
+      const res = await fetch("/api/my-resources/features")
+      const data = await res.json()
+      setFeatures(data.features ?? [])
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchFeatures() }, [fetchFeatures])
 
   const filteredFeatures = features.filter(
     (feat) =>
       feat.name.toLowerCase().includes(search.toLowerCase()) ||
-      feat.description.toLowerCase().includes(search.toLowerCase())
+      (feat.description ?? "").toLowerCase().includes(search.toLowerCase())
   )
 
-  const handleAddFeature = () => {
-    if (!newFeature.name || !newFeature.featureUri) return
-
-    const feature: UserFeature = {
-      id: Date.now().toString(),
-      name: newFeature.name,
-      description: newFeature.description,
-      featureUri: newFeature.featureUri,
-      options: {},
-      source: "custom",
+  const handleSubmit = async () => {
+    if (!form.name || !form.featureUri) return
+    try {
+      if (editFeature) {
+        await fetch(`/api/my-resources/features/${editFeature.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+      } else {
+        await fetch("/api/my-resources/features", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+      }
+      await fetchFeatures()
+      closeDialog()
+    } catch {
+      // ignore
     }
-
-    setFeatures([...features, feature])
-    setNewFeature({ name: "", description: "", featureUri: "" })
-    setDialogOpen(false)
   }
 
-  const handleDeleteFeature = (id: string) => {
-    setFeatures(features.filter((feat) => feat.id !== id))
+  const handleEdit = (feature: UserFeature) => {
+    setEditFeature(feature)
+    setForm({ name: feature.name, description: feature.description ?? "", featureUri: feature.featureUri })
+    setDialogOpen(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/my-resources/features/${id}`, { method: "DELETE" })
+      await fetchFeatures()
+    } catch {
+      // ignore
+    }
+  }
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    setEditFeature(null)
+    setForm({ name: "", description: "", featureUri: "" })
+  }
+
+  if (loading) {
+    return <div className="flex-1 overflow-auto p-6"><div className="text-muted-foreground">加载中...</div></div>
   }
 
   return (
@@ -97,7 +119,7 @@ export default function MyFeaturesPage() {
               />
             </div>
             <ButtonGroup>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) closeDialog() }}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="icon-sm">
                     <Plus />
@@ -105,64 +127,33 @@ export default function MyFeaturesPage() {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>添加自定义 Feature</DialogTitle>
+                    <DialogTitle>{editFeature ? "编辑 Feature" : "添加自定义 Feature"}</DialogTitle>
                     <DialogDescription>
-                      输入 Feature URI 来添加自定义 Feature
+                      {editFeature ? "修改 Feature 信息" : "输入 Feature URI 来添加自定义 Feature"}
                     </DialogDescription>
                   </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">名称</Label>
-                    <Input
-                      id="name"
-                      placeholder="例如：My Custom Feature"
-                      value={newFeature.name}
-                      onChange={(e) =>
-                        setNewFeature({ ...newFeature, name: e.target.value })
-                      }
-                    />
+                    <Input id="name" placeholder="例如：My Custom Feature" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="description">描述</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="Feature 描述..."
-                      value={newFeature.description}
-                      onChange={(e) =>
-                        setNewFeature({
-                          ...newFeature,
-                          description: e.target.value,
-                        })
-                      }
-                    />
+                    <Textarea id="description" placeholder="Feature 描述..." value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="uri">Feature URI</Label>
-                    <Input
-                      id="uri"
-                      placeholder="例如：ghcr.io/devcontainers/features/node:1"
-                      value={newFeature.featureUri}
-                      onChange={(e) =>
-                        setNewFeature({
-                          ...newFeature,
-                          featureUri: e.target.value,
-                        })
-                      }
-                    />
+                    <Input id="uri" placeholder="例如：ghcr.io/devcontainers/features/node:1" value={form.featureUri} onChange={(e) => setForm({ ...form, featureUri: e.target.value })} />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                    取消
-                  </Button>
-                  <Button onClick={handleAddFeature}>添加</Button>
+                  <Button variant="outline" onClick={closeDialog}>取消</Button>
+                  <Button onClick={handleSubmit}>{editFeature ? "保存" : "添加"}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
             <Button asChild variant="outline" size="sm">
-              <Link href="/marketplace/features">
-                浏览市场
-              </Link>
+              <Link href="/marketplace/features">浏览市场</Link>
             </Button>
           </ButtonGroup>
           </div>
@@ -174,9 +165,7 @@ export default function MyFeaturesPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <CardTitle className="text-lg">{feature.name}</CardTitle>
-                      <CardDescription className="mt-1">
-                        {feature.description}
-                      </CardDescription>
+                      <CardDescription className="mt-1">{feature.description}</CardDescription>
                     </div>
                     <Badge tone={feature.source === "marketplace" ? "blue" : "gray"}>
                       {feature.source === "marketplace" ? "市场" : "自定义"}
@@ -185,23 +174,17 @@ export default function MyFeaturesPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="text-sm text-muted-foreground font-mono truncate">
-                      {feature.featureUri}
-                    </div>
+                    <div className="text-sm text-muted-foreground font-mono truncate">{feature.featureUri}</div>
                     {Object.keys(feature.options).length > 0 && (
                       <div className="text-sm text-muted-foreground">
                         选项: {JSON.stringify(feature.options)}
                       </div>
                     )}
                     <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" onClick={() => handleEdit(feature)}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteFeature(feature.id)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => handleDelete(feature.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

@@ -7,6 +7,7 @@ import {
   auditLogs,
   settings,
   cloudInstances,
+  userScripts,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getAliyunProvider } from "@/lib/providers";
@@ -72,6 +73,20 @@ async function buildEntrypointVars(
       ? buildAuthUrl(workspace.gitProvider, workspace.gitRepoUrl, gitToken)
       : null;
 
+  const enabledScripts = await db
+    .select()
+    .from(userScripts)
+    .where(and(
+      eq(userScripts.userId, workspace.userId),
+      eq(userScripts.enabled, true),
+    ))
+    .orderBy(userScripts.sortOrder);
+
+  const customScripts = enabledScripts.map((s) => ({
+    name: s.name,
+    script: s.script,
+  }));
+
   return {
     workspaceId: workspace.id,
     ossBucket: bucket,
@@ -88,6 +103,7 @@ async function buildEntrypointVars(
     idleMinutes:
       workspace.idleMinutes ?? s.defaultIdleMinutes,
     features: workspace.features ?? [],
+    customScripts,
   };
 }
 

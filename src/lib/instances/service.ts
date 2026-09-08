@@ -8,6 +8,7 @@ import {
   workspaces,
   auditLogs,
   cloudInstances,
+  userScripts,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getAliyunProvider } from "@/lib/providers";
@@ -141,6 +142,20 @@ export async function createInstance(
         )
       : [];
 
+    const enabledScripts = await db
+      .select()
+      .from(userScripts)
+      .where(and(
+        eq(userScripts.userId, userId),
+        eq(userScripts.enabled, true),
+      ))
+      .orderBy(userScripts.sortOrder);
+
+    const customScripts = enabledScripts.map((s) => ({
+      name: s.name,
+      script: s.script,
+    }));
+
     const callbackUrl = getAppBaseUrl();
     const entrypointVars: EntrypointVars = {
       instanceId: instance.id,
@@ -158,6 +173,7 @@ export async function createInstance(
       gitAutoClone: workspace.autoClone ?? true,
       idleMinutes: workspace.idleMinutes ?? s.defaultIdleMinutes ?? 30,
       features: resolvedFeatures,
+      customScripts,
     };
 
     const userData = buildUserData(entrypointVars);

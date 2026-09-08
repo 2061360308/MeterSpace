@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -23,64 +23,86 @@ import { Textarea } from "@/components/ui/textarea"
 interface UserImage {
   id: string
   name: string
-  description: string
+  description: string | null
   imageUri: string
-  architecture: string
-  source: "marketplace" | "custom"
+  architecture: string | null
+  source: string | null
 }
 
 export default function MyImagesPage() {
   const [search, setSearch] = useState("")
-  const [images, setImages] = useState<UserImage[]>([
-    {
-      id: "1",
-      name: "Node.js 22",
-      description: "从市场安装的 Node.js 镜像",
-      imageUri: "docker.io/library/node:22",
-      architecture: "amd64",
-      source: "marketplace",
-    },
-    {
-      id: "2",
-      name: "自定义 Node.js",
-      description: "基于 Node.js 22 的自定义镜像",
-      imageUri: "my-registry.com/node-custom:latest",
-      architecture: "amd64",
-      source: "custom",
-    },
-  ])
+  const [images, setImages] = useState<UserImage[]>([])
+  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [newImage, setNewImage] = useState({
-    name: "",
-    description: "",
-    imageUri: "",
-  })
+  const [editImage, setEditImage] = useState<UserImage | null>(null)
+  const [form, setForm] = useState({ name: "", description: "", imageUri: "" })
+
+  const fetchImages = useCallback(async () => {
+    try {
+      const res = await fetch("/api/my-resources/images")
+      const data = await res.json()
+      setImages(data.images ?? [])
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchImages() }, [fetchImages])
 
   const filteredImages = images.filter(
     (img) =>
       img.name.toLowerCase().includes(search.toLowerCase()) ||
-      img.description.toLowerCase().includes(search.toLowerCase())
+      (img.description ?? "").toLowerCase().includes(search.toLowerCase())
   )
 
-  const handleAddImage = () => {
-    if (!newImage.name || !newImage.imageUri) return
-
-    const image: UserImage = {
-      id: Date.now().toString(),
-      name: newImage.name,
-      description: newImage.description,
-      imageUri: newImage.imageUri,
-      architecture: "amd64",
-      source: "custom",
+  const handleSubmit = async () => {
+    if (!form.name || !form.imageUri) return
+    try {
+      if (editImage) {
+        await fetch(`/api/my-resources/images/${editImage.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+      } else {
+        await fetch("/api/my-resources/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+      }
+      await fetchImages()
+      closeDialog()
+    } catch {
+      // ignore
     }
-
-    setImages([...images, image])
-    setNewImage({ name: "", description: "", imageUri: "" })
-    setDialogOpen(false)
   }
 
-  const handleDeleteImage = (id: string) => {
-    setImages(images.filter((img) => img.id !== id))
+  const handleEdit = (image: UserImage) => {
+    setEditImage(image)
+    setForm({ name: image.name, description: image.description ?? "", imageUri: image.imageUri })
+    setDialogOpen(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/my-resources/images/${id}`, { method: "DELETE" })
+      await fetchImages()
+    } catch {
+      // ignore
+    }
+  }
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    setEditImage(null)
+    setForm({ name: "", description: "", imageUri: "" })
+  }
+
+  if (loading) {
+    return <div className="flex-1 overflow-auto p-6"><div className="text-muted-foreground">加载中...</div></div>
   }
 
   return (
@@ -97,7 +119,7 @@ export default function MyImagesPage() {
               />
             </div>
             <ButtonGroup>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) closeDialog() }}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="icon-sm">
                     <Plus />
@@ -105,61 +127,33 @@ export default function MyImagesPage() {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>添加自定义镜像</DialogTitle>
+                    <DialogTitle>{editImage ? "编辑镜像" : "添加自定义镜像"}</DialogTitle>
                     <DialogDescription>
-                      输入镜像 URI 来添加自定义镜像
+                      {editImage ? "修改镜像信息" : "输入镜像 URI 来添加自定义镜像"}
                     </DialogDescription>
                   </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">名称</Label>
-                    <Input
-                      id="name"
-                      placeholder="例如：My Custom Node"
-                      value={newImage.name}
-                      onChange={(e) =>
-                        setNewImage({ ...newImage, name: e.target.value })
-                      }
-                    />
+                    <Input id="name" placeholder="例如：My Custom Node" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="description">描述</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="镜像描述..."
-                      value={newImage.description}
-                      onChange={(e) =>
-                        setNewImage({
-                          ...newImage,
-                          description: e.target.value,
-                        })
-                      }
-                    />
+                    <Textarea id="description" placeholder="镜像描述..." value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="uri">镜像 URI</Label>
-                    <Input
-                      id="uri"
-                      placeholder="例如：docker.io/library/node:22"
-                      value={newImage.imageUri}
-                      onChange={(e) =>
-                        setNewImage({ ...newImage, imageUri: e.target.value })
-                      }
-                    />
+                    <Input id="uri" placeholder="例如：docker.io/library/node:22" value={form.imageUri} onChange={(e) => setForm({ ...form, imageUri: e.target.value })} />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                    取消
-                  </Button>
-                  <Button onClick={handleAddImage}>添加</Button>
+                  <Button variant="outline" onClick={closeDialog}>取消</Button>
+                  <Button onClick={handleSubmit}>{editImage ? "保存" : "添加"}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
             <Button asChild variant="outline" size="sm">
-              <Link href="/marketplace/images">
-                浏览市场
-              </Link>
+              <Link href="/marketplace/images">浏览市场</Link>
             </Button>
           </ButtonGroup>
           </div>
@@ -171,9 +165,7 @@ export default function MyImagesPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <CardTitle className="text-lg">{image.name}</CardTitle>
-                      <CardDescription className="mt-1">
-                        {image.description}
-                      </CardDescription>
+                      <CardDescription className="mt-1">{image.description}</CardDescription>
                     </div>
                     <Badge tone={image.source === "marketplace" ? "blue" : "gray"}>
                       {image.source === "marketplace" ? "市场" : "自定义"}
@@ -182,22 +174,14 @@ export default function MyImagesPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="text-sm text-muted-foreground font-mono truncate">
-                      {image.imageUri}
-                    </div>
+                    <div className="text-sm text-muted-foreground font-mono truncate">{image.imageUri}</div>
                     <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">
-                        {image.architecture}
-                      </div>
+                      <div className="text-sm text-muted-foreground">{image.architecture}</div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="outline" onClick={() => handleEdit(image)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeleteImage(image.id)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => handleDelete(image.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
