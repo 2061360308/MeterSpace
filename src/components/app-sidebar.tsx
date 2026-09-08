@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   BookOpen,
   Bot,
+  Cloud,
   Frame,
   LayoutDashboard,
   Map,
@@ -42,15 +43,15 @@ const data = {
       title: "工作区",
       url: "/workspaces",
       icon: SquareTerminal,
+    },
+    {
+      title: "弹性空间",
+      url: "/cloud-instances",
+      icon: Cloud,
       items: [
-        {
-          title: "工作区",
-          url: "/workspaces",
-        },
-        {
-          title: "弹性空间",
-          url: "/cloud-instances",
-        },
+        { title: "阿里云", url: "/cloud-instances?provider=aliyun" },
+        { title: "腾讯云", url: "/cloud-instances?provider=tencent" },
+        { title: "AWS", url: "/cloud-instances?provider=aws" },
       ],
     },
     {
