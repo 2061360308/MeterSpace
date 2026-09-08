@@ -94,15 +94,6 @@ export default function CloudInstancesPage() {
       {/* 操作栏 */}
       <div className="flex items-center justify-end px-6 py-1.5">
         <ButtonGroup>
-          <Button variant="outline" size="sm">
-            <ListFilterIcon data-icon="inline-start" />
-            筛选
-            {hasFilter && (
-              <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[9px] size-3.5 inline-flex items-center justify-center">
-                {(cpuFilter !== "全部" ? 1 : 0) + (memoryFilter !== "全部" ? 1 : 0)}
-              </span>
-            )}
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon-sm">
@@ -137,8 +128,6 @@ export default function CloudInstancesPage() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        </ButtonGroup>
-        <ButtonGroup>
           <Button asChild variant="outline" size="sm">
             <Link href={`/cloud-instances/new?provider=${provider}`}>
               <Plus data-icon="inline-start" />
