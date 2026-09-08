@@ -18,10 +18,14 @@ export async function GET(req: NextRequest) {
     const userId = await requireUserId();
     const { searchParams } = new URL(req.url);
     const region = searchParams.get("region");
+    const provider = searchParams.get("provider");
 
     const conditions = [eq(cloudInstances.userId, userId)];
     if (region) {
       conditions.push(eq(cloudInstances.region, region));
+    }
+    if (provider) {
+      conditions.push(eq(cloudInstances.provider, provider));
     }
 
     const list = await db

@@ -36,6 +36,10 @@ export function StepConfirm({ state }: StepProps) {
             <span className="font-medium">{state.name}</span>
           </div>
           <div className="flex justify-between">
+            <span className="text-muted-foreground">云服务商</span>
+            <Badge tone="gray">{state.provider}</Badge>
+          </div>
+          <div className="flex justify-between">
             <span className="text-muted-foreground">地域</span>
             <span className="font-medium flex items-center gap-1">
               <MapPin className="h-3 w-3" />
@@ -43,8 +47,24 @@ export function StepConfirm({ state }: StepProps) {
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">云服务商</span>
-            <Badge tone="gray">{state.provider}</Badge>
+            <span className="text-muted-foreground">弹性规格</span>
+            <span className="font-medium">
+              {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.name ?? "未选择"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">实例类型</span>
+            <span className="font-medium font-mono text-xs">
+              {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.instanceType ?? "-"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">磁盘大小</span>
+            <span className="font-medium">{state.diskSize} GB</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">带宽峰值</span>
+            <span className="font-medium">{state.bandwidth} Mbps</span>
           </div>
         </CardContent>
       </Card>

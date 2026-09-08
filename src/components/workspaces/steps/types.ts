@@ -27,12 +27,24 @@ export interface UserScript {
   enabled: boolean | null;
 }
 
+export interface CloudInstance {
+  id: string;
+  name: string;
+  provider: string;
+  region: string;
+  instanceType: string;
+}
+
 export interface WizardState {
   currentStep: number;
   completedSteps: Set<number>;
   name: string;
   provider: string;
   region: string;
+  cloudInstanceId: string;
+  cloudInstances: CloudInstance[];
+  diskSize: number;
+  bandwidth: number;
   imageUri: string;
   autoClone: boolean;
   gitRepoUrl: string;

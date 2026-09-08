@@ -122,18 +122,27 @@ export function WorkspaceList() {
           </Button>
         </Empty>
       ) : (
-        <Card>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-left text-gray-500">
-                <th className="px-4 py-3 font-medium">名称</th>
-                <th className="px-4 py-3 font-medium">规格</th>
-                <th className="px-4 py-3 font-medium">镜像</th>
-                <th className="px-4 py-3 font-medium">状态</th>
-                <th className="px-4 py-3 font-medium">OSS 占用</th>
-                <th className="px-4 py-3 font-medium text-right">操作</th>
-              </tr>
-            </thead>
+        <>
+          <div className="flex justify-end">
+            <Link href="/workspaces/new">
+              <Button>
+                <IconFolderCode className="mr-2 h-4 w-4" />
+                新建工作区
+              </Button>
+            </Link>
+          </div>
+          <Card>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">名称</th>
+                  <th className="px-4 py-3 font-medium">规格</th>
+                  <th className="px-4 py-3 font-medium">镜像</th>
+                  <th className="px-4 py-3 font-medium">状态</th>
+                  <th className="px-4 py-3 font-medium">OSS 占用</th>
+                  <th className="px-4 py-3 font-medium text-right">操作</th>
+                </tr>
+              </thead>
             <tbody>
               {workspaces.map((w) => {
                 const status = w.state?.status ?? "STOPPED";
@@ -213,6 +222,7 @@ export function WorkspaceList() {
             </tbody>
           </table>
         </Card>
+        </>
       )}
     </div>
   );

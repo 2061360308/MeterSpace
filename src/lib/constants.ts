@@ -1,3 +1,9 @@
+export const PROVIDERS = [
+  { id: "aliyun", label: "阿里云" },
+  { id: "tencent", label: "腾讯云" },
+  { id: "aws", label: "AWS" },
+];
+
 export const REGIONS = [
   { id: "cn-hangzhou", label: "杭州 (cn-hangzhou)" },
   { id: "cn-shanghai", label: "上海 (cn-shanghai)" },

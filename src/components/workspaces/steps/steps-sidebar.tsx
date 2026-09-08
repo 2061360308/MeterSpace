@@ -51,10 +51,28 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
             <dd className="font-medium truncate ml-2">{state.name || "—"}</dd>
           </div>
           <div className="flex justify-between">
+            <dt className="text-muted-foreground">服务商</dt>
+            <dd className="font-medium truncate ml-2">{state.provider}</dd>
+          </div>
+          <div className="flex justify-between">
             <dt className="text-muted-foreground">地域</dt>
             <dd className="font-medium truncate ml-2">
               {REGIONS.find((r) => r.id === state.region)?.label ?? "—"}
             </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">弹性规格</dt>
+            <dd className="font-medium truncate ml-2">
+              {state.cloudInstances.find((i) => i.id === state.cloudInstanceId)?.name ?? "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">磁盘</dt>
+            <dd className="font-medium">{state.diskSize} GB</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">带宽</dt>
+            <dd className="font-medium">{state.bandwidth} Mbps</dd>
           </div>
         </dl>
       );

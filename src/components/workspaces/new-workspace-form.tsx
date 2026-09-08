@@ -16,6 +16,10 @@ const INITIAL_STATE: WizardState = {
   name: "",
   provider: "aliyun",
   region: "",
+  cloudInstanceId: "",
+  cloudInstances: [],
+  diskSize: 40,
+  bandwidth: 10,
   imageUri: "",
   autoClone: true,
   gitRepoUrl: "",
@@ -54,7 +58,9 @@ export function NewWorkspaceForm() {
     switch (step) {
       case 1:
         if (!state.name.trim()) return "请填写实例名称";
+        if (!state.provider) return "请选择服务商";
         if (!state.region) return "请选择地域";
+        if (!state.cloudInstanceId) return "请选择弹性规格";
         return null;
       case 2:
         if (state.autoClone && !state.gitRepoUrl) return "请选择一个代码仓库";
@@ -88,6 +94,9 @@ export function NewWorkspaceForm() {
           name: state.name,
           provider: state.provider,
           region: state.region,
+          cloudInstanceId: state.cloudInstanceId,
+          diskSize: state.diskSize,
+          bandwidth: state.bandwidth,
           publicIp: true,
           imageUri: selectedImage?.imageUri ?? "",
           features: selectedFeatures,
