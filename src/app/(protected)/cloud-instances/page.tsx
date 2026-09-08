@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ListFilterIcon, Plus, Cloud, Trash2 } from "lucide-react"
+import { ListFilterIcon, Plus, Cloud, Trash2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { Card } from "@/components/ui/card"
@@ -21,6 +21,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 
@@ -55,13 +62,12 @@ const MEMORY_VALUES = [0, 4, 8, 16, 32, 64]
 
 export default function CloudInstancesPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const provider = searchParams.get("provider") ?? "aliyun"
 
   const [instances, setInstances] = React.useState<CloudInstance[]>([])
   const [loading, setLoading] = React.useState(true)
   const [deleting, setDeleting] = React.useState<string | null>(null)
-  const [cpuFilter, setCpuFilter] = React.useState("全部")
-  const [memoryFilter, setMemoryFilter] = React.useState("全部")
   const [cpuIndex, setCpuIndex] = React.useState(0)
   const [memoryIndex, setMemoryIndex] = React.useState(0)
 
@@ -88,7 +94,23 @@ export default function CloudInstancesPage() {
   }, [instances, provider, cpuIndex, memoryIndex])
 
   const hasFilter = cpuIndex !== 0 || memoryIndex !== 0
+  const hasInstances = instances.length > 0
   const currentProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
+
+  function handleProviderChange(value: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value === "all") {
+      params.delete("provider")
+    } else {
+      params.set("provider", value)
+    }
+    router.push(`/cloud-instances?${params.toString()}`)
+  }
+
+  function clearFilter() {
+    setCpuIndex(0)
+    setMemoryIndex(0)
+  }
 
   async function handleDelete(id: string) {
     if (!confirm("确定删除此云实例？")) return
@@ -103,7 +125,19 @@ export default function CloudInstancesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* 操作栏 */}
-      <div className="flex items-center justify-end px-6 py-1.5">
+      <div className="flex items-center justify-between px-6 py-1.5">
+        <Select value={provider} onValueChange={handleProviderChange}>
+          <SelectTrigger className="w-32 h-8">
+            <SelectValue placeholder="选择提供商" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部提供商</SelectItem>
+            {PROVIDERS.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <ButtonGroup>
           <Popover>
             <PopoverTrigger asChild>
@@ -148,7 +182,7 @@ export default function CloudInstancesPage() {
                       variant="ghost"
                       size="sm"
                       className="w-full h-7 text-xs text-muted-foreground"
-                      onClick={() => { setCpuIndex(0); setMemoryIndex(0) }}
+                      onClick={clearFilter}
                     >
                       清除筛选
                     </Button>
@@ -172,7 +206,7 @@ export default function CloudInstancesPage() {
           <div className="flex items-center justify-center py-20">
             <Spinner className="h-8 w-8" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : !hasInstances ? (
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -189,6 +223,23 @@ export default function CloudInstancesPage() {
                   <Plus data-icon="inline-start" />
                   创建第一个
                 </Link>
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : filtered.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Search />
+              </EmptyMedia>
+              <EmptyTitle>没有符合筛选条件的实例</EmptyTitle>
+              <EmptyDescription>
+                请尝试调整筛选条件，或切换提供商查看其他实例。
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="outline" onClick={clearFilter}>
+                清除筛选
               </Button>
             </EmptyContent>
           </Empty>

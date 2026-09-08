@@ -15,7 +15,6 @@ import {
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
-import { NavCloudInstances } from "@/components/nav-cloud-instances"
 import { RegionSwitcher } from "@/components/region-switcher"
 import {
   Sidebar,
@@ -43,6 +42,16 @@ const data = {
       title: "工作区",
       url: "/workspaces",
       icon: SquareTerminal,
+      items: [
+        {
+          title: "工作区",
+          url: "/workspaces",
+        },
+        {
+          title: "弹性空间",
+          url: "/cloud-instances",
+        },
+      ],
     },
     {
       title: "Playground",
@@ -129,7 +138,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavCloudInstances />
         <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>
