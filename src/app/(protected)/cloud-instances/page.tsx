@@ -159,8 +159,8 @@ export default function CloudInstancesPage() {
           </Popover>
           <Button asChild variant="outline" size="sm">
             <Link href={`/cloud-instances/new?provider=${provider}`}>
-              <Plus data-icon="inline-start" />
               添加
+              <Plus data-icon="inline-end" />
             </Link>
           </Button>
         </ButtonGroup>
