@@ -60,17 +60,16 @@ export const API_VERSIONS = {
   acrPersonal: "2016-06-07",
 } as const;
 
-export function ecsEndpoint(region: string): string {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function ecsEndpoint(_region: string): string {
   // Use global endpoint for Vercel compatibility (regional endpoints timeout from overseas)
-  return region === "cn-hangzhou"
-    ? `https://ecs.aliyuncs.com`
-    : `https://ecs.${region}.aliyuncs.com`;
+  return `https://ecs.aliyuncs.com`;
 }
 
-export function acrEndpoint(region: string): string {
-  return region === "cn-hangzhou"
-    ? `https://cr.aliyuncs.com`
-    : `https://cr.${region}.aliyuncs.com`;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function acrEndpoint(_region: string): string {
+  // Use global endpoint for Vercel compatibility (regional endpoints timeout from overseas)
+  return `https://cr.aliyuncs.com`;
 }
 
 export const BSS_ENDPOINT = "https://business.aliyuncs.com";
