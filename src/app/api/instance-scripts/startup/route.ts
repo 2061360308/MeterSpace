@@ -16,6 +16,26 @@ function q(v: string): string {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
+function generateDevcontainerJson(workspace: any): string {
+  const devcontainer: any = {
+    name: `workspace-${workspace.id}`,
+    image: workspace.imageUri,
+    workspaceFolder: "/workspace",
+    workspaceMount: "source=/workspace,target=/workspace,type=bind",
+  };
+
+  if (workspace.features?.length) {
+    devcontainer.features = {};
+    for (const feature of workspace.features) {
+      if (feature.uri) {
+        devcontainer.features[feature.uri] = feature.options ?? {};
+      }
+    }
+  }
+
+  return JSON.stringify(devcontainer, null, 2);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -88,7 +108,11 @@ done`
 
     const customScriptsLoop = "echo \"[scripts] No custom scripts\"";
 
+    const devcontainerJson = generateDevcontainerJson(workspace)
+      .replace(/'/g, "'\\''");
+
     template = template
+      .replace(/\{\{DEVCONTAINER_JSON\}\}/g, devcontainerJson)
       .replace(/\{\{ACR_LOGIN\}\}/g, acrLogin)
       .replace(/\{\{OSS_WORKSPACE_PATH\}\}/g, workspace.ossWorkspacePath ?? `ws-${workspace.id}/workspace`)
       .replace(/\{\{GIT_BLOCK\}\}/g, gitBlock)
