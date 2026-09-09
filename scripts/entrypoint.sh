@@ -55,6 +55,9 @@ cat > /opt/agent/config.json <<AGENTCFG
 AGENTCFG
 
 # === 4. 启动 Agent ===
+export HOME=/root
+export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
+export DEBIAN_FRONTEND=noninteractive
 echo "[entrypoint] Starting agent..."
 /opt/agent/agent &
 AGENT_PID=$!

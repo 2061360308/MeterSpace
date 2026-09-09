@@ -116,6 +116,11 @@ func (e *Executor) Execute() error {
 
 	// Create command
 	cmd := exec.Command("bash", e.scriptPath)
+	cmd.Env = append(os.Environ(),
+		"HOME=/root",
+		"PATH=/usr/local/bin:/usr/bin:/bin",
+		"DEBIAN_FRONTEND=noninteractive",
+	)
 
 	// Get stdout and stderr pipes
 	stdout, err := cmd.StdoutPipe()

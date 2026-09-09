@@ -1,7 +1,13 @@
 #!/bin/bash
 set -e
 
-echo "[1/7] Installing Docker (using Aliyun mirror)..."
+# === 0. 环境准备 ===
+export HOME=/root
+export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
+export DEBIAN_FRONTEND=noninteractive
+mkdir -p /workspace /var/log
+
+echo "[1/8] Installing Docker (using Aliyun mirror)..."
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg
 install -m 0755 -d /etc/apt/keyrings
@@ -12,38 +18,43 @@ apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 systemctl enable docker
 systemctl start docker
-echo "[1/7] Docker installed."
+echo "[1/8] Docker installed."
 
-echo "[2/7] Installing code-server..."
+echo "[2/8] Installing Node.js 22.x..."
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y -qq nodejs
+echo "[2/8] Node.js $(node --version) installed."
+
+echo "[3/8] Installing code-server..."
 curl -fsSL https://code-server.dev/install.sh | sh
-echo "[2/7] Code-server installed at $(which code-server)."
+echo "[3/8] Code-server installed."
 
-echo "[3/7] Installing devcontainer CLI..."
+echo "[4/8] Installing devcontainer CLI..."
 npm install -g @devcontainers/cli
-echo "[3/7] Devcontainer CLI installed."
+echo "[4/8] Devcontainer CLI installed."
 
-echo "[4/7] Writing devcontainer.json..."
+echo "[5/8] Writing devcontainer.json..."
 mkdir -p /workspace/.devcontainer
 cat > /workspace/.devcontainer/devcontainer.json <<'DEVCONTAINER_EOF'
 {{DEVCONTAINER_JSON}}
 DEVCONTAINER_EOF
-echo "[4/7] devcontainer.json written."
+echo "[5/8] devcontainer.json written."
 
-echo "[5/7] Starting devcontainer..."
+echo "[6/8] Starting devcontainer..."
 cd /workspace
 devcontainer up --workspace-folder .
-echo "[5/7] Devcontainer started."
+echo "[6/8] Devcontainer started."
 
-echo "[6/7] Starting code-server..."
+echo "[7/8] Starting code-server..."
 nohup code-server --bind-addr 0.0.0.0:8080 --auth none > /var/log/code-server.log 2>&1 &
-echo "[6/7] Code-server started on port 8080."
+echo "[7/8] Code-server started."
 
-echo "[7/7] Verifying services..."
-sleep 2
+echo "[8/8] Verifying services..."
+sleep 5
 if curl -sf http://localhost:8080 > /dev/null 2>&1; then
-  echo "[7/7] Code-server is running."
+  echo "[8/8] Code-server is running."
 else
-  echo "[7/7] Warning: Code-server not responding yet, may need more time."
+  echo "[8/8] Warning: Code-server not responding yet, may need more time."
 fi
 
 echo "[startup] All steps completed. Access at http://{公网IP}:8080"
