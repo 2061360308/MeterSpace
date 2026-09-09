@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const userId = await requireUserId();
     const { id } = await params;
     const instance = await getInstance(userId, id);
-    return ok(instance);
+    return ok({ instance });
   } catch (e) {
     return fail(e);
   }

@@ -7,6 +7,7 @@ import { ok, fail } from "@/lib/api";
 type Params = { params: Promise<{ id: string }> };
 
 const createBodySchema = z.object({
+  cloudInstanceId: z.string().uuid(),
   diskSize: z.number().int().min(20).max(2048).optional(),
   bandwidth: z.number().int().min(1).max(200).optional(),
 });
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const userId = await requireUserId();
     const { id } = await params;
     const instances = await listInstances(userId, id);
-    return ok(instances);
+    return ok({ instances });
   } catch (e) {
     return fail(e);
   }
