@@ -66,7 +66,6 @@ async function launchInstance(
     workspace.releaseHours ?? s.defaultReleaseHours;
 
   const entrypointVars: EntrypointVars = {
-    workspaceId: workspace.id,
     callbackUrl: getAppBaseUrl(),
     accessToken: generateAccessToken(),
   };

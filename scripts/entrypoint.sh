@@ -3,7 +3,6 @@ set -e
 
 # === 环境变量 ===
 INSTANCE_ID={{INSTANCE_ID}}
-WORKSPACE_ID={{WORKSPACE_ID}}
 CALLBACK_URL={{CALLBACK_URL}}
 ACCESS_TOKEN={{ACCESS_TOKEN}}
 
@@ -22,11 +21,17 @@ for i in $(seq 1 5); do
 done
 chmod +x /opt/agent/scripts/startup.sh
 
-# === 2. 下载 Agent ===
-AGENT_VERSION={{AGENT_VERSION}}
-AGENT_DOWNLOAD_URL="https://github.com/workspace-cloud/agent/releases/download/${AGENT_VERSION}/agent-linux-amd64"
+# === 2. 下载 Agent（多架构） ===
+ARCH=$(uname -m)
+case ${ARCH} in
+  x86_64)  AGENT_ARCH="amd64" ;;
+  aarch64) AGENT_ARCH="arm64" ;;
+  *)       echo "[entrypoint] Unsupported architecture: ${ARCH}"; exit 1 ;;
+esac
 
-echo "[entrypoint] Downloading agent..."
+AGENT_DOWNLOAD_URL="${CALLBACK_URL}/agent-linux-${AGENT_ARCH}"
+
+echo "[entrypoint] Downloading agent for ${AGENT_ARCH} from ${AGENT_DOWNLOAD_URL}..."
 for i in $(seq 1 5); do
   if curl -sfL "${AGENT_DOWNLOAD_URL}" -o /opt/agent/agent; then
     echo "[entrypoint] Agent downloaded."
@@ -41,7 +46,6 @@ chmod +x /opt/agent/agent
 cat > /opt/agent/config.json <<AGENTCFG
 {
   "instance_id": "${INSTANCE_ID}",
-  "workspace_id": "${WORKSPACE_ID}",
   "backend_url": "${CALLBACK_URL}",
   "backend_token": "${ACCESS_TOKEN}",
   "script_path": "/opt/agent/scripts/startup.sh",

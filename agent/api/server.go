@@ -12,6 +12,7 @@ import (
 	"github.com/workspace-cloud/agent/crypto"
 	"github.com/workspace-cloud/agent/executor"
 	"github.com/workspace-cloud/agent/heartbeat"
+	"github.com/workspace-cloud/agent/reporter"
 )
 
 // Server is the HTTP API server
@@ -20,6 +21,7 @@ type Server struct {
 	executor  *executor.Executor
 	heartbeat *heartbeat.Manager
 	tracker   *access.Tracker
+	reporter  *reporter.Reporter
 	server    *http.Server
 	mu        sync.RWMutex
 }
@@ -30,12 +32,14 @@ func NewServer(
 	exec *executor.Executor,
 	hb *heartbeat.Manager,
 	tracker *access.Tracker,
+	r *reporter.Reporter,
 ) *Server {
 	return &Server{
 		cfg:       cfg,
 		executor:  exec,
 		heartbeat: hb,
 		tracker:   tracker,
+		reporter:  r,
 	}
 }
 
@@ -133,20 +137,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		accessSummary = &summary
 	}
 
-	// Get resource usage (placeholder)
-	resourceUsage := map[string]interface{}{
-		"cpu_percent": 0,
-		"memory_mb":   0,
-		"disk_mb":     0,
-	}
-
 	response := map[string]interface{}{
-		"workspace_id":   s.cfg.WorkspaceID,
 		"instance_id":    s.cfg.InstanceID,
 		"status":         s.heartbeat.GetStatus(),
 		"script_status":  s.executor.GetStatus(),
 		"uptime":         int64(s.heartbeat.GetUptime().Seconds()),
-		"resource_usage": resourceUsage,
 		"access_summary": accessSummary,
 	}
 
@@ -244,8 +239,8 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify signature
-	if !crypto.VerifySignature(s.cfg.BackendToken, s.cfg.WorkspaceID, request.Action, request.Timestamp, request.Signature) {
+	// Verify signature using instance_id
+	if !crypto.VerifySignature(s.cfg.BackendToken, s.cfg.InstanceID, request.Action, request.Timestamp, request.Signature) {
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}

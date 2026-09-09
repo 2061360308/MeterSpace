@@ -145,7 +145,6 @@ export async function createInstance(
     const callbackUrl = getAppBaseUrl();
     const entrypointVars: EntrypointVars = {
       instanceId: instance.id,
-      workspaceId: workspace.id,
       callbackUrl,
       accessToken: instance.accessToken!,
     };

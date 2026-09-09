@@ -61,12 +61,11 @@ func main() {
 		exec,
 		cfg.HeartbeatInterval,
 		cfg.HeartbeatJitter,
-		cfg.WorkspaceID,
 		agentVersion,
 	)
 
 	// Create API server
-	apiServer := api.NewServer(cfg, exec, hb, tracker)
+	apiServer := api.NewServer(cfg, exec, hb, tracker, r)
 
 	// Set up executor callbacks
 	exec.SetOnLog(func(entry executor.LogEntry) {
@@ -80,7 +79,7 @@ func main() {
 			hb.SetStatus("ready")
 			hb.SetActive(true)
 			// Report status to backend
-			if err := r.ReportStatus("running", "completed", "startup script completed successfully"); err != nil {
+			if err := r.ReportStatus("completed", "startup script completed successfully"); err != nil {
 				fmt.Printf("[agent] Failed to report status: %v\n", err)
 			}
 		case executor.StatusFailed, executor.StatusTimeout:

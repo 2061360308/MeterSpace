@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/workspace-cloud/agent/access"
 	"github.com/workspace-cloud/agent/executor"
 	"github.com/workspace-cloud/agent/reporter"
@@ -12,20 +15,18 @@ import (
 
 // Manager handles heartbeat sending
 type Manager struct {
-	reporter        *reporter.Reporter
-	accessTracker   *access.Tracker
-	executor        *executor.Executor
-	interval        time.Duration
-	jitter          time.Duration
-	workspaceID     string
-	instanceID      string
-	agentVersion    string
-	startTime       time.Time
-	lastActiveAt    time.Time
-	active          bool
-	status          string
-	mu              sync.RWMutex
-	stopCh          chan struct{}
+	reporter      *reporter.Reporter
+	accessTracker *access.Tracker
+	executor      *executor.Executor
+	interval      time.Duration
+	jitter        time.Duration
+	agentVersion  string
+	startTime     time.Time
+	lastActiveAt  time.Time
+	active        bool
+	status        string
+	mu            sync.RWMutex
+	stopCh        chan struct{}
 }
 
 // NewManager creates a new heartbeat manager
@@ -34,7 +35,7 @@ func NewManager(
 	at *access.Tracker,
 	e *executor.Executor,
 	interval, jitter time.Duration,
-	workspaceID, agentVersion string,
+	agentVersion string,
 ) *Manager {
 	return &Manager{
 		reporter:      r,
@@ -42,7 +43,6 @@ func NewManager(
 		executor:      e,
 		interval:      interval,
 		jitter:        jitter,
-		workspaceID:   workspaceID,
 		agentVersion:  agentVersion,
 		startTime:     time.Now(),
 		lastActiveAt:  time.Now(),
@@ -50,13 +50,6 @@ func NewManager(
 		status:        "starting",
 		stopCh:        make(chan struct{}),
 	}
-}
-
-// SetInstanceID sets the instance ID
-func (m *Manager) SetInstanceID(instanceID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.instanceID = instanceID
 }
 
 // SetStatus sets the agent status
@@ -116,10 +109,40 @@ func (m *Manager) heartbeatLoop() {
 	}
 }
 
+// getResourceUsage gets current CPU, memory, and disk usage
+func getResourceUsage() *reporter.ResourceUsage {
+	// CPU usage
+	cpuPercent := 0.0
+	if percents, err := cpu.Percent(time.Second, false); err == nil && len(percents) > 0 {
+		cpuPercent = percents[0]
+	}
+
+	// Memory usage
+	var memoryMB, memoryTotalMB int64
+	if v, err := mem.VirtualMemory(); err == nil {
+		memoryMB = int64(v.Used / 1024 / 1024)
+		memoryTotalMB = int64(v.Total / 1024 / 1024)
+	}
+
+	// Disk usage
+	var diskMB, diskTotalMB int64
+	if u, err := disk.Usage("/workspace"); err == nil {
+		diskMB = int64(u.Used / 1024 / 1024)
+		diskTotalMB = int64(u.Total / 1024 / 1024)
+	}
+
+	return &reporter.ResourceUsage{
+		CPUPercent:    cpuPercent,
+		MemoryMB:      memoryMB,
+		MemoryTotalMB: memoryTotalMB,
+		DiskMB:        diskMB,
+		DiskTotalMB:   diskTotalMB,
+	}
+}
+
 // sendHeartbeat sends a single heartbeat
 func (m *Manager) sendHeartbeat() {
 	m.mu.RLock()
-	instanceID := m.instanceID
 	status := m.status
 	active := m.active
 	lastActiveAt := m.lastActiveAt
@@ -140,26 +163,12 @@ func (m *Manager) sendHeartbeat() {
 		accessSummary = &summary
 	}
 
-	// Get resource usage (placeholder - would need gopsutil integration)
-	resourceUsage := &reporter.ResourceUsage{
-		CPUPercent: 0,
-		MemoryMB:   0,
-		DiskMB:     0,
-	}
-
-	// Build metadata
-	metadata := &reporter.Metadata{
-		IDEConnected: active,
-		TerminalCount: 0,
-		GitDirty:      false,
-		AgentVersion:  m.agentVersion,
-	}
+	// Get resource usage
+	resourceUsage := getResourceUsage()
 
 	// Build heartbeat payload
 	payload := &reporter.HeartbeatPayload{
-		Token:          m.reporter.GetToken(),
-		WorkspaceID:   m.workspaceID,
-		InstanceID:    instanceID,
+		Token:         m.reporter.GetToken(),
 		Status:        status,
 		Active:        active,
 		Uptime:        int64(time.Since(m.startTime).Seconds()),
@@ -168,7 +177,6 @@ func (m *Manager) sendHeartbeat() {
 		ScriptError:   scriptError,
 		ResourceUsage: resourceUsage,
 		AccessSummary: accessSummary,
-		Metadata:      metadata,
 	}
 
 	// Send heartbeat

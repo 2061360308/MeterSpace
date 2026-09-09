@@ -44,49 +44,38 @@ func NewReporter(backendURL, backendToken, instanceID string) *Reporter {
 
 // HeartbeatPayload represents the heartbeat data
 type HeartbeatPayload struct {
-	Token          string                `json:"token"`
-	WorkspaceID    string                `json:"workspace_id"`
-	InstanceID     string                `json:"instance_id,omitempty"`
-	Status         string                `json:"status"`
-	Active         bool                  `json:"active"`
-	Uptime         int64                 `json:"uptime"`
-	LastActiveAt   time.Time             `json:"last_active_at"`
-	ScriptStatus   string                `json:"script_status"`
-	ScriptError    string                `json:"script_error,omitempty"`
-	ResourceUsage  *ResourceUsage        `json:"resource_usage,omitempty"`
-	AccessSummary  *access.AccessSummary `json:"access_summary,omitempty"`
-	Metadata       *Metadata             `json:"metadata,omitempty"`
+	Token         string                `json:"token"`
+	Status        string                `json:"status"`
+	Active        bool                  `json:"active"`
+	Uptime        int64                 `json:"uptime"`
+	LastActiveAt  time.Time             `json:"last_active_at"`
+	ScriptStatus  string                `json:"script_status"`
+	ScriptError   string                `json:"script_error,omitempty"`
+	ResourceUsage *ResourceUsage        `json:"resource_usage,omitempty"`
+	AccessSummary *access.AccessSummary `json:"access_summary,omitempty"`
 }
 
 // ResourceUsage represents resource usage
 type ResourceUsage struct {
-	CPUPercent float64 `json:"cpu_percent"`
-	MemoryMB   int64   `json:"memory_mb"`
-	DiskMB     int64   `json:"disk_mb"`
-}
-
-// Metadata represents additional metadata
-type Metadata struct {
-	IDEConnected  bool   `json:"ide_connected"`
-	TerminalCount int    `json:"terminal_count"`
-	GitDirty      bool   `json:"git_dirty"`
-	AgentVersion  string `json:"agent_version"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryMB      int64   `json:"memory_mb"`
+	MemoryTotalMB int64   `json:"memory_total_mb"`
+	DiskMB        int64   `json:"disk_mb"`
+	DiskTotalMB   int64   `json:"disk_total_mb"`
 }
 
 // ReadyPayload represents the ready notification
 type ReadyPayload struct {
 	Token        string `json:"token"`
-	InstanceID   string `json:"instance_id"`
-	PublicIP     string `json:"public_ip"`
+	PublicIP     string `json:"publicIp"`
 	AgentVersion string `json:"agent_version"`
 }
 
 // StatusPayload represents status change
 type StatusPayload struct {
-	Token    string `json:"token"`
-	Status   string `json:"status"`
-	Phase    string `json:"phase,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Token   string `json:"token"`
+	Phase   string `json:"phase,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // LogEntry represents a single log entry
@@ -105,9 +94,9 @@ type LogsPayload struct {
 
 // ErrorPayload represents error report
 type ErrorPayload struct {
-	Token  string `json:"token"`
-	Error  string `json:"error"`
-	Phase  string `json:"phase,omitempty"`
+	Token string `json:"token"`
+	Error string `json:"error"`
+	Phase string `json:"phase,omitempty"`
 }
 
 // SendLog queues a log entry for streaming to backend
@@ -172,11 +161,15 @@ func (r *Reporter) GetToken() string {
 	return r.backendToken
 }
 
+// GetInstanceID returns the instance ID
+func (r *Reporter) GetInstanceID() string {
+	return r.instanceID
+}
+
 // ReportReady notifies the backend that the agent is ready
-func (r *Reporter) ReportReady(instanceID, publicIP, agentVersion string) error {
+func (r *Reporter) ReportReady(publicIP, agentVersion string) error {
 	payload := ReadyPayload{
 		Token:        r.backendToken,
-		InstanceID:   instanceID,
 		PublicIP:     publicIP,
 		AgentVersion: agentVersion,
 	}
@@ -189,10 +182,9 @@ func (r *Reporter) ReportHeartbeat(payload *HeartbeatPayload) error {
 }
 
 // ReportStatus reports status change
-func (r *Reporter) ReportStatus(status, phase, message string) error {
+func (r *Reporter) ReportStatus(phase, message string) error {
 	payload := StatusPayload{
 		Token:   r.backendToken,
-		Status:  status,
 		Phase:   phase,
 		Message: message,
 	}

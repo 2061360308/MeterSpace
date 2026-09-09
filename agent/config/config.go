@@ -11,9 +11,8 @@ import (
 
 // Config holds all agent configuration
 type Config struct {
-	// Workspace identification
-	WorkspaceID string `json:"workspace_id"`
-	InstanceID  string `json:"instance_id"`
+	// Instance identification
+	InstanceID string `json:"instance_id"`
 
 	// Backend connection
 	BackendURL   string `json:"backend_url"`
@@ -87,20 +86,19 @@ func loadFromFile(cfg *Config, path string) error {
 	}
 
 	var fileCfg struct {
-		WorkspaceID          string   `json:"workspace_id"`
-		InstanceID           string   `json:"instance_id"`
-		BackendURL           string   `json:"backend_url"`
-		BackendToken         string   `json:"backend_token"`
-		HeartbeatInterval    int      `json:"heartbeat_interval"`
-		HeartbeatJitter      int      `json:"heartbeat_jitter"`
-		IdleMinutes          int      `json:"idle_minutes"`
-		ScriptPath           string   `json:"script_path"`
-		ScriptTimeout        int      `json:"script_timeout"`
-		Port                 int      `json:"port"`
-		LogPath              string   `json:"log_path"`
-		LogUploadInterval    int      `json:"log_upload_interval"`
-		AllowedIPs           []string `json:"allowed_ips"`
-		EnableResourceMonitor bool    `json:"enable_resource_monitor"`
+		InstanceID            string   `json:"instance_id"`
+		BackendURL            string   `json:"backend_url"`
+		BackendToken          string   `json:"backend_token"`
+		HeartbeatInterval     int      `json:"heartbeat_interval"`
+		HeartbeatJitter       int      `json:"heartbeat_jitter"`
+		IdleMinutes           int      `json:"idle_minutes"`
+		ScriptPath            string   `json:"script_path"`
+		ScriptTimeout         int      `json:"script_timeout"`
+		Port                  int      `json:"port"`
+		LogPath               string   `json:"log_path"`
+		LogUploadInterval     int      `json:"log_upload_interval"`
+		AllowedIPs            []string `json:"allowed_ips"`
+		EnableResourceMonitor bool     `json:"enable_resource_monitor"`
 	}
 
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
@@ -108,9 +106,6 @@ func loadFromFile(cfg *Config, path string) error {
 	}
 
 	// Apply file config
-	if fileCfg.WorkspaceID != "" {
-		cfg.WorkspaceID = fileCfg.WorkspaceID
-	}
 	if fileCfg.InstanceID != "" {
 		cfg.InstanceID = fileCfg.InstanceID
 	}
@@ -154,9 +149,6 @@ func loadFromFile(cfg *Config, path string) error {
 
 // loadFromEnv loads configuration from environment variables
 func loadFromEnv(cfg *Config) {
-	if v := os.Getenv("AGENT_WORKSPACE_ID"); v != "" {
-		cfg.WorkspaceID = v
-	}
 	if v := os.Getenv("AGENT_INSTANCE_ID"); v != "" {
 		cfg.InstanceID = v
 	}
@@ -212,8 +204,8 @@ func loadFromEnv(cfg *Config) {
 
 // validate checks required fields
 func validate(cfg *Config) error {
-	if cfg.WorkspaceID == "" {
-		return fmt.Errorf("workspace_id is required")
+	if cfg.InstanceID == "" {
+		return fmt.Errorf("instance_id is required")
 	}
 	if cfg.BackendURL == "" {
 		return fmt.Errorf("backend_url is required")

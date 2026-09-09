@@ -10,10 +10,8 @@ export interface Feature {
 
 export interface EntrypointVars {
   instanceId?: string;
-  workspaceId: string;
   callbackUrl: string;
   accessToken: string;
-  agentVersion?: string;
 }
 
 let cachedTemplate: string | null = null;
@@ -30,10 +28,8 @@ export function buildEntrypoint(vars: EntrypointVars): string {
 
   return template
     .replace(/\{\{INSTANCE_ID\}\}/g, vars.instanceId ?? "")
-    .replace(/\{\{WORKSPACE_ID\}\}/g, vars.workspaceId)
     .replace(/\{\{CALLBACK_URL\}\}/g, vars.callbackUrl)
-    .replace(/\{\{ACCESS_TOKEN\}\}/g, vars.accessToken)
-    .replace(/\{\{AGENT_VERSION\}\}/g, vars.agentVersion ?? "latest");
+    .replace(/\{\{ACCESS_TOKEN\}\}/g, vars.accessToken);
 }
 
 export function buildUserData(vars: EntrypointVars): string {
