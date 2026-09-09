@@ -61,11 +61,16 @@ export const API_VERSIONS = {
 } as const;
 
 export function ecsEndpoint(region: string): string {
-  return `https://ecs.${region}.aliyuncs.com`;
+  // Use global endpoint for Vercel compatibility (regional endpoints timeout from overseas)
+  return region === "cn-hangzhou"
+    ? `https://ecs.aliyuncs.com`
+    : `https://ecs.${region}.aliyuncs.com`;
 }
 
 export function acrEndpoint(region: string): string {
-  return `https://cr.${region}.aliyuncs.com`;
+  return region === "cn-hangzhou"
+    ? `https://cr.aliyuncs.com`
+    : `https://cr.${region}.aliyuncs.com`;
 }
 
 export const BSS_ENDPOINT = "https://business.aliyuncs.com";
