@@ -86,7 +86,7 @@ func main() {
 		case executor.StatusFailed, executor.StatusTimeout:
 			hb.SetStatus("error")
 			// Report error to backend
-			if err := r.ReportError("script_execution_failed", errMsg, ""); err != nil {
+			if err := r.ReportError(errMsg, "startup"); err != nil {
 				fmt.Printf("[agent] Failed to report error: %v\n", err)
 			}
 		}

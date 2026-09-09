@@ -157,6 +157,7 @@ func (m *Manager) sendHeartbeat() {
 
 	// Build heartbeat payload
 	payload := &reporter.HeartbeatPayload{
+		Token:          m.reporter.GetToken(),
 		WorkspaceID:   m.workspaceID,
 		InstanceID:    instanceID,
 		Status:        status,

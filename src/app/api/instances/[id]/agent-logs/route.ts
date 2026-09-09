@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { instanceLogs } from "@/lib/db/schema";
-import { verifyBootToken } from "@/lib/instances/auth";
+import { verifyAccessToken } from "@/lib/instances/auth";
 import { ok, fail } from "@/lib/api";
 
 type Params = { params: Promise<{ id: string }> };
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { id } = await params;
     const body = bodySchema.parse(await req.json());
 
-    const valid = await verifyBootToken(id, body.token);
+    const valid = await verifyAccessToken(id, body.token);
     if (!valid) {
       return fail({ message: "Invalid token", status: 401 });
     }

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { instances } from "@/lib/db/schema";
 
-export async function verifyBootToken(
+export async function verifyAccessToken(
   instanceId: string,
   token: string,
 ): Promise<boolean> {
@@ -10,11 +10,11 @@ export async function verifyBootToken(
     where: eq(instances.id, instanceId),
   });
   if (!instance) return false;
-  if (instance.bootToken !== token) return false;
+  if (instance.accessToken !== token) return false;
   return true;
 }
 
-export async function verifyInstanceToken(
+export async function verifyAccessTokenWithInstance(
   instanceId: string,
   token: string,
 ): Promise<{ valid: boolean; instance?: typeof instances.$inferSelect }> {
@@ -22,6 +22,6 @@ export async function verifyInstanceToken(
     where: eq(instances.id, instanceId),
   });
   if (!instance) return { valid: false };
-  if (instance.bootToken !== token) return { valid: false };
+  if (instance.accessToken !== token) return { valid: false };
   return { valid: true, instance };
 }

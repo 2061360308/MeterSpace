@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { workspaceStates } from "@/lib/db/schema";
+import { instances } from "@/lib/db/schema";
 import { ok, fail } from "@/lib/api";
 
 type Params = { params: Promise<{ workspaceId: string }> };
@@ -16,29 +16,31 @@ export async function POST(req: NextRequest, { params }: Params) {
       accessToken?: string;
     };
 
-    const state = await db.query.workspaceStates.findFirst({
-      where: eq(workspaceStates.workspaceId, workspaceId),
+    // 查找该工作区最新的实例
+    const instance = await db.query.instances.findFirst({
+      where: eq(instances.workspaceId, workspaceId),
+      orderBy: desc(instances.createdAt),
     });
-    if (!state) return fail(Object.assign(new Error("Not found"), { status: 404 }));
+    if (!instance) return fail(Object.assign(new Error("Not found"), { status: 404 }));
 
-    // Verify the injected access token (D5).
-    if (!body.accessToken || body.accessToken !== state.accessToken) {
+    // 验证 accessToken
+    if (!body.accessToken || body.accessToken !== instance.accessToken) {
       return fail(Object.assign(new Error("Invalid access token"), { status: 403 }));
     }
 
+    // 更新实例状态为 RUNNING
     await db
-      .update(workspaceStates)
+      .update(instances)
       .set({
         status: "RUNNING",
-        instanceId: body.instanceId ?? state.instanceId,
         publicIp: body.publicIp ?? null,
         port: body.port ?? 8080,
-        healthCallback: true,
-        idleTriggered: false,
+        bootCompletedAt: new Date(),
+        bootPhase: null,
         lastActiveAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(workspaceStates.workspaceId, workspaceId));
+      .where(eq(instances.id, instance.id));
 
     return ok({ status: "RUNNING" });
   } catch (e) {

@@ -44,6 +44,7 @@ func NewReporter(backendURL, backendToken, instanceID string) *Reporter {
 
 // HeartbeatPayload represents the heartbeat data
 type HeartbeatPayload struct {
+	Token          string                `json:"token"`
 	WorkspaceID    string                `json:"workspace_id"`
 	InstanceID     string                `json:"instance_id,omitempty"`
 	Status         string                `json:"status"`
@@ -74,7 +75,7 @@ type Metadata struct {
 
 // ReadyPayload represents the ready notification
 type ReadyPayload struct {
-	AgentToken   string `json:"agent_token"`
+	Token        string `json:"token"`
 	InstanceID   string `json:"instance_id"`
 	PublicIP     string `json:"public_ip"`
 	AgentVersion string `json:"agent_version"`
@@ -82,10 +83,10 @@ type ReadyPayload struct {
 
 // StatusPayload represents status change
 type StatusPayload struct {
-	AgentToken string `json:"agent_token"`
-	Status     string `json:"status"`
-	Phase      string `json:"phase,omitempty"`
-	Message    string `json:"message,omitempty"`
+	Token    string `json:"token"`
+	Status   string `json:"status"`
+	Phase    string `json:"phase,omitempty"`
+	Message  string `json:"message,omitempty"`
 }
 
 // LogEntry represents a single log entry
@@ -98,16 +99,15 @@ type LogEntry struct {
 
 // LogsPayload represents log upload
 type LogsPayload struct {
-	AgentToken string     `json:"agent_token"`
-	Logs       []LogEntry `json:"logs"`
+	Token string     `json:"token"`
+	Logs  []LogEntry `json:"logs"`
 }
 
 // ErrorPayload represents error report
 type ErrorPayload struct {
-	AgentToken   string `json:"agent_token"`
-	ErrorType    string `json:"error_type"`
-	ErrorMessage string `json:"error_message"`
-	StackTrace   string `json:"stack_trace,omitempty"`
+	Token  string `json:"token"`
+	Error  string `json:"error"`
+	Phase  string `json:"phase,omitempty"`
 }
 
 // SendLog queues a log entry for streaming to backend
@@ -167,10 +167,15 @@ func (r *Reporter) Stop() {
 	close(r.doneCh)
 }
 
+// GetToken returns the backend token
+func (r *Reporter) GetToken() string {
+	return r.backendToken
+}
+
 // ReportReady notifies the backend that the agent is ready
 func (r *Reporter) ReportReady(instanceID, publicIP, agentVersion string) error {
 	payload := ReadyPayload{
-		AgentToken:   r.backendToken,
+		Token:        r.backendToken,
 		InstanceID:   instanceID,
 		PublicIP:     publicIP,
 		AgentVersion: agentVersion,
@@ -186,10 +191,10 @@ func (r *Reporter) ReportHeartbeat(payload *HeartbeatPayload) error {
 // ReportStatus reports status change
 func (r *Reporter) ReportStatus(status, phase, message string) error {
 	payload := StatusPayload{
-		AgentToken: r.backendToken,
-		Status:     status,
-		Phase:      phase,
-		Message:    message,
+		Token:   r.backendToken,
+		Status:  status,
+		Phase:   phase,
+		Message: message,
 	}
 	return r.post("/agent-status", payload)
 }
@@ -200,19 +205,18 @@ func (r *Reporter) ReportLogs(logs []LogEntry) error {
 		return nil
 	}
 	payload := LogsPayload{
-		AgentToken: r.backendToken,
-		Logs:       logs,
+		Token: r.backendToken,
+		Logs:  logs,
 	}
 	return r.post("/agent-logs", payload)
 }
 
 // ReportError reports an error
-func (r *Reporter) ReportError(errorType, errorMessage, stackTrace string) error {
+func (r *Reporter) ReportError(errorMsg, phase string) error {
 	payload := ErrorPayload{
-		AgentToken:   r.backendToken,
-		ErrorType:    errorType,
-		ErrorMessage: errorMessage,
-		StackTrace:   stackTrace,
+		Token: r.backendToken,
+		Error: errorMsg,
+		Phase: phase,
 	}
 	return r.post("/agent-error", payload)
 }
