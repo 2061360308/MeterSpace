@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instances, workspaces } from "@/lib/db/schema";
+import { instances, workspaces, type Workspace } from "@/lib/db/schema";
 import { fail } from "@/lib/api";
 
 const querySchema = z.object({
@@ -16,22 +16,13 @@ function q(v: string): string {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
-function generateDevcontainerJson(workspace: any): string {
-  const devcontainer: any = {
+function generateDevcontainerJson(workspace: Workspace): string {
+  const devcontainer: Record<string, unknown> = {
     name: `workspace-${workspace.id}`,
     image: workspace.imageUri,
     workspaceFolder: "/workspace",
     workspaceMount: "source=/workspace,target=/workspace,type=bind",
   };
-
-  if (workspace.features?.length) {
-    devcontainer.features = {};
-    for (const feature of workspace.features) {
-      if (feature.uri) {
-        devcontainer.features[feature.uri] = feature.options ?? {};
-      }
-    }
-  }
 
   return JSON.stringify(devcontainer, null, 2);
 }
@@ -133,6 +124,6 @@ done`
       },
     });
   } catch (e) {
-    return fail(e);
+    return fail(e instanceof Error ? e : new Error(String(e)));
   }
 }
