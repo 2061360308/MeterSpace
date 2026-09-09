@@ -11,7 +11,7 @@ echo "[1/8] Installing Docker (using Aliyun mirror)..."
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+curl -fsSL --http1.1 --retry 3 --retry-delay 5 https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
 apt-get update -qq
@@ -21,7 +21,7 @@ systemctl start docker
 echo "[1/8] Docker installed."
 
 echo "[2/8] Installing Node.js 22.x..."
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+curl -fsSL --http1.1 --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y -qq nodejs
 echo "[2/8] Node.js $(node --version) installed."
 
