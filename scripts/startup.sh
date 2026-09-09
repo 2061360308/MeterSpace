@@ -26,7 +26,7 @@ apt-get install -y -qq nodejs
 echo "[2/8] Node.js $(node --version) installed."
 
 echo "[3/8] Installing code-server..."
-curl -fsSL https://code-server.dev/install.sh | sh
+curl -fsSL --http1.1 --retry 3 --retry-delay 5 https://code-server.dev/install.sh | sh
 echo "[3/8] Code-server installed."
 
 echo "[4/8] Installing devcontainer CLI..."
