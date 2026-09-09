@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { instances, instanceLogs } from "@/lib/db/schema";
 import { verifyAccessToken } from "@/lib/instances/auth";
 import { ok, fail } from "@/lib/api";
+import { getAliyunProvider } from "@/lib/providers";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       return fail({ message: "Invalid token", status: 401 });
     }
 
+    const instance = await db.query.instances.findFirst({
+      where: eq(instances.id, id),
+    });
+
     await db
       .update(instances)
       .set({
@@ -41,6 +46,23 @@ export async function POST(req: NextRequest, { params }: Params) {
       phase: body.phase ?? null,
       message: body.error,
     });
+
+    if (instance?.ecsInstanceId) {
+      try {
+        const provider = getAliyunProvider();
+        await provider.deleteInstance(instance.ecsInstanceId);
+        await db
+          .update(instances)
+          .set({
+            status: "STOPPED",
+            stoppedAt: new Date(),
+            stopReason: "boot_failed",
+          })
+          .where(eq(instances.id, id));
+      } catch (deleteErr) {
+        console.error("[agent-error] Failed to delete ECS instance:", deleteErr);
+      }
+    }
 
     return ok({ status: "FAILED" });
   } catch (e) {
