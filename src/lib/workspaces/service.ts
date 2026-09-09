@@ -18,12 +18,13 @@ import { getGitTokenEnc } from "@/lib/git/service";
 export const RAM_ROLE_NAME = "workspace-cloud-ecs-role";
 
 export function getAppBaseUrl(): string {
-  return (
-    process.env.NEXTAUTH_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000")
-  );
+  if (process.env.NEXTAUTH_URL) {
+    return process.env.NEXTAUTH_URL;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return "http://localhost:3000";
 }
 
 export function ossBucketForRegion(region: string): string {
