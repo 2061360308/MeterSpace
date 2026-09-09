@@ -9,7 +9,7 @@ async function request<T>(
 ): Promise<T> {
   const client = createRpcClient({
     ...creds,
-    endpoint: acrEndpoint(region),
+    endpoint: acrEndpoint(),
     apiVersion: API_VERSIONS.acrEnterprise,
   });
   return await client.request<T>(action, params, { method: "POST" });

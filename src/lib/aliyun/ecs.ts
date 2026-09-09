@@ -29,7 +29,7 @@ async function request<T>(
   try {
     const client = createRpcClient({
       ...creds,
-      endpoint: ecsEndpoint(region),
+      endpoint: ecsEndpoint(),
       apiVersion: API_VERSIONS.ecs,
     });
     return await client.request<T>(action, params, { method: "POST" });

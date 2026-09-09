@@ -60,14 +60,12 @@ export const API_VERSIONS = {
   acrPersonal: "2016-06-07",
 } as const;
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function ecsEndpoint(_region: string): string {
+export function ecsEndpoint(): string {
   // Use global endpoint for Vercel compatibility (regional endpoints timeout from overseas)
   return `https://ecs.aliyuncs.com`;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function acrEndpoint(_region: string): string {
+export function acrEndpoint(): string {
   // Use global endpoint for Vercel compatibility (regional endpoints timeout from overseas)
   return `https://cr.aliyuncs.com`;
 }
