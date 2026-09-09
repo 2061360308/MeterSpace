@@ -64,9 +64,6 @@ export const workspaces = pgTable("workspaces", {
   name: text("name").notNull(),
   provider: text("provider").notNull().default("aliyun"),
   region: text("region").notNull(),
-  cloudInstanceId: uuid("cloud_instance_id")
-    .notNull()
-    .references(() => cloudInstances.id, { onDelete: "restrict" }),
   imageUri: text("image_uri").notNull(),
   defaultDiskSize: integer("default_disk_size").default(40),
   defaultBandwidth: integer("default_bandwidth").default(10),
@@ -108,13 +105,15 @@ export const instances = pgTable("instances", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
+  cloudInstanceId: uuid("cloud_instance_id")
+    .references(() => cloudInstances.id, { onDelete: "set null" }),
   diskSize: integer("disk_size").notNull().default(40),
   bandwidth: integer("bandwidth").notNull().default(10),
   status: text("status").notNull().default("PROVISIONING"),
   ecsInstanceId: text("ecs_instance_id"),
   publicIp: text("public_ip"),
   port: integer("port"),
-  bootToken: text("boot_token"),
+  accessToken: text("access_token"),
   bootPhase: text("boot_phase"),
   bootStartedAt: timestamp("boot_started_at", { withTimezone: true }),
   bootCompletedAt: timestamp("boot_completed_at", { withTimezone: true }),

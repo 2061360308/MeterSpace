@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { workspaces, workspaceStates } from "@/lib/db/schema";
+import { workspaces, instances } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { createWorkspace } from "@/lib/workspaces/service";
 import { ok, fail } from "@/lib/api";
@@ -49,16 +49,52 @@ export async function GET() {
       .orderBy(desc(workspaces.createdAt));
 
     const ids = list.map((w) => w.id);
-    const states = ids.length
-      ? await db
-          .select()
-          .from(workspaceStates)
-          .where(inArray(workspaceStates.workspaceId, ids))
-      : [];
-    const stateMap = new Map(states.map((s) => [s.workspaceId, s]));
+    if (ids.length === 0) {
+      return ok({ workspaces: [] });
+    }
+
+    // 查询每个工作区的最新实例
+    const latestInstances = await db
+      .select({
+        workspaceId: instances.workspaceId,
+        id: instances.id,
+        status: instances.status,
+        publicIp: instances.publicIp,
+        port: instances.port,
+        lastActiveAt: instances.lastActiveAt,
+        ossUsageBytes: instances.ossUsageBytes,
+        stoppedAt: instances.stoppedAt,
+        createdAt: instances.createdAt,
+      })
+      .from(instances)
+      .where(inArray(instances.workspaceId, ids))
+      .orderBy(desc(instances.createdAt));
+
+    // 按 workspaceId 分组，取最新的实例
+    const instanceMap = new Map<string, typeof latestInstances[0]>();
+    for (const inst of latestInstances) {
+      if (!instanceMap.has(inst.workspaceId)) {
+        instanceMap.set(inst.workspaceId, inst);
+      }
+    }
 
     return ok({
-      workspaces: list.map((w) => ({ ...w, state: stateMap.get(w.id) ?? null })),
+      workspaces: list.map((w) => {
+        const inst = instanceMap.get(w.id);
+        return {
+          ...w,
+          state: inst
+            ? {
+                status: inst.status,
+                publicIp: inst.publicIp,
+                port: inst.port,
+                lastActiveAt: inst.lastActiveAt,
+                ossUsageBytes: inst.ossUsageBytes,
+                releasedAt: inst.stoppedAt,
+              }
+            : null,
+        };
+      }),
     });
   } catch (e) {
     return fail(e);

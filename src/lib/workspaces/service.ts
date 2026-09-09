@@ -3,24 +3,17 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   workspaces,
-  workspaceStates,
+  instances,
   auditLogs,
   settings,
   cloudInstances,
-  userScripts,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getAliyunProvider } from "@/lib/providers";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
-import {
-  buildUserData,
-  buildStopHook,
-  type EntrypointVars,
-} from "@/lib/userdata";
+import { buildUserData, buildStopHook, type EntrypointVars } from "@/lib/userdata";
 import { resolveFeatures } from "@/lib/features";
-import { buildAuthUrl } from "@/lib/git/auth-url";
 import { getGitTokenEnc } from "@/lib/git/service";
-import { decryptGitToken } from "@/lib/userdata";
 
 export const RAM_ROLE_NAME = "workspace-cloud-ecs-role";
 
@@ -45,7 +38,6 @@ export interface CreateWorkspaceInput {
   name: string;
   provider: string;
   region: string;
-  cloudInstanceId?: string;
   imageUri: string;
   diskCategory?: string;
   diskSize?: number;
@@ -62,56 +54,9 @@ export interface CreateWorkspaceInput {
   idleMinutes?: number | null;
 }
 
-async function buildEntrypointVars(
-  workspace: typeof workspaces.$inferSelect,
-  accessToken: string,
-): Promise<EntrypointVars> {
-  const s = await getUserSettings(workspace.userId);
-  const bucket = ossBucketForRegion(workspace.region);
-  const gitToken = decryptGitToken(workspace.gitTokenEnc);
-  const gitAuthedUrl =
-    workspace.gitRepoUrl && gitToken && workspace.gitProvider
-      ? buildAuthUrl(workspace.gitProvider, workspace.gitRepoUrl, gitToken)
-      : null;
-
-  const enabledScripts = await db
-    .select()
-    .from(userScripts)
-    .where(and(
-      eq(userScripts.userId, workspace.userId),
-      eq(userScripts.enabled, true),
-    ))
-    .orderBy(userScripts.sortOrder);
-
-  const customScripts = enabledScripts.map((s) => ({
-    name: s.name,
-    script: s.script,
-  }));
-
-  return {
-    workspaceId: workspace.id,
-    ossBucket: bucket,
-    ossWorkspacePath: workspace.ossWorkspacePath ?? `ws-${workspace.id}/workspace`,
-    region: workspace.region,
-    imageUri: workspace.imageUri,
-    ramRoleName: RAM_ROLE_NAME,
-    callbackUrl: getAppBaseUrl(),
-    accessToken,
-    gitRepoUrl: workspace.gitRepoUrl,
-    gitBranch: workspace.gitBranch ?? "main",
-    gitAuthedUrl,
-    gitAutoClone: workspace.autoClone ?? true,
-    idleMinutes:
-      workspace.idleMinutes ?? s.defaultIdleMinutes,
-    features: workspace.features ?? [],
-    customScripts,
-  };
-}
-
 async function launchInstance(
   workspace: typeof workspaces.$inferSelect,
   cloudInstance: typeof cloudInstances.$inferSelect,
-  accessToken: string,
 ): Promise<string> {
   const provider = getAliyunProvider();
   const creds = await provider.getCredentials(workspace.userId);
@@ -120,9 +65,12 @@ async function launchInstance(
   const releaseHours =
     workspace.releaseHours ?? s.defaultReleaseHours;
 
-  const userData = buildUserData(
-    await buildEntrypointVars(workspace, accessToken),
-  );
+  const entrypointVars: EntrypointVars = {
+    workspaceId: workspace.id,
+    callbackUrl: getAppBaseUrl(),
+    accessToken: generateAccessToken(),
+  };
+  const userData = buildUserData(entrypointVars);
 
   const autoReleaseTime = new Date(
     Date.now() + releaseHours * 3600 * 1000,
@@ -215,22 +163,6 @@ export async function createWorkspace(
     gitTokenEnc = await getGitTokenEnc(userId, input.gitProvider);
   }
 
-  let cloudInstanceId = input.cloudInstanceId;
-  if (!cloudInstanceId) {
-    const s = await getUserSettings(userId);
-    const [cloudInstance] = await db
-      .insert(cloudInstances)
-      .values({
-        userId,
-        name: `${input.name}-config`,
-        provider: input.provider,
-        region: input.region,
-        instanceType: s.defaultSpec,
-      })
-      .returning();
-    cloudInstanceId = cloudInstance.id;
-  }
-
   const [workspace] = await db
     .insert(workspaces)
     .values({
@@ -238,7 +170,6 @@ export async function createWorkspace(
       name: input.name,
       provider: input.provider,
       region: input.region,
-      cloudInstanceId,
       imageUri: input.imageUri,
       defaultDiskSize: input.diskSize,
       defaultBandwidth: input.bandwidth,
@@ -260,14 +191,6 @@ export async function createWorkspace(
     .update(workspaces)
     .set({ ossWorkspacePath })
     .where(eq(workspaces.id, workspace.id));
-
-  const accessToken = generateAccessToken();
-
-  await db.insert(workspaceStates).values({
-    workspaceId: workspace.id,
-    status: "STOPPED",
-    accessToken,
-  });
 
   await db.insert(auditLogs).values({
     userId,
@@ -297,7 +220,7 @@ export async function createWorkspace(
 
 export interface StartWorkspaceInput {
   mode: "quick" | "custom";
-  cloudInstanceId?: string;
+  cloudInstanceId: string;
   diskCategory?: string;
   diskSize?: number;
   bandwidth?: number;
@@ -313,30 +236,27 @@ export async function startWorkspace(
   });
   if (!workspace) throw new WorkspaceError("Workspace not found", 404);
 
-  if (input.mode === "custom") {
-    const patch: Partial<typeof workspaces.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    if (input.cloudInstanceId) patch.cloudInstanceId = input.cloudInstanceId;
-    if (input.diskSize) patch.defaultDiskSize = input.diskSize;
-    if (input.bandwidth) patch.defaultBandwidth = input.bandwidth;
-    await db.update(workspaces).set(patch).where(eq(workspaces.id, workspaceId));
-    if (input.cloudInstanceId) workspace.cloudInstanceId = input.cloudInstanceId;
-    if (input.diskSize) workspace.defaultDiskSize = input.diskSize;
-    if (input.bandwidth) workspace.defaultBandwidth = input.bandwidth;
+  if (!input.cloudInstanceId) {
+    throw new WorkspaceError("请先选择弹性规格", 400);
   }
 
   // Load cloud instance to get instanceType
   const cloudInstance = await db.query.cloudInstances.findFirst({
-    where: eq(cloudInstances.id, workspace.cloudInstanceId),
+    where: eq(cloudInstances.id, input.cloudInstanceId),
   });
   if (!cloudInstance) throw new WorkspaceError("Cloud instance not found", 404);
 
-  const accessToken = generateAccessToken();
-  await db
-    .update(workspaceStates)
-    .set({ status: "PROVISIONING", accessToken, healthCallback: false })
-    .where(eq(workspaceStates.workspaceId, workspaceId));
+  // Update workspace settings if custom mode
+  if (input.mode === "custom") {
+    const patch: Partial<typeof workspaces.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (input.diskSize) patch.defaultDiskSize = input.diskSize;
+    if (input.bandwidth) patch.defaultBandwidth = input.bandwidth;
+    await db.update(workspaces).set(patch).where(eq(workspaces.id, workspaceId));
+    if (input.diskSize) workspace.defaultDiskSize = input.diskSize;
+    if (input.bandwidth) workspace.defaultBandwidth = input.bandwidth;
+  }
 
   await db.insert(auditLogs).values({
     userId,
@@ -350,17 +270,22 @@ export async function startWorkspace(
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
   try {
     await preflightCheck(workspace, cloudInstance, releaseHours);
-    const instanceId = await launchInstance(workspace, cloudInstance, accessToken);
-    await db
-      .update(workspaceStates)
-      .set({ instanceId, status: "PROVISIONING" })
-      .where(eq(workspaceStates.workspaceId, workspaceId));
+    const instanceId = await launchInstance(workspace, cloudInstance);
+    
+    // 创建 instances 表记录
+    await db.insert(instances).values({
+      workspaceId,
+      cloudInstanceId: input.cloudInstanceId,
+      diskSize: workspace.defaultDiskSize ?? 40,
+      bandwidth: workspace.defaultBandwidth ?? 10,
+      status: "PROVISIONING",
+      ecsInstanceId: instanceId,
+      accessToken: generateAccessToken(),
+      bootStartedAt: new Date(),
+    });
+    
     return { workspaceId, instanceId };
   } catch (e) {
-    await db
-      .update(workspaceStates)
-      .set({ status: "FAILED", updatedAt: new Date() })
-      .where(eq(workspaceStates.workspaceId, workspaceId));
     throw e;
   }
 }
@@ -371,31 +296,34 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
   });
   if (!workspace) throw new WorkspaceError("Workspace not found", 404);
 
-  const state = await db.query.workspaceStates.findFirst({
-    where: eq(workspaceStates.workspaceId, workspaceId),
+  // 查找该工作区最新的 RUNNING 实例
+  const instance = await db.query.instances.findFirst({
+    where: and(
+      eq(instances.workspaceId, workspaceId),
+      eq(instances.status, "RUNNING"),
+    ),
   });
-  const instanceId = state?.instanceId;
-  if (!instanceId) {
+  if (!instance?.ecsInstanceId) {
     throw new WorkspaceError("Workspace is not running", 409);
   }
 
   await db
-    .update(workspaceStates)
-    .set({ status: "TERMINATING" })
-    .where(eq(workspaceStates.workspaceId, workspaceId));
+    .update(instances)
+    .set({ status: "TERMINATING", updatedAt: new Date() })
+    .where(eq(instances.id, instance.id));
 
   await db.insert(auditLogs).values({
     userId,
     workspaceId,
     action: "STOP",
-    details: { instanceId },
+    details: { instanceId: instance.ecsInstanceId },
   });
 
   const provider = getAliyunProvider();
   let ossUsageBytes: number | null = null;
 
   try {
-    const { invokeId } = await provider.runCommand(instanceId, buildStopHook());
+    const { invokeId } = await provider.runCommand(instance.ecsInstanceId, buildStopHook());
 
     for (let i = 0; i < 24; i++) {
       await new Promise((r) => setTimeout(r, 5000));
@@ -410,27 +338,26 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
     console.error("stop-hook failed, force deleting", e);
   }
 
-  await provider.deleteInstance(instanceId);
+  await provider.deleteInstance(instance.ecsInstanceId);
 
   await db
-    .update(workspaceStates)
+    .update(instances)
     .set({
       status: "STOPPED",
-      instanceId: null,
       publicIp: null,
       port: null,
       accessToken: null,
-      healthCallback: false,
       ossUsageBytes: ossUsageBytes ?? undefined,
-      releasedAt: new Date(),
+      stoppedAt: new Date(),
+      updatedAt: new Date(),
     })
-    .where(eq(workspaceStates.workspaceId, workspaceId));
+    .where(eq(instances.id, instance.id));
 
   await db.insert(auditLogs).values({
     userId,
     workspaceId,
     action: "TERMINATE",
-    details: { instanceId, ossUsageBytes },
+    details: { instanceId: instance.ecsInstanceId, ossUsageBytes },
   });
 
   return { workspaceId, ossUsageBytes };
@@ -442,16 +369,21 @@ export async function deleteWorkspace(userId: string, workspaceId: string) {
   });
   if (!workspace) throw new WorkspaceError("Workspace not found", 404);
 
-  const state = await db.query.workspaceStates.findFirst({
-    where: eq(workspaceStates.workspaceId, workspaceId),
+  // 查找该工作区的所有实例
+  const workspaceInstances = await db.query.instances.findMany({
+    where: eq(instances.workspaceId, workspaceId),
   });
 
   const provider = getAliyunProvider();
-  if (state?.instanceId) {
-    try {
-      await provider.deleteInstance(state.instanceId);
-    } catch (e) {
-      console.error("delete instance failed", e);
+  
+  // 删除所有有 ecsInstanceId 的实例
+  for (const inst of workspaceInstances) {
+    if (inst.ecsInstanceId) {
+      try {
+        await provider.deleteInstance(inst.ecsInstanceId);
+      } catch (e) {
+        console.error("delete instance failed", e);
+      }
     }
   }
 
@@ -465,10 +397,12 @@ export async function deleteWorkspace(userId: string, workspaceId: string) {
     console.error("delete OSS prefix failed", e);
   }
 
-  // Cascade deletes workspace_states + audit_logs via FK (state), but delete explicitly too.
+  // 删除实例记录
   await db
-    .delete(workspaceStates)
-    .where(eq(workspaceStates.workspaceId, workspaceId));
+    .delete(instances)
+    .where(eq(instances.workspaceId, workspaceId));
+  
+  // 删除工作区
   await db.delete(workspaces).where(eq(workspaces.id, workspaceId));
 
   await db.insert(auditLogs).values({
@@ -491,10 +425,14 @@ export async function renewWorkspace(
   });
   if (!workspace) throw new WorkspaceError("Workspace not found", 404);
 
-  const state = await db.query.workspaceStates.findFirst({
-    where: eq(workspaceStates.workspaceId, workspaceId),
+  // 查找该工作区最新的 RUNNING 实例
+  const instance = await db.query.instances.findFirst({
+    where: and(
+      eq(instances.workspaceId, workspaceId),
+      eq(instances.status, "RUNNING"),
+    ),
   });
-  if (!state?.instanceId) {
+  if (!instance?.ecsInstanceId) {
     throw new WorkspaceError("Workspace is not running", 409);
   }
 
@@ -502,13 +440,13 @@ export async function renewWorkspace(
   const autoReleaseTime = new Date(
     Date.now() + hours * 3600 * 1000,
   ).toISOString();
-  await provider.setAutoReleaseTime(state.instanceId, autoReleaseTime);
+  await provider.setAutoReleaseTime(instance.ecsInstanceId, autoReleaseTime);
 
   await db.insert(auditLogs).values({
     userId,
     workspaceId,
     action: "RENEW",
-    details: { hours, instanceId: state.instanceId },
+    details: { hours, instanceId: instance.ecsInstanceId },
   });
 
   return { workspaceId, autoReleaseTime };

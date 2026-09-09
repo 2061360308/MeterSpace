@@ -8,7 +8,6 @@ import {
   workspaces,
   auditLogs,
   cloudInstances,
-  userScripts,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getAliyunProvider } from "@/lib/providers";
@@ -18,11 +17,8 @@ import {
   buildStopHook,
   type EntrypointVars,
 } from "@/lib/userdata";
-import { resolveFeatures } from "@/lib/features";
-import { buildAuthUrl } from "@/lib/git/auth-url";
-import { getGitTokenEnc } from "@/lib/git/service";
-import { decryptGitToken } from "@/lib/userdata";
 import { getAppBaseUrl, RAM_ROLE_NAME } from "@/lib/workspaces/service";
+import { checkAndFixTimeouts } from "./lifecycle";
 
 export class InstanceError extends Error {
   constructor(message: string, public status: number = 500) {
@@ -31,7 +27,7 @@ export class InstanceError extends Error {
   }
 }
 
-function generateBootToken(): string {
+function generateAccessToken(): string {
   return randomBytes(16).toString("hex");
 }
 
@@ -40,6 +36,7 @@ function generateAccessCode(): string {
 }
 
 export interface CreateInstanceInput {
+  cloudInstanceId?: string;
   diskSize?: number;
   bandwidth?: number;
 }
@@ -64,18 +61,37 @@ export async function createInstance(
     throw new InstanceError("Workspace already has a running instance", 409);
   }
 
-  const provisioningInstance = await db.query.instances.findFirst({
+  // 检查并修复超时实例
+  await checkAndFixTimeouts(userId, workspaceId);
+
+  // 检查是否有未超时的 PROVISIONING/BOOTING 实例
+  const activeInstance = await db.query.instances.findFirst({
     where: and(
       eq(instances.workspaceId, workspaceId),
       eq(instances.status, "PROVISIONING"),
     ),
   });
-  if (provisioningInstance) {
+  if (activeInstance) {
     throw new InstanceError("Workspace already has a provisioning instance", 409);
   }
 
+  const bootingInstance = await db.query.instances.findFirst({
+    where: and(
+      eq(instances.workspaceId, workspaceId),
+      eq(instances.status, "BOOTING"),
+    ),
+  });
+  if (bootingInstance) {
+    throw new InstanceError("Workspace already has a booting instance", 409);
+  }
+
+  const cloudInstanceId = input.cloudInstanceId;
+  if (!cloudInstanceId) {
+    throw new InstanceError("请先选择弹性规格", 400);
+  }
+
   const cloudInstance = await db.query.cloudInstances.findFirst({
-    where: eq(cloudInstances.id, workspace.cloudInstanceId),
+    where: eq(cloudInstances.id, cloudInstanceId),
   });
   if (!cloudInstance) throw new InstanceError("Cloud instance not found", 404);
 
@@ -86,10 +102,11 @@ export async function createInstance(
     .insert(instances)
     .values({
       workspaceId,
+      cloudInstanceId,
       diskSize,
       bandwidth,
       status: "PROVISIONING",
-      bootToken: generateBootToken(),
+      accessToken: generateAccessToken(),
       bootStartedAt: new Date(),
     })
     .returning();
@@ -118,62 +135,19 @@ export async function createInstance(
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
 
   try {
+    console.log("[createInstance] Getting Aliyun credentials...");
     const provider = getAliyunProvider();
     const creds = await provider.getCredentials(userId);
+    console.log("[createInstance] Credentials OK, ensuring region resources...");
     const resources = await ensureRegionResources(creds, workspace.region);
-
-    const gitTokenEnc = workspace.gitTokenEnc
-      ? workspace.gitTokenEnc
-      : workspace.gitProvider
-        ? await getGitTokenEnc(userId, workspace.gitProvider)
-        : null;
-
-    const gitAuthedUrl = gitTokenEnc
-      ? buildAuthUrl(
-          workspace.gitProvider!,
-          workspace.gitRepoUrl!,
-          decryptGitToken(gitTokenEnc)!,
-        )
-      : undefined;
-
-    const resolvedFeatures = workspace.features?.length
-      ? resolveFeatures(
-          workspace.features.map((f) => ({ id: f.id, version: f.version })),
-        )
-      : [];
-
-    const enabledScripts = await db
-      .select()
-      .from(userScripts)
-      .where(and(
-        eq(userScripts.userId, userId),
-        eq(userScripts.enabled, true),
-      ))
-      .orderBy(userScripts.sortOrder);
-
-    const customScripts = enabledScripts.map((s) => ({
-      name: s.name,
-      script: s.script,
-    }));
+    console.log("[createInstance] Region resources OK, building user data...");
 
     const callbackUrl = getAppBaseUrl();
     const entrypointVars: EntrypointVars = {
       instanceId: instance.id,
       workspaceId: workspace.id,
-      ossBucket: `my-dev-workspace-${workspace.region}`,
-      ossWorkspacePath: workspace.ossWorkspacePath ?? `ws-${workspace.id}/workspace`,
-      region: workspace.region,
-      imageUri: workspace.imageUri,
-      ramRoleName: RAM_ROLE_NAME,
       callbackUrl,
-      accessToken: instance.bootToken!,
-      gitRepoUrl: workspace.gitRepoUrl,
-      gitBranch: workspace.gitBranch ?? "main",
-      gitAuthedUrl,
-      gitAutoClone: workspace.autoClone ?? true,
-      idleMinutes: workspace.idleMinutes ?? s.defaultIdleMinutes ?? 30,
-      features: resolvedFeatures,
-      customScripts,
+      accessToken: instance.accessToken!,
     };
 
     const userData = buildUserData(entrypointVars);
@@ -181,6 +155,7 @@ export async function createInstance(
       Date.now() + releaseHours * 3600 * 1000,
     ).toISOString().replace(/\.\d{3}Z$/, "Z");
 
+    console.log("[createInstance] Creating ECS instance via Aliyun API...");
     const ecsInstanceId = await provider.createInstance({
       region: workspace.region,
       imageId: resources.imageId,
@@ -198,6 +173,7 @@ export async function createInstance(
       userData,
       tags: { "instance-id": instance.id, "managed-by": "workspace-cloud" },
     });
+    console.log("[createInstance] ECS instance created:", ecsInstanceId);
 
     await db
       .update(instances)
@@ -206,6 +182,7 @@ export async function createInstance(
 
     return { instanceId: instance.id, ecsInstanceId, personalCode };
   } catch (e) {
+    console.error("[createInstance] Error:", e);
     await db
       .update(instances)
       .set({
@@ -224,12 +201,32 @@ export async function listInstances(userId: string, workspaceId: string) {
   });
   if (!workspace) throw new InstanceError("Workspace not found", 404);
 
+  // 查询前检查超时实例
+  await checkAndFixTimeouts(userId, workspaceId);
+
   const instanceList = await db.query.instances.findMany({
     where: eq(instances.workspaceId, workspaceId),
     orderBy: [desc(instances.createdAt)],
   });
 
-  return instanceList;
+  // 获取所有相关的 cloudInstances
+  const cloudInstanceIds = instanceList
+    .map((i) => i.cloudInstanceId)
+    .filter((id): id is string => id !== null);
+  
+  const cloudInstancesList = cloudInstanceIds.length
+    ? await db.query.cloudInstances.findMany({
+        where: (cloudInstances, { inArray }) => inArray(cloudInstances.id, cloudInstanceIds),
+      })
+    : [];
+  
+  const cloudInstanceMap = new Map(cloudInstancesList.map((ci) => [ci.id, ci]));
+
+  return instanceList.map((instance) => ({
+    ...instance,
+    cloudInstanceName: instance.cloudInstanceId ? cloudInstanceMap.get(instance.cloudInstanceId)?.name ?? null : null,
+    cloudInstanceType: instance.cloudInstanceId ? cloudInstanceMap.get(instance.cloudInstanceId)?.instanceType ?? null : null,
+  }));
 }
 
 export async function getInstance(userId: string, instanceId: string) {
@@ -247,9 +244,11 @@ export async function getInstance(userId: string, instanceId: string) {
     throw new InstanceError("Instance not found", 404);
   }
 
-  const cloudInstance = await db.query.cloudInstances.findFirst({
-    where: eq(cloudInstances.id, workspace.cloudInstanceId),
-  });
+  const cloudInstance = instance.cloudInstanceId
+    ? await db.query.cloudInstances.findFirst({
+        where: eq(cloudInstances.id, instance.cloudInstanceId),
+      })
+    : null;
 
   const logs = await db.query.instanceLogs.findMany({
     where: eq(instanceLogs.instanceId, instanceId),
@@ -260,8 +259,8 @@ export async function getInstance(userId: string, instanceId: string) {
   return {
     ...instance,
     workspaceName: workspace.name,
-    cloudInstanceName: cloudInstance?.name,
-    cloudInstanceType: cloudInstance?.instanceType,
+    cloudInstanceName: cloudInstance?.name ?? null,
+    cloudInstanceType: cloudInstance?.instanceType ?? null,
     logs,
   };
 }
