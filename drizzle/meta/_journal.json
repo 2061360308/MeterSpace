@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "postgresql",
-  entries": [
+  "entries": [
     {
       "idx": 0,
       "version": "7",
@@ -50,8 +50,20 @@
       "when": 1788800500000,
       "tag": "0006_add_user_resources",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788800600000,
+      "tag": "0007_add_settings_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788800700000,
+      "tag": "0008_move_cloud_instance_to_instances",
+      "breakpoints": true
     }
-  ]
-}
   ]
 }

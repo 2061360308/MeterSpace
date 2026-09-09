@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
   mode: z.enum(["quick", "custom"]).default("quick"),
-  cloudInstanceId: z.string().uuid().optional(),
+  cloudInstanceId: z.string().uuid(),
   diskCategory: z.string().optional(),
   diskSize: z.number().int().optional(),
   bandwidth: z.number().int().optional(),

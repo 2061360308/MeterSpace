@@ -277,6 +277,25 @@ export interface RunInstancesResult {
   instanceId: string;
 }
 
+export interface InstanceStatusInfo {
+  instanceId: string;
+  status: "Pending" | "Running" | "Starting" | "Stopping" | "Stopped";
+}
+
+export async function describeInstanceStatus(
+  creds: AliCredentials,
+  region: string,
+  instanceIds: string[],
+): Promise<InstanceStatusInfo[]> {
+  const res = await request<{
+    instanceStatuses?: { instanceStatus?: InstanceStatusInfo[] };
+  }>(creds, region, "DescribeInstanceStatus", {
+    RegionId: region,
+    InstanceIds: JSON.stringify(instanceIds),
+  });
+  return res.instanceStatuses?.instanceStatus ?? [];
+}
+
 export async function runInstances(
   creds: AliCredentials,
   input: RunInstancesInput,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { workspaces, workspaceStates } from "@/lib/db/schema";
+import { workspaces, instances } from "@/lib/db/schema";
 import { stopWorkspace } from "@/lib/workspaces/service";
 
 /**
@@ -18,14 +18,14 @@ export async function GET(req: NextRequest) {
   const rows = await db
     .select({
       userId: workspaces.userId,
-      workspaceId: workspaceStates.workspaceId,
+      workspaceId: instances.workspaceId,
     })
-    .from(workspaceStates)
-    .innerJoin(workspaces, eq(workspaces.id, workspaceStates.workspaceId))
+    .from(instances)
+    .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
     .where(
       and(
-        eq(workspaceStates.status, "RUNNING"),
-        eq(workspaceStates.idleTriggered, true),
+        eq(instances.status, "RUNNING"),
+        eq(instances.idleTriggered, true),
       ),
     );
 

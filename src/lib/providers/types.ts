@@ -217,4 +217,6 @@ export interface CloudProvider {
 
   runCommand(instanceId: string, content: string): Promise<CloudCommandResult>;
   getCommandResult(invokeId: string): Promise<CloudInvocationResult>;
+
+  getInstanceCloudStatus(ecsInstanceId: string, region: string): Promise<string | null>;
 }

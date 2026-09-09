@@ -402,4 +402,15 @@ export class AliyunProvider implements CloudProvider {
       exitCode: result.exitCode,
     };
   }
+
+  async getInstanceCloudStatus(ecsInstanceId: string, region: string): Promise<string | null> {
+    try {
+      const creds = await this.getCreds();
+      const statuses = await ecs.describeInstanceStatus(creds, region, [ecsInstanceId]);
+      if (statuses.length === 0) return "Released";
+      return statuses[0]?.status ?? null;
+    } catch {
+      return null;
+    }
+  }
 }

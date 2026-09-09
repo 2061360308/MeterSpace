@@ -247,4 +247,10 @@ export class TencentProvider implements CloudProvider {
     void _invokeId;
     notImplemented();
   }
+
+  async getInstanceCloudStatus(_ecsInstanceId: string, _region: string): Promise<string | null> {
+    void _ecsInstanceId;
+    void _region;
+    notImplemented();
+  }
 }

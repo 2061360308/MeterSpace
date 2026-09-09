@@ -1,5 +1,9 @@
-import featuresData from "@/data/features.json";
-import type { Feature } from "@/lib/userdata";
+export interface Feature {
+  id: string;
+  name: string;
+  version: string;
+  installScript: string;
+}
 
 export interface FeatureVersion {
   version: string;
@@ -16,7 +20,7 @@ export interface FeatureDefinition {
 }
 
 export function listFeatures(): FeatureDefinition[] {
-  return featuresData as FeatureDefinition[];
+  return [];
 }
 
 export interface FeatureSelection {

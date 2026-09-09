@@ -123,7 +123,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain groups={navGroups} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={{ name: "shadcn", email: "m@example.com" }} />
+        <NavUser user={{ name: "shadcn", email: "m@example.com", avatar: "" }} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
