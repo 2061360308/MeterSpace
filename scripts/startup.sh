@@ -26,7 +26,7 @@ systemctl start docker >/dev/null 2>&1 || true
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<'EOF'
 {
-  "registry-mirrors": ["https://docker.xuanyuan.me"]
+  "registry-mirrors": ["https://docker.1ms.run"]
 }
 EOF
 systemctl daemon-reload >/dev/null 2>&1 || true
