@@ -317,7 +317,7 @@ function CreatingView({
       </div>
 
       {/* 半透明遮罩 */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
 
       {/* 中央卡片 */}
       <div className="absolute inset-0 flex items-center justify-center p-6">
