@@ -21,7 +21,10 @@ const routes: Record<string, string> = {
   "/": "概览",
   "/workspaces": "工作区",
   "/workspaces/new": "新建工作区",
-  "/settings": "设置",
+  "/settings": "通用",
+  "/settings/env": "环境变量",
+  "/settings/keys": "API 密钥",
+  "/account": "Account",
   "/dashboard": "Dashboard",
   "/cloud-instances": "弹性规格",
 }
@@ -46,14 +49,20 @@ function getBreadcrumbs(pathname: string) {
   return crumbs
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  user,
+}: {
+  children: React.ReactNode
+  user?: { name?: string | null; email?: string | null; avatar?: string }
+}) {
   const pathname = usePathname()
   const crumbs = getBreadcrumbs(pathname)
   const current = crumbs.pop()
 
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar user={user} />
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2 px-4">

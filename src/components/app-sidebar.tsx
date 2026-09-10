@@ -92,16 +92,20 @@ const navGroups = [
         icon: Settings2,
         items: [
           { title: "通用", url: "/settings" },
-          { title: "密钥管理", url: "/settings/keys" },
           { title: "环境变量", url: "/settings/env" },
-          { title: "持久化目录", url: "/settings/storage" },
+          { title: "API 密钥", url: "/settings/keys" },
         ],
       },
     ],
   },
 ]
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  user,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & {
+  user?: { name?: string | null; email?: string | null; avatar?: string }
+}) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -123,7 +127,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain groups={navGroups} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={{ name: "shadcn", email: "m@example.com", avatar: "" }} />
+        <NavUser
+          user={{
+            name: user?.name ?? "Unknown",
+            email: user?.email ?? "",
+            avatar: user?.avatar ?? "",
+          }}
+        />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

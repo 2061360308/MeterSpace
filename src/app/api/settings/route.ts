@@ -31,6 +31,9 @@ export async function GET() {
         defaultSpotDuration: row.defaultSpotDuration,
         acrInstanceId: row.acrInstanceId,
         ossBucket: row.ossBucket,
+        logRetentionDays: row.logRetentionDays,
+        githubMirror: row.githubMirror,
+        dockerMirror: row.dockerMirror,
       },
     });
   } catch (e) {
@@ -50,6 +53,9 @@ const bodySchema = z.object({
   defaultIdleMinutes: z.number().int().optional(),
   defaultSpotStrategy: z.string().optional(),
   defaultSpotDuration: z.number().int().optional(),
+  logRetentionDays: z.number().int().min(1).max(365).optional(),
+  githubMirror: z.string().max(500).nullable().optional(),
+  dockerMirror: z.string().max(500).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -76,6 +82,9 @@ export async function POST(req: NextRequest) {
     if (body.defaultIdleMinutes !== undefined) values.defaultIdleMinutes = body.defaultIdleMinutes;
     if (body.defaultSpotStrategy !== undefined) values.defaultSpotStrategy = body.defaultSpotStrategy;
     if (body.defaultSpotDuration !== undefined) values.defaultSpotDuration = body.defaultSpotDuration;
+    if (body.logRetentionDays !== undefined) values.logRetentionDays = body.logRetentionDays;
+    if (body.githubMirror !== undefined) values.githubMirror = body.githubMirror;
+    if (body.dockerMirror !== undefined) values.dockerMirror = body.dockerMirror;
 
     if (existing) {
       // Preserve existing AK/SK if not provided.

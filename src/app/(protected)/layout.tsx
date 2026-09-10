@@ -10,5 +10,11 @@ export default async function ProtectedLayout({
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell
+      user={{ name: session.user.name, email: "" }}
+    >
+      {children}
+    </AppShell>
+  );
 }
