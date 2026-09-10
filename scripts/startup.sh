@@ -40,6 +40,10 @@ echo "[1/9] Docker installed."
 echo "[2/9] Installing Node.js..."
 NODE_MIRROR="https://cdn.npmmirror.com/binaries/node/latest/"
 NODE_VERSION=$(curl -sf "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.gz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.gz//')
+if [ -z "$NODE_VERSION" ]; then
+  echo "[2/9] Error: Failed to fetch Node.js version"
+  exit 1
+fi
 echo "[2/9] Latest Node.js version: $NODE_VERSION"
 curl -fL -o /tmp/node.tar.gz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.gz"
 tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1
