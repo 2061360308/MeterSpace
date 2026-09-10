@@ -118,7 +118,7 @@ func (e *Executor) Execute() error {
 	cmd := exec.Command("bash", e.scriptPath)
 	cmd.Env = append(os.Environ(),
 		"HOME=/root",
-		"PATH=/usr/local/bin:/usr/bin:/bin",
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"DEBIAN_FRONTEND=noninteractive",
 	)
 
