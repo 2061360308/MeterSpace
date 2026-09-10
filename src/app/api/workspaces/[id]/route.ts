@@ -8,6 +8,7 @@ import { deleteWorkspace } from "@/lib/workspaces/service";
 import { getAliyunProvider } from "@/lib/providers";
 import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 import type { CloudInstance } from "@/lib/providers";
+import { encrypt } from "@/lib/crypto";
 import { ok, fail } from "@/lib/api";
 
 type Params = { params: Promise<{ id: string }> };
@@ -15,7 +16,39 @@ type Params = { params: Promise<{ id: string }> };
 const patchSchema = z.object({
   defaultDiskSize: z.number().int().min(20).optional(),
   defaultBandwidth: z.number().int().min(1).optional(),
+  proxyMode: z.enum(["inherit", "disabled", "clash", "upstream"]).optional(),
+  proxyClashSubscription: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal("").transform(() => null)),
+  proxyClashYaml: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal("").transform(() => null)),
+  proxyUpstreamUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal("").transform(() => null)),
+  proxyUpstreamUsername: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal("").transform(() => null)),
+  proxyUpstreamSecret: z
+    .string()
+    .transform((v) => (v.trim() === "" ? undefined : v))
+    .optional(),
 });
+
+async function maskWorkspaceSecret<T extends Record<string, unknown>>(obj: T): Promise<T> {
+  if (typeof obj.proxyUpstreamSecret === "string" && obj.proxyUpstreamSecret) {
+    return { ...obj, proxyUpstreamSecret: "••••••" };
+  }
+  return obj;
+}
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -66,7 +99,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     return ok({
       workspace: {
-        ...workspace,
+        ...(await maskWorkspaceSecret(workspace)),
         state,
         logs,
         ecs,
@@ -93,6 +126,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     };
     if (body.defaultDiskSize !== undefined) patch.defaultDiskSize = body.defaultDiskSize;
     if (body.defaultBandwidth !== undefined) patch.defaultBandwidth = body.defaultBandwidth;
+    if (body.proxyMode !== undefined) patch.proxyMode = body.proxyMode;
+    if (body.proxyClashSubscription !== undefined) patch.proxyClashSubscription = body.proxyClashSubscription;
+    if (body.proxyClashYaml !== undefined) patch.proxyClashYaml = body.proxyClashYaml;
+    if (body.proxyUpstreamUrl !== undefined) patch.proxyUpstreamUrl = body.proxyUpstreamUrl;
+    if (body.proxyUpstreamUsername !== undefined) patch.proxyUpstreamUsername = body.proxyUpstreamUsername;
+    if (body.proxyUpstreamSecret) {
+      patch.proxyUpstreamSecret = encrypt(body.proxyUpstreamSecret);
+    }
 
     await db.update(workspaces).set(patch).where(eq(workspaces.id, id));
 

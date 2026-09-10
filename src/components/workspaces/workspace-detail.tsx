@@ -21,6 +21,14 @@ import {
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -60,6 +68,12 @@ interface Detail {
   gitRepoUrl: string | null;
   gitBranch: string | null;
   createdAt: string;
+  proxyMode: "inherit" | "disabled" | "clash" | "upstream";
+  proxyClashSubscription: string | null;
+  proxyClashYaml: string | null;
+  proxyUpstreamUrl: string | null;
+  proxyUpstreamUsername: string | null;
+  proxyUpstreamSecret: string | null;
 }
 
 interface CloudInstance {
@@ -109,6 +123,16 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const [defaultBandwidth, setDefaultBandwidth] = useState<number>(10);
   const [saving, setSaving] = useState(false);
 
+  // 出口代理覆盖配置
+  const [proxyMode, setProxyMode] = useState<"inherit" | "disabled" | "clash" | "upstream">("inherit");
+  const [proxyClashSubscription, setProxyClashSubscription] = useState("");
+  const [proxyClashYaml, setProxyClashYaml] = useState("");
+  const [proxyUpstreamUrl, setProxyUpstreamUrl] = useState("");
+  const [proxyUpstreamUsername, setProxyUpstreamUsername] = useState("");
+  const [proxyUpstreamSecret, setProxyUpstreamSecret] = useState("");
+  const [hasProxySecret, setHasProxySecret] = useState(false);
+  const [proxySaving, setProxySaving] = useState(false);
+
   // 阿里云状态轮询
   const [cloudStatus, setCloudStatus] = useState<string | null>(null);
 
@@ -137,6 +161,13 @@ export function WorkspaceDetail({ id }: { id: string }) {
       setDetail(data.workspace);
       setDefaultDiskSize(data.workspace.defaultDiskSize ?? 40);
       setDefaultBandwidth(data.workspace.defaultBandwidth ?? 10);
+      setProxyMode(data.workspace.proxyMode ?? "inherit");
+      setProxyClashSubscription(data.workspace.proxyClashSubscription ?? "");
+      setProxyClashYaml(data.workspace.proxyClashYaml ?? "");
+      setProxyUpstreamUrl(data.workspace.proxyUpstreamUrl ?? "");
+      setProxyUpstreamUsername(data.workspace.proxyUpstreamUsername ?? "");
+      setProxyUpstreamSecret("");
+      setHasProxySecret(Boolean(data.workspace.proxyUpstreamSecret));
     }
 
     const instancesRes = await fetch(`/api/workspaces/${id}/instances`);
@@ -382,6 +413,36 @@ export function WorkspaceDetail({ id }: { id: string }) {
     setSaving(false);
   }
 
+  async function handleSaveProxy() {
+    setProxySaving(true);
+    setError("");
+    const body: Record<string, unknown> = { proxyMode };
+    if (proxyMode === "clash") {
+      body.proxyClashSubscription = proxyClashSubscription.trim() || null;
+      body.proxyClashYaml = proxyClashYaml.trim() || null;
+    }
+    if (proxyMode === "upstream") {
+      body.proxyUpstreamUrl = proxyUpstreamUrl.trim() || null;
+      body.proxyUpstreamUsername = proxyUpstreamUsername.trim() || null;
+      const secret = proxyUpstreamSecret.trim();
+      if (secret) body.proxyUpstreamSecret = secret;
+    }
+    const res = await fetch(`/api/workspaces/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "保存失败");
+    } else {
+      setProxyUpstreamSecret("");
+      if (body.proxyUpstreamSecret) setHasProxySecret(true);
+      await load();
+    }
+    setProxySaving(false);
+  }
+
   if (!detail) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -494,6 +555,18 @@ export function WorkspaceDetail({ id }: { id: string }) {
                   <dd>{detail.features.map((f) => f.name).join(", ")}</dd>
                 </>
               )}
+              <dt className="text-muted-foreground">网络加速</dt>
+              <dd>
+                <Badge tone={detail.proxyMode === "inherit" ? "gray" : detail.proxyMode === "disabled" ? "red" : "blue"}>
+                  {detail.proxyMode === "inherit"
+                    ? "跟随全局"
+                    : detail.proxyMode === "disabled"
+                      ? "直连"
+                      : detail.proxyMode === "clash"
+                        ? "Clash"
+                        : "上游代理"}
+                </Badge>
+              </dd>
             </dl>
           </div>
         )}
@@ -755,6 +828,105 @@ export function WorkspaceDetail({ id }: { id: string }) {
                   <Button onClick={handleSaveSettings} disabled={saving}>
                     {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
                     保存设置
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 p-6">
+              <h2 className="mb-4 font-medium">网络加速</h2>
+              <p className="mb-4 text-sm text-muted-foreground">
+                覆盖全局出口代理配置；ECS 启动时自动探测境外可达性，不通时经代理出口。
+              </p>
+              <div className="space-y-4">
+                <Field orientation="vertical">
+                  <FieldLabel htmlFor="proxyMode">代理模式</FieldLabel>
+                  <FieldContent>
+                    <Select value={proxyMode} onValueChange={(v) => setProxyMode(v as typeof proxyMode)}>
+                      <SelectTrigger id="proxyMode" className="w-full sm:w-72">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="inherit">跟随全局设置</SelectItem>
+                        <SelectItem value="disabled">直连（不启用代理）</SelectItem>
+                        <SelectItem value="clash">Clash (mihomo)</SelectItem>
+                        <SelectItem value="upstream">上游代理 (HTTP/SOCKS5)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FieldContent>
+                </Field>
+
+                {proxyMode === "clash" && (
+                  <>
+                    <Field orientation="vertical">
+                      <FieldLabel htmlFor="proxyClashSubscription">Clash 订阅地址</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="proxyClashSubscription"
+                          value={proxyClashSubscription}
+                          onChange={(e) => setProxyClashSubscription(e.target.value)}
+                          placeholder="https://example.com/sub?token=xxx"
+                        />
+                      </FieldContent>
+                    </Field>
+                    <Field orientation="vertical">
+                      <FieldLabel htmlFor="proxyClashYaml">Clash 配置（YAML，可选）</FieldLabel>
+                      <FieldContent>
+                        <Textarea
+                          id="proxyClashYaml"
+                          rows={5}
+                          value={proxyClashYaml}
+                          onChange={(e) => setProxyClashYaml(e.target.value)}
+                          placeholder={"proxies:\n  - name: my-proxy\n    type: socks5\n    ..."}
+                        />
+                      </FieldContent>
+                    </Field>
+                  </>
+                )}
+
+                {proxyMode === "upstream" && (
+                  <>
+                    <Field orientation="vertical">
+                      <FieldLabel htmlFor="proxyUpstreamUrl">上游代理地址</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="proxyUpstreamUrl"
+                          value={proxyUpstreamUrl}
+                          onChange={(e) => setProxyUpstreamUrl(e.target.value)}
+                          placeholder="http://host:port 或 socks5://host:port"
+                        />
+                      </FieldContent>
+                    </Field>
+                    <Field orientation="vertical">
+                      <FieldLabel htmlFor="proxyUpstreamUsername">用户名（可选）</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="proxyUpstreamUsername"
+                          value={proxyUpstreamUsername}
+                          onChange={(e) => setProxyUpstreamUsername(e.target.value)}
+                          placeholder="username"
+                        />
+                      </FieldContent>
+                    </Field>
+                    <Field orientation="vertical">
+                      <FieldLabel htmlFor="proxyUpstreamSecret">密码（可选）</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="proxyUpstreamSecret"
+                          type="password"
+                          value={proxyUpstreamSecret}
+                          onChange={(e) => setProxyUpstreamSecret(e.target.value)}
+                          placeholder={hasProxySecret ? "已保存，留空不修改" : "password"}
+                        />
+                      </FieldContent>
+                    </Field>
+                  </>
+                )}
+
+                <div className="flex gap-2">
+                  <Button onClick={handleSaveProxy} disabled={proxySaving}>
+                    {proxySaving ? <Spinner className="mr-2 h-4 w-4" /> : null}
+                    保存网络设置
                   </Button>
                 </div>
               </div>

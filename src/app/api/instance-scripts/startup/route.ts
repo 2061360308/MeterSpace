@@ -4,8 +4,12 @@ import { join } from "node:path";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instances, workspaces, type Workspace } from "@/lib/db/schema";
+import { instances, workspaces, settings, type Workspace } from "@/lib/db/schema";
 import { fail } from "@/lib/api";
+import {
+  resolveProxyConfig,
+  CLASH_LOCAL_PORT,
+} from "@/lib/proxy/resolve";
 
 const querySchema = z.object({
   instanceId: z.string().min(1),
@@ -14,6 +18,18 @@ const querySchema = z.object({
 
 function q(v: string): string {
   return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
+function toB64(v: string | null | undefined): string {
+  return Buffer.from(v ?? "").toString("base64");
+}
+
+/** Render a bash array literal from strings (quoted safely). */
+function bashArray(items: string[]): string {
+  return items
+    .filter((i) => i)
+    .map((i) => `"${i.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+    .join(" ");
 }
 
 function generateDevcontainerJson(workspace: Workspace): string {
@@ -68,6 +84,35 @@ export async function GET(req: NextRequest) {
         ? `https://${process.env.VERCEL_URL}`
         : "http://localhost:3000");
 
+    // --- 出口代理配置：全局设置 + 工作区覆盖 → 注入引导块 ---
+    const userSettings = await db.query.settings.findFirst({
+      where: eq(settings.userId, workspace.userId),
+    });
+    const proxyCfg = resolveProxyConfig(userSettings ?? null, workspace);
+    const proxyBootstrapPath = join(process.cwd(), "scripts", "proxy-bootstrap.sh");
+    const proxyBootstrap = (await readFile(proxyBootstrapPath, "utf-8"))
+      .replace(/\{\{NET_MODE\}\}/g, proxyCfg.mode)
+      .replace(/\{\{CLASH_SUBSCRIPTION_B64\}\}/g, toB64(proxyCfg.clashSubscription))
+      .replace(/\{\{CLASH_YAML_B64\}\}/g, toB64(proxyCfg.clashYaml))
+      .replace(/\{\{UPSTREAM_URL_B64\}\}/g, toB64(proxyCfg.upstreamUrl))
+      .replace(/\{\{UPSTREAM_USERNAME_B64\}\}/g, toB64(proxyCfg.upstreamUsername))
+      .replace(/\{\{UPSTREAM_SECRET_B64\}\}/g, toB64(proxyCfg.upstreamSecret))
+      .replace(/\{\{CLASH_BIN_FALLBACK_B64\}\}/g, toB64(proxyCfg.clashBinUrl))
+      .replace(/\{\{PLATFORM_BASE\}\}/g, callbackUrl)
+      .replace(
+        /\{\{PLATFORM_HOST\}\}/g,
+        (() => {
+          try {
+            return new URL(callbackUrl).host;
+          } catch {
+            return "";
+          }
+        })(),
+      )
+      .replace(/\{\{PROXY_PROBE_URLS_ARR\}\}/g, bashArray(proxyCfg.probeUrls))
+      .replace(/\{\{PROXY_BYPASS_ARR\}\}/g, bashArray(proxyCfg.bypass))
+      .replace(/\{\{CLASH_PORT\}\}/g, String(CLASH_LOCAL_PORT));
+
     const acrLogin = workspace.imageUri.match(/registry\..*\.aliyuncs\.com\//)
       ? `STS=$(curl -s http://100.100.100.200/latest/meta-data/ram/security-credentials/${ramRoleName})
 AK_ID=$(echo "$STS" | jq -r '.AccessKeyId')
@@ -103,6 +148,7 @@ done`
       .replace(/'/g, "'\\''");
 
     template = template
+      .replace(/\{\{PROXY_BOOTSTRAP\}\}/g, proxyBootstrap)
       .replace(/\{\{DEVCONTAINER_JSON\}\}/g, devcontainerJson)
       .replace(/\{\{ACR_LOGIN\}\}/g, acrLogin)
       .replace(/\{\{OSS_WORKSPACE_PATH\}\}/g, workspace.ossWorkspacePath ?? `ws-${workspace.id}/workspace`)

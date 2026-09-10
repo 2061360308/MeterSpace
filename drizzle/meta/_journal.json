@@ -64,6 +64,34 @@
       "when": 1788800700000,
       "tag": "0008_move_cloud_instance_to_instances",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788800800000,
+      "tag": "0009_rename_boot_token_to_access_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788800900000,
+      "tag": "0010_add_instance_metrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788801000000,
+      "tag": "0011_add_instance_security_group",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788801100000,
+      "tag": "0012_add_proxy_settings",
+      "breakpoints": true
     }
   ]
 }

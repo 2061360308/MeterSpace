@@ -34,6 +34,15 @@ export async function GET() {
         logRetentionDays: row.logRetentionDays,
         githubMirror: row.githubMirror,
         dockerMirror: row.dockerMirror,
+        proxyMode: row.proxyMode,
+        proxyClashSubscription: row.proxyClashSubscription,
+        proxyClashYaml: row.proxyClashYaml,
+        proxyUpstreamUrl: row.proxyUpstreamUrl,
+        proxyUpstreamUsername: row.proxyUpstreamUsername,
+        proxyUpstreamSecret: row.proxyUpstreamSecret ? "••••••" : null,
+        proxyProbeUrls: row.proxyProbeUrls ?? [],
+        proxyBypass: row.proxyBypass ?? [],
+        clashBinUrl: row.clashBinUrl,
       },
     });
   } catch (e) {
@@ -56,6 +65,15 @@ const bodySchema = z.object({
   logRetentionDays: z.number().int().min(1).max(365).optional(),
   githubMirror: z.string().max(500).nullable().optional(),
   dockerMirror: z.string().max(500).nullable().optional(),
+  proxyMode: z.enum(["disabled", "clash", "upstream"]).optional(),
+  proxyClashSubscription: z.string().max(2000).nullable().optional(),
+  proxyClashYaml: z.string().max(100000).nullable().optional(),
+  proxyUpstreamUrl: z.string().max(500).nullable().optional(),
+  proxyUpstreamUsername: z.string().max(200).nullable().optional(),
+  proxyUpstreamSecret: z.string().max(200).nullable().optional(),
+  proxyProbeUrls: z.array(z.string().max(500)).max(50).optional(),
+  proxyBypass: z.array(z.string().max(500)).max(50).optional(),
+  clashBinUrl: z.string().max(1000).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -85,6 +103,20 @@ export async function POST(req: NextRequest) {
     if (body.logRetentionDays !== undefined) values.logRetentionDays = body.logRetentionDays;
     if (body.githubMirror !== undefined) values.githubMirror = body.githubMirror;
     if (body.dockerMirror !== undefined) values.dockerMirror = body.dockerMirror;
+    if (body.proxyMode !== undefined) values.proxyMode = body.proxyMode;
+    if (body.proxyClashSubscription !== undefined)
+      values.proxyClashSubscription = body.proxyClashSubscription;
+    if (body.proxyClashYaml !== undefined) values.proxyClashYaml = body.proxyClashYaml;
+    if (body.proxyUpstreamUrl !== undefined) values.proxyUpstreamUrl = body.proxyUpstreamUrl;
+    if (body.proxyUpstreamUsername !== undefined)
+      values.proxyUpstreamUsername = body.proxyUpstreamUsername;
+    if (body.proxyUpstreamSecret !== undefined)
+      values.proxyUpstreamSecret = body.proxyUpstreamSecret
+        ? encrypt(body.proxyUpstreamSecret)
+        : existing?.proxyUpstreamSecret ?? null;
+    if (body.proxyProbeUrls !== undefined) values.proxyProbeUrls = body.proxyProbeUrls;
+    if (body.proxyBypass !== undefined) values.proxyBypass = body.proxyBypass;
+    if (body.clashBinUrl !== undefined) values.clashBinUrl = body.clashBinUrl;
 
     if (existing) {
       // Preserve existing AK/SK if not provided.

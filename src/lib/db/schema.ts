@@ -40,6 +40,15 @@ export const settings = pgTable("settings", {
   logRetentionDays: integer("log_retention_days").default(7),
   githubMirror: text("github_mirror"),
   dockerMirror: text("docker_mirror"),
+  proxyMode: text("proxy_mode").default("disabled"),
+  proxyClashSubscription: text("proxy_clash_subscription"),
+  proxyClashYaml: text("proxy_clash_yaml"),
+  proxyUpstreamUrl: text("proxy_upstream_url"),
+  proxyUpstreamUsername: text("proxy_upstream_username"),
+  proxyUpstreamSecret: text("proxy_upstream_secret"),
+  proxyProbeUrls: jsonb("proxy_probe_urls").$type<string[]>().default([]),
+  proxyBypass: jsonb("proxy_bypass").$type<string[]>().default([]),
+  clashBinUrl: text("clash_bin_url"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -79,6 +88,12 @@ export const workspaces = pgTable("workspaces", {
   releaseHours: integer("release_hours"),
   idleMinutes: integer("idle_minutes"),
   ossWorkspacePath: text("oss_workspace_path"),
+  proxyMode: text("proxy_mode").default("inherit"),
+  proxyClashSubscription: text("proxy_clash_subscription"),
+  proxyClashYaml: text("proxy_clash_yaml"),
+  proxyUpstreamUrl: text("proxy_upstream_url"),
+  proxyUpstreamUsername: text("proxy_upstream_username"),
+  proxyUpstreamSecret: text("proxy_upstream_secret"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

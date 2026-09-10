@@ -38,6 +38,12 @@ const bodySchema = z.object({
   autoClone: z.boolean().default(true),
   releaseHours: z.number().int().nullable().optional(),
   idleMinutes: z.number().int().nullable().optional(),
+  proxyMode: z.enum(["inherit", "disabled", "clash", "upstream"]).optional(),
+  proxyClashSubscription: z.string().optional(),
+  proxyClashYaml: z.string().optional(),
+  proxyUpstreamUrl: z.string().optional(),
+  proxyUpstreamUsername: z.string().optional(),
+  proxyUpstreamSecret: z.string().optional(),
 });
 
 export async function GET() {
@@ -88,6 +94,10 @@ export async function GET() {
         const inst = instanceMap.get(w.id);
         return {
           ...w,
+          proxyUpstreamSecret:
+            w.proxyUpstreamSecret && w.proxyUpstreamSecret.trim() !== ""
+              ? "••••••"
+              : null,
           state: inst
             ? {
                 instanceId: inst.id,

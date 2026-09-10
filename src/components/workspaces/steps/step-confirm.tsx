@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, Server, MapPin, GitBranch, ImageIcon, Puzzle, FileCode } from "lucide-react";
+import { Check, Server, MapPin, GitBranch, ImageIcon, Puzzle, FileCode, Network } from "lucide-react";
 import { type StepProps } from "./types";
 
 export function StepConfirm({ state }: StepProps) {
@@ -153,6 +153,49 @@ export function StepConfirm({ state }: StepProps) {
               <p className="text-muted-foreground italic text-xs">无</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Network className="h-4 w-4" />
+            网络加速
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">模式</span>
+            <Badge tone={state.proxyMode === "inherit" ? "gray" : state.proxyMode === "disabled" ? "red" : "blue"}>
+              {state.proxyMode === "inherit"
+                ? "跟随全局设置"
+                : state.proxyMode === "disabled"
+                  ? "直连"
+                  : state.proxyMode === "clash"
+                    ? "Clash (mihomo)"
+                    : "上游代理"}
+            </Badge>
+          </div>
+          {state.proxyMode === "clash" && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Clash 来源</span>
+              <span className="font-medium font-mono text-xs">
+                {state.proxyClashSubscription
+                  ? "订阅"
+                  : state.proxyClashYaml
+                    ? "粘贴 YAML"
+                    : "（未配置，将使用全局）"}
+              </span>
+            </div>
+          )}
+          {state.proxyMode === "upstream" && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">上游地址</span>
+              <span className="font-medium font-mono text-xs">
+                {state.proxyUpstreamUrl || "（未配置，将使用全局）"}
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -14,6 +14,7 @@ import { ensureRegionResources } from "@/lib/ecs/provisioning";
 import { buildUserData, buildStopHook, type EntrypointVars } from "@/lib/userdata";
 import { resolveFeatures } from "@/lib/features";
 import { getGitTokenEnc } from "@/lib/git/service";
+import { encrypt } from "@/lib/crypto";
 
 export const RAM_ROLE_NAME = "workspace-cloud-ecs-role";
 
@@ -53,6 +54,12 @@ export interface CreateWorkspaceInput {
   autoClone?: boolean;
   releaseHours?: number | null;
   idleMinutes?: number | null;
+  proxyMode?: string | null;
+  proxyClashSubscription?: string | null;
+  proxyClashYaml?: string | null;
+  proxyUpstreamUrl?: string | null;
+  proxyUpstreamUsername?: string | null;
+  proxyUpstreamSecret?: string | null;
 }
 
 async function launchInstance(
@@ -163,6 +170,11 @@ export async function createWorkspace(
     gitTokenEnc = await getGitTokenEnc(userId, input.gitProvider);
   }
 
+  let proxyUpstreamSecret = input.proxyUpstreamSecret || null;
+  if (proxyUpstreamSecret) {
+    proxyUpstreamSecret = encrypt(proxyUpstreamSecret);
+  }
+
   const [workspace] = await db
     .insert(workspaces)
     .values({
@@ -183,6 +195,15 @@ export async function createWorkspace(
       releaseHours: input.releaseHours ?? null,
       idleMinutes: input.idleMinutes ?? null,
       ossWorkspacePath: null,
+      proxyMode:
+        input.proxyMode === undefined || input.proxyMode === ""
+          ? "inherit"
+          : input.proxyMode,
+      proxyClashSubscription: input.proxyClashSubscription || null,
+      proxyClashYaml: input.proxyClashYaml || null,
+      proxyUpstreamUrl: input.proxyUpstreamUrl || null,
+      proxyUpstreamUsername: input.proxyUpstreamUsername || null,
+      proxyUpstreamSecret: input.proxyUpstreamSecret ? proxyUpstreamSecret : null,
     })
     .returning();
 

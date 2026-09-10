@@ -7,6 +7,7 @@ import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
 import { StepGit } from "./steps/step-git";
 import { StepEnvironment } from "./steps/step-environment";
+import { StepNetwork } from "./steps/step-network";
 import { StepConfirm } from "./steps/step-confirm";
 import { STEP_CONFIG, type WizardState } from "./steps/types";
 
@@ -32,6 +33,12 @@ const INITIAL_STATE: WizardState = {
   selectedImageId: "",
   selectedFeatureIds: [],
   selectedScriptIds: [],
+  proxyMode: "inherit",
+  proxyClashSubscription: "",
+  proxyClashYaml: "",
+  proxyUpstreamUrl: "",
+  proxyUpstreamUsername: "",
+  proxyUpstreamSecret: "",
   priceData: { loading: false },
   loading: false,
   error: "",
@@ -106,6 +113,17 @@ export function NewWorkspaceForm() {
           autoClone: state.autoClone,
           releaseHours: null,
           idleMinutes: null,
+          proxyMode: state.proxyMode,
+          proxyClashSubscription:
+            state.proxyMode === "clash" ? state.proxyClashSubscription || null : undefined,
+          proxyClashYaml:
+            state.proxyMode === "clash" ? state.proxyClashYaml || null : undefined,
+          proxyUpstreamUrl:
+            state.proxyMode === "upstream" ? state.proxyUpstreamUrl || null : undefined,
+          proxyUpstreamUsername:
+            state.proxyMode === "upstream" ? state.proxyUpstreamUsername || null : undefined,
+          proxyUpstreamSecret:
+            state.proxyMode === "upstream" ? state.proxyUpstreamSecret || undefined : undefined,
         }),
       });
       const data = await res.json();
@@ -127,7 +145,8 @@ export function NewWorkspaceForm() {
         {state.currentStep === 1 && <div className="p-6"><StepBasic state={state} setState={setState} /></div>}
         {state.currentStep === 2 && <div className="p-6"><StepGit state={state} setState={setState} /></div>}
         {state.currentStep === 3 && <div className="p-6"><StepEnvironment state={state} setState={setState} /></div>}
-        {state.currentStep === 4 && <div className="p-6"><StepConfirm state={state} setState={setState} /></div>}
+        {state.currentStep === 4 && <div className="p-6"><StepNetwork state={state} setState={setState} /></div>}
+        {state.currentStep === 5 && <div className="p-6"><StepConfirm state={state} setState={setState} /></div>}
       </div>
 
       <div className="w-[320px] border-l flex flex-col bg-background">
