@@ -10,13 +10,13 @@ export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p /workspace /var/log
 
-echo "[1/9] Installing Docker (using Aliyun mirror)..."
+echo "[1/9] Installing Docker (using USTC mirror)..."
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg wget jq
 install -m 0755 -d /etc/apt/keyrings
-wget -qO- --tries=3 https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+wget -qO- --tries=3 https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 systemctl enable docker
