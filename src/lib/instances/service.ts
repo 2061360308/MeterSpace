@@ -11,13 +11,14 @@ import {
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
 import { getAliyunProvider } from "@/lib/providers";
-import { ensureRegionResources } from "@/lib/ecs/provisioning";
+import { ensureRegionResources, ensureInstanceSecurityGroup } from "@/lib/ecs/provisioning";
 import {
   buildUserData,
   buildStopHook,
   type EntrypointVars,
 } from "@/lib/userdata";
 import { getAppBaseUrl, RAM_ROLE_NAME } from "@/lib/workspaces/service";
+import { ALL_PORTS } from "@/lib/constants";
 import { checkAndFixTimeouts } from "./lifecycle";
 
 export class InstanceError extends Error {
@@ -39,6 +40,9 @@ export interface CreateInstanceInput {
   cloudInstanceId?: string;
   diskSize?: number;
   bandwidth?: number;
+  spotStrategy?: string;
+  spotDuration?: number;
+  spotPriceLimit?: number | null;
 }
 
 export async function createInstance(
@@ -116,7 +120,7 @@ export async function createInstance(
     instanceId: instance.id,
     code: personalCode,
     isPersonal: true,
-    allowedPorts: [8080],
+    allowedPorts: [ALL_PORTS],
   });
 
   await db.insert(auditLogs).values({
@@ -141,6 +145,12 @@ export async function createInstance(
     console.log("[createInstance] Credentials OK, ensuring region resources...");
     const resources = await ensureRegionResources(creds, workspace.region);
     console.log("[createInstance] Region resources OK, building user data...");
+    const instanceSgId = await ensureInstanceSecurityGroup(
+      creds,
+      workspace.region,
+      resources.vpcId,
+      instance.id,
+    );
 
     const callbackUrl = getAppBaseUrl();
     const entrypointVars: EntrypointVars = {
@@ -159,15 +169,15 @@ export async function createInstance(
       region: workspace.region,
       imageId: resources.imageId,
       instanceType: cloudInstance.instanceType,
-      securityGroupId: resources.securityGroupId,
+      securityGroupId: instanceSgId,
       vSwitchId: resources.vSwitchId,
       ramRoleName: RAM_ROLE_NAME,
       diskCategory: "cloud_essd",
       diskSize: instance.diskSize,
       bandwidth: instance.bandwidth,
-      spotStrategy: "NoSpot",
-      spotDuration: 1,
-      spotPriceLimit: null,
+      spotStrategy: input.spotStrategy ?? "NoSpot",
+      spotDuration: input.spotDuration ?? 1,
+      spotPriceLimit: input.spotPriceLimit ?? null,
       autoReleaseTime,
       userData,
       tags: { "instance-id": instance.id, "managed-by": "workspace-cloud" },
@@ -176,7 +186,7 @@ export async function createInstance(
 
     await db
       .update(instances)
-      .set({ ecsInstanceId })
+      .set({ ecsInstanceId, securityGroupId: instanceSgId })
       .where(eq(instances.id, instance.id));
 
     return { instanceId: instance.id, ecsInstanceId, personalCode };
@@ -242,6 +252,9 @@ export async function getInstance(userId: string, instanceId: string) {
   if (workspace.userId !== userId) {
     throw new InstanceError("Instance not found", 404);
   }
+
+  // 修正超时实例后再返回状态，确保展示准确
+  await checkAndFixTimeouts(userId, instance.workspaceId);
 
   const cloudInstance = instance.cloudInstanceId
     ? await db.query.cloudInstances.findFirst({

@@ -113,6 +113,7 @@ export const instances = pgTable("instances", {
   ecsInstanceId: text("ecs_instance_id"),
   publicIp: text("public_ip"),
   port: integer("port"),
+  securityGroupId: text("security_group_id"),
   accessToken: text("access_token"),
   bootPhase: text("boot_phase"),
   bootStartedAt: timestamp("boot_started_at", { withTimezone: true }),

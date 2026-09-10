@@ -10,6 +10,11 @@ const createBodySchema = z.object({
   cloudInstanceId: z.string().uuid(),
   diskSize: z.number().int().min(20).max(2048).optional(),
   bandwidth: z.number().int().min(1).max(200).optional(),
+  spotStrategy: z
+    .enum(["NoSpot", "SpotAsPriceGo", "SpotWithPriceLimit"])
+    .default("NoSpot"),
+  spotDuration: z.number().int().min(0).max(1).default(1),
+  spotPriceLimit: z.number().min(0).nullable().optional(),
 });
 
 export async function GET(req: NextRequest, { params }: Params) {

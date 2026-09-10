@@ -12,7 +12,8 @@ const createBodySchema = z.object({
   label: z.string().max(100).optional(),
   expiresAt: z.string().datetime().optional(),
   maxUses: z.number().int().min(1).optional(),
-  allowedPorts: z.array(z.number().int()).min(1).default([8080]),
+  // 0 (ALL_PORTS) 表示开通所有端口
+  allowedPorts: z.array(z.number().int().min(0).max(65535)).min(1).default([8080]),
 });
 
 export async function GET(req: NextRequest, { params }: Params) {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     return ok({
       code: accessCode,
-      link: `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/instances/${instanceId}?code=${code}`,
+      link: `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/access/${instanceId}?code=${code}`,
     });
   } catch (e) {
     return fail(e);

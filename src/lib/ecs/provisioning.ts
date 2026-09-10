@@ -100,3 +100,26 @@ export async function ensureRegionResources(
   cache.set(k, { expiresAt: Date.now() + TTL, value });
   return value;
 }
+
+function instanceSgName(instanceId: string): string {
+  return `workspace-cloud-${instanceId.slice(0, 8)}`;
+}
+
+/**
+ * Ensure a dedicated, closed-by-default security group for a single instance.
+ * No ingress rules are pre-authorized: access is granted per-visitor IP via the
+ * access registration flow (authorizeSecurityGroup) so the 8080 whitelist is real.
+ */
+export async function ensureInstanceSecurityGroup(
+  creds: AliCredentials,
+  region: string,
+  vpcId: string,
+  instanceId: string,
+): Promise<string> {
+  const name = instanceSgName(instanceId);
+  const existing = await describeSecurityGroups(creds, region, vpcId);
+  const found = existing.find((s) => s.securityGroupName === name);
+  if (found?.securityGroupId) return found.securityGroupId;
+
+  return createSecurityGroup(creds, region, vpcId, name, `workspace-cloud per-instance sg ${instanceId}`);
+}

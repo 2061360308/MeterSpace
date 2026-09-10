@@ -461,10 +461,50 @@ export async function describeSecurityGroups(
   return res.securityGroups?.securityGroup ?? [];
 }
 
+export interface SecurityGroupRule {
+  ipProtocol?: string;
+  portRange?: string;
+  sourceCidrIp?: string;
+  destCidrIp?: string;
+  priority?: string;
+  policy?: string;
+}
+
+export async function describeSecurityGroupRules(
+  creds: AliCredentials,
+  region: string,
+  securityGroupId: string,
+  direction: "ingress" | "egress" = "ingress",
+): Promise<SecurityGroupRule[]> {
+  const res = await request<{
+    rules?: { rule?: SecurityGroupRule[] };
+  }>(creds, region, "DescribeSecurityGroupRules", {
+    RegionId: region,
+    SecurityGroupId: securityGroupId,
+    Direction: direction,
+  });
+  return res.rules?.rule ?? [];
+}
+
+export function ruleExists(
+  rules: SecurityGroupRule[],
+  portRange: string,
+  cidr: string,
+): boolean {
+  return rules.some(
+    (r) =>
+      (r.ipProtocol ?? "").toUpperCase() === "TCP" &&
+      (r.portRange ?? "") === portRange &&
+      (r.sourceCidrIp ?? "") === cidr,
+  );
+}
+
 export async function createSecurityGroup(
   creds: AliCredentials,
   region: string,
   vpcId: string,
+  name = "workspace-cloud-sg",
+  description = "workspace-cloud auto security group",
 ): Promise<string> {
   const res = await request<{ securityGroupId?: string }>(
     creds,
@@ -473,8 +513,8 @@ export async function createSecurityGroup(
     {
       RegionId: region,
       VpcId: vpcId,
-      SecurityGroupName: "workspace-cloud-sg",
-      Description: "workspace-cloud auto security group",
+      SecurityGroupName: name,
+      Description: description,
     },
   );
   if (!res.securityGroupId) {

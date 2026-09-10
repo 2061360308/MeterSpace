@@ -6,7 +6,9 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -18,6 +20,15 @@ import {
 } from "@/components/ui/table";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Play } from "lucide-react";
 import { STATUS_META } from "@/lib/utils";
 
 interface Instance {
@@ -91,6 +102,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const [loadingInstances, setLoadingInstances] = useState(false);
   const [priceDetails, setPriceDetails] = useState<PriceDetail[]>([]);
   const [loadingPrice, setLoadingPrice] = useState(false);
+  const [useSpot, setUseSpot] = useState(false);
 
   // 设置相关状态
   const [defaultDiskSize, setDefaultDiskSize] = useState<number>(40);
@@ -99,6 +111,16 @@ export function WorkspaceDetail({ id }: { id: string }) {
 
   // 阿里云状态轮询
   const [cloudStatus, setCloudStatus] = useState<string | null>(null);
+
+  async function openWorkbench(instanceId: string) {
+    const res = await fetch(`/api/instances/${instanceId}/access-link`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) {
+        router.push(data.url);
+      }
+    }
+  }
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/workspaces/${id}`);
@@ -220,8 +242,19 @@ export function WorkspaceDetail({ id }: { id: string }) {
     const selected = cloudInstances.find((i) => i.id === selectedCloudInstanceId);
     if (!selected) return;
 
+    const params = new URLSearchParams({
+      region: detail.region,
+      instanceType: selected.instanceType,
+      diskSize: String(defaultDiskSize),
+      bandwidth: String(defaultBandwidth),
+    });
+    if (useSpot) {
+      params.set("spotStrategy", "SpotAsPriceGo");
+      params.set("spotDuration", "0");
+    }
+
     setLoadingPrice(true);
-    fetch(`/api/ecs/price?region=${detail.region}&instanceType=${selected.instanceType}&diskSize=${defaultDiskSize}&bandwidth=${defaultBandwidth}`)
+    fetch(`/api/ecs/price?${params}`)
       .then((r) => r.json())
       .then((data) => {
         setPriceDetails(data.details ?? []);
@@ -232,9 +265,24 @@ export function WorkspaceDetail({ id }: { id: string }) {
       .finally(() => {
         setLoadingPrice(false);
       });
-  }, [selectedCloudInstanceId, detail?.region, defaultDiskSize, defaultBandwidth, cloudInstances]);
+  }, [selectedCloudInstanceId, detail?.region, defaultDiskSize, defaultBandwidth, cloudInstances, useSpot]);
 
   const totalHourlyPrice = priceDetails.reduce((sum, d) => sum + (d.tradePrice ?? 0), 0);
+
+  const instancePriceDetail = priceDetails.find(
+    (d) =>
+      (d.resource ?? "").toLowerCase() === "instancetype" ||
+      (d.resource ?? "").toLowerCase() === "instance",
+  );
+
+  const spotHourlySavings =
+    useSpot && instancePriceDetail
+      ? Math.max(
+          0,
+          (instancePriceDetail.originalPrice ?? 0) -
+            (instancePriceDetail.tradePrice ?? 0),
+        )
+      : 0;
 
   function getInstanceTypeInfo(instanceType: string) {
     return instanceTypes.find((t) => t.instanceTypeId === instanceType);
@@ -261,6 +309,9 @@ export function WorkspaceDetail({ id }: { id: string }) {
           cloudInstanceId: selectedCloudInstanceId,
           diskSize: defaultDiskSize,
           bandwidth: defaultBandwidth,
+          spotStrategy: useSpot ? "SpotAsPriceGo" : "NoSpot",
+          spotDuration: useSpot ? 0 : 1,
+          spotPriceLimit: null,
         }),
         signal: controller.signal,
       });
@@ -271,6 +322,15 @@ export function WorkspaceDetail({ id }: { id: string }) {
         setError(data.error ?? "启动失败");
       } else {
         setError("");
+        const data = (await res.json().catch(() => null)) as {
+          id?: string;
+          instance?: { id?: string };
+        } | null;
+        const instanceId = data?.instance?.id ?? data?.id;
+        if (instanceId) {
+          await openWorkbench(instanceId);
+          return;
+        }
       }
     } catch (e) {
       clearTimeout(timeoutId);
@@ -384,9 +444,15 @@ export function WorkspaceDetail({ id }: { id: string }) {
                 <Badge tone={STATUS_META[currentInstance.status]?.tone ?? "gray"}>
                   {STATUS_META[currentInstance.status]?.label ?? currentInstance.status}
                 </Badge>
-                <Link href={`/instances/${currentInstance.id}`}>
-                  <Button size="sm" variant="ghost">详情</Button>
-                </Link>
+                {isRunning ? (
+                  <Button size="sm" onClick={() => openWorkbench(currentInstance.id)}>
+                    进入工作台
+                  </Button>
+                ) : (
+                  <Link href={`/instances/${currentInstance.id}`}>
+                    <Button size="sm" variant="ghost">详情</Button>
+                  </Link>
+                )}
               </div>
             </div>
             {currentInstance.bootError && (
@@ -429,7 +495,34 @@ export function WorkspaceDetail({ id }: { id: string }) {
           </div>
         )}
 
-        {activeTab === "specs" && (
+        {activeTab === "specs" &&
+          (currentInstance ? (
+            <Empty className="mx-6 my-4 min-h-[300px]">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Play />
+                </EmptyMedia>
+                <EmptyTitle>
+                  {isRunning ? "工作区运行中" : "实例正在启动"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  当前工作区
+                  {isRunning ? "已有实例在运行" : "上一个实例仍在启动"}，同一时间仅支持一个实例，无法重复创建。
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                {isRunning ? (
+                  <Button onClick={() => openWorkbench(currentInstance.id)}>
+                    进入工作台
+                  </Button>
+                ) : (
+                  <Link href={`/instances/${currentInstance.id}`}>
+                    <Button>查看运行实例</Button>
+                  </Link>
+                )}
+              </EmptyContent>
+            </Empty>
+          ) : (
           <div className="space-y-4 pb-20">
             <div className="p-6">
               <h2 className="mb-4 font-medium">选择弹性规格</h2>
@@ -503,7 +596,20 @@ export function WorkspaceDetail({ id }: { id: string }) {
             <div className="sticky bottom-0 left-0 right-0 border-t bg-background shadow-lg z-10 -mx-6 px-6 py-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-6">
-                  <div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="use-spot"
+                      checked={useSpot}
+                      onCheckedChange={setUseSpot}
+                    />
+                    <Label
+                      htmlFor="use-spot"
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      抢占式使用
+                    </Label>
+                  </div>
+                  <div className="border-l pl-6">
                     <div className="text-xs text-muted-foreground">磁盘 / 带宽</div>
                     <div className="flex items-center gap-2 mt-1">
                       <Input
@@ -528,12 +634,21 @@ export function WorkspaceDetail({ id }: { id: string }) {
                     </div>
                   </div>
                   <div className="border-l pl-6">
-                    <div className="text-xs text-muted-foreground">预估费用</div>
+                    <div className="text-xs text-muted-foreground">
+                      {useSpot ? "抢占价" : "预估费用"}
+                    </div>
                     {loadingPrice ? (
                       <Spinner className="h-4 w-4 mt-1" />
                     ) : (
-                      <div className="text-lg font-bold text-primary">
-                        {totalHourlyPrice > 0 ? `¥${totalHourlyPrice.toFixed(4)}/小时` : "—"}
+                      <div>
+                        <div className="text-lg font-bold text-primary">
+                          {totalHourlyPrice > 0 ? `¥${totalHourlyPrice.toFixed(4)}/小时` : "—"}
+                        </div>
+                        {useSpot && spotHourlySavings > 0 && (
+                          <div className="text-xs text-emerald-600">
+                            每小时省 ¥{spotHourlySavings.toFixed(4)}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -548,7 +663,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
               </div>
             </div>
           </div>
-        )}
+        ))}
 
         {activeTab === "history" && (
           <div className="p-6">

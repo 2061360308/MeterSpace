@@ -50,6 +50,7 @@ interface WorkspaceRow {
   features: WorkspaceFeature[];
   createdAt: string;
   state: {
+    instanceId?: string | null;
     status: string;
     publicIp?: string | null;
     port?: number | null;
@@ -92,6 +93,22 @@ export function WorkspaceList() {
     await load();
     router.refresh();
     setBusyId(null);
+  }
+
+  async function openWorkbench(instanceId?: string | null) {
+    if (!instanceId) return;
+    setBusyId(instanceId);
+    setError("");
+    const res = await fetch(`/api/instances/${instanceId}/access-link`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) {
+        router.push(data.url);
+        return;
+      }
+    }
+    setBusyId(null);
+    setError("无法打开工作台，请重试");
   }
 
   if (loading) {
@@ -200,15 +217,15 @@ export function WorkspaceList() {
                         <ButtonGroup>
                           {isRunning ? (
                             <>
-                              <a
-                                href={`http://${w.state?.publicIp}:${w.state?.port ?? 8080}`}
-                                target="_blank"
-                                rel="noreferrer"
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-8 p-0"
+                                disabled={busyId !== null}
+                                onClick={() => openWorkbench(w.state?.instanceId)}
                               >
-                                <Button size="sm" variant="outline" className="h-8 w-8 p-0">
-                                  <Play className="h-3.5 w-3.5" />
-                                </Button>
-                              </a>
+                                <Play className="h-3.5 w-3.5" />
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"

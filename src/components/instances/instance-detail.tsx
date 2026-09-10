@@ -59,6 +59,7 @@ export function InstanceDetail({ id }: { id: string }) {
   const [instance, setInstance] = useState<Instance | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [personalCode, setPersonalCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/instances/${id}`);
@@ -113,6 +114,27 @@ export function InstanceDetail({ id }: { id: string }) {
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, [instance?.status, load]);
+
+  useEffect(() => {
+    if (!instance || instance.status !== "RUNNING") return;
+    let cancelled = false;
+    fetch(`/api/instances/${id}/codes`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const codes: { code: string; isPersonal: boolean }[] = data?.codes ?? [];
+        const personal = codes.find((c) => c.isPersonal);
+        if (personal?.code) setPersonalCode(personal.code);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [id, instance?.status]);
+
+  function openWorkbench() {
+    if (personalCode) router.push(`/access/${id}?code=${personalCode}`);
+  }
 
   async function handleStop() {
     setBusy(true);
@@ -244,9 +266,9 @@ export function InstanceDetail({ id }: { id: string }) {
             </a>
           </p>
           <div className="flex gap-2">
-            <a href={ideUrl} target="_blank" rel="noreferrer">
-              <Button>进入 IDE</Button>
-            </a>
+            <Button onClick={openWorkbench} disabled={busy || !personalCode}>
+              进入工作台
+            </Button>
             <Button variant="secondary" onClick={handleStop} disabled={busy}>
               停止实例
             </Button>

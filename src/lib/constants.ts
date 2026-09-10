@@ -4,6 +4,9 @@ export const PROVIDERS = [
   { id: "aws", label: "AWS" },
 ];
 
+/** 哨兵值：allowedPorts 中 0 表示开通该实例所有端口。 */
+export const ALL_PORTS = 0;
+
 export const REGIONS = [
   { id: "cn-hangzhou", label: "杭州 (cn-hangzhou)" },
   { id: "cn-shanghai", label: "上海 (cn-shanghai)" },

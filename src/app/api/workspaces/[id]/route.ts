@@ -6,6 +6,7 @@ import { workspaces, instances, auditLogs } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { deleteWorkspace } from "@/lib/workspaces/service";
 import { getAliyunProvider } from "@/lib/providers";
+import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 import type { CloudInstance } from "@/lib/providers";
 import { ok, fail } from "@/lib/api";
 
@@ -24,6 +25,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       where: and(eq(workspaces.id, id), eq(workspaces.userId, userId)),
     });
     if (!workspace) return fail(Object.assign(new Error("Not found"), { status: 404 }));
+
+    // 修正超时实例后再读取工作区状态，确保状态展示准确
+    await checkAndFixTimeouts(userId, id);
 
     // 查询最新实例获取状态
     const latestInstance = await db.query.instances.findFirst({
