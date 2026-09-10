@@ -66,14 +66,14 @@ install_code_server() {
   # 镜像基础 URL
   MIRROR_URL="https://mirrors.ustc.edu.cn/github-release/coder/code-server/LatestRelease"
   
-  # 获取版本号
+  # 获取版本号 (使用 CS_VERSION 避免与 /etc/os-release 中的 VERSION 变量冲突)
   echo "[3/9] Fetching latest version from mirror..."
-  VERSION=$(curl -s "$MIRROR_URL/" | grep -oP 'code-server-\K[0-9.]+' | head -1)
-  if [ -z "$VERSION" ]; then
+  CS_VERSION=$(curl -s "$MIRROR_URL/" | grep -oP 'code-server-\K[0-9.]+' | head -1)
+  if [ -z "$CS_VERSION" ]; then
     echo "[3/9] Error: Failed to fetch version from mirror"
     exit 1
   fi
-  echo "[3/9] Latest version: $VERSION"
+  echo "[3/9] Latest version: $CS_VERSION"
   
   # 系统检测
   OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -96,7 +96,7 @@ install_code_server() {
   case $DISTRO in
     debian|ubuntu|raspbian)
       echo "[3/9] Installing deb package..."
-      curl -fL -o /tmp/code-server.deb "$MIRROR_URL/code-server_${VERSION}_${ARCH}.deb" || {
+      curl -fL -o /tmp/code-server.deb "$MIRROR_URL/code-server_${CS_VERSION}_${ARCH}.deb" || {
         echo "[3/9] Error: Failed to download code-server deb package"
         return 1
       }
@@ -108,7 +108,7 @@ install_code_server() {
       ;;
     fedora|centos|rhel|opensuse|amzn)
       echo "[3/9] Installing rpm package..."
-      curl -fL -o /tmp/code-server.rpm "$MIRROR_URL/code-server-$VERSION-$ARCH.rpm" || {
+      curl -fL -o /tmp/code-server.rpm "$MIRROR_URL/code-server-$CS_VERSION-$ARCH.rpm" || {
         echo "[3/9] Error: Failed to download code-server rpm package"
         return 1
       }
@@ -127,7 +127,7 @@ install_code_server() {
       ;;
     *)
       echo "[3/9] Installing standalone package..."
-      curl -fL -o /tmp/code-server.tar.gz "$MIRROR_URL/code-server-$VERSION-$OS-$ARCH.tar.gz" || {
+      curl -fL -o /tmp/code-server.tar.gz "$MIRROR_URL/code-server-$CS_VERSION-$OS-$ARCH.tar.gz" || {
         echo "[3/9] Error: Failed to download code-server standalone package"
         return 1
       }
@@ -136,7 +136,7 @@ install_code_server() {
         echo "[3/9] Error: Failed to extract code-server standalone package"
         return 1
       }
-      ln -sf /opt/code-server-$VERSION-$OS-$ARCH/bin/code-server /usr/local/bin/code-server
+      ln -sf /opt/code-server-$CS_VERSION-$OS-$ARCH/bin/code-server /usr/local/bin/code-server
       rm -f /tmp/code-server.tar.gz
       ;;
   esac
