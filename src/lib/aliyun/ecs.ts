@@ -465,6 +465,7 @@ export interface SecurityGroupRule {
   ipProtocol?: string;
   portRange?: string;
   sourceCidrIp?: string;
+  ipv6SourceCidrIp?: string;
   destCidrIp?: string;
   priority?: string;
   policy?: string;
@@ -477,13 +478,14 @@ export async function describeSecurityGroupRules(
   direction: "ingress" | "egress" = "ingress",
 ): Promise<SecurityGroupRule[]> {
   const res = await request<{
-    rules?: { rule?: SecurityGroupRule[] };
-  }>(creds, region, "DescribeSecurityGroupRules", {
+    permissions?: { permission?: SecurityGroupRule[] };
+  }>(creds, region, "DescribeSecurityGroupAttribute", {
     RegionId: region,
     SecurityGroupId: securityGroupId,
     Direction: direction,
+    NicType: "intranet",
   });
-  return res.rules?.rule ?? [];
+  return res.permissions?.permission ?? [];
 }
 
 export function ruleExists(
@@ -495,7 +497,7 @@ export function ruleExists(
     (r) =>
       (r.ipProtocol ?? "").toUpperCase() === "TCP" &&
       (r.portRange ?? "") === portRange &&
-      (r.sourceCidrIp ?? "") === cidr,
+      ((r.sourceCidrIp ?? "") === cidr || (r.ipv6SourceCidrIp ?? "") === cidr),
   );
 }
 
@@ -531,12 +533,15 @@ export async function authorizeIngress(
   cidr = "0.0.0.0/0",
   description = "code-server",
 ): Promise<void> {
+  const ipv6 = cidr.includes(":");
   await request(creds, region, "AuthorizeSecurityGroup", {
     RegionId: region,
     SecurityGroupId: securityGroupId,
     IpProtocol: "tcp",
     PortRange: port,
-    SourceCidrIp: cidr,
+    ...(ipv6
+      ? { Ipv6SourceCidrIp: cidr }
+      : { SourceCidrIp: cidr }),
     Description: description,
   });
 }

@@ -99,13 +99,15 @@ export function WorkspaceList() {
     if (!instanceId) return;
     setBusyId(instanceId);
     setError("");
-    const res = await fetch(`/api/instances/${instanceId}/access-link`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) {
+    try {
+      const res = await fetch(`/api/instances/${instanceId}/access-link`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
         router.push(data.url);
         return;
       }
+    } catch {
+      // 网络异常，走失败提示
     }
     setBusyId(null);
     setError("无法打开工作台，请重试");

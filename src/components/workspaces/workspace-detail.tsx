@@ -113,12 +113,16 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const [cloudStatus, setCloudStatus] = useState<string | null>(null);
 
   async function openWorkbench(instanceId: string) {
-    const res = await fetch(`/api/instances/${instanceId}/access-link`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) {
-        router.push(data.url);
+    try {
+      const res = await fetch(`/api/instances/${instanceId}/access-link`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          router.push(data.url);
+        }
       }
+    } catch {
+      // 忽略，保持原页面
     }
   }
 
@@ -323,12 +327,11 @@ export function WorkspaceDetail({ id }: { id: string }) {
       } else {
         setError("");
         const data = (await res.json().catch(() => null)) as {
-          id?: string;
-          instance?: { id?: string };
+          instanceId?: string;
+          personalCode?: string;
         } | null;
-        const instanceId = data?.instance?.id ?? data?.id;
-        if (instanceId) {
-          await openWorkbench(instanceId);
+        if (data?.instanceId && data.personalCode) {
+          router.push(`/access/${data.instanceId}?code=${data.personalCode}`);
           return;
         }
       }

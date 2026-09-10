@@ -1,4 +1,5 @@
 import { and, eq, gt, desc } from "drizzle-orm";
+import { isIP } from "node:net";
 import { db } from "@/lib/db";
 import {
   instanceAccessCodes,
@@ -80,7 +81,8 @@ export async function registerVisitorIp(
   code: string,
   ip: string,
 ): Promise<{ registered: boolean }> {
-  if (!ip) return { registered: false };
+  const ipVersion = isIP(ip);
+  if (ipVersion === 0) return { registered: false };
 
   const instance = await db.query.instances.findFirst({
     where: eq(instances.id, instanceId),
@@ -177,11 +179,14 @@ export interface AccessSnapshot {
   }[];
 }
 
-/** 组装公开访问页所需的实例快照（轮询用，不要求登录）。 */
+/** 组装公开访问页所需的实例快照（轮询用，不要求登录）。
+ * 默认不查询 ECS 实时状态以保证首屏秒开；includeCloud 为 true 时补充云状态。
+ */
 export async function buildAccessSnapshot(
   instanceId: string,
   code: string,
   since?: string,
+  includeCloud = false,
 ): Promise<AccessSnapshot> {
   const accessCode = await validateAccessCode(instanceId, code);
 
@@ -203,6 +208,7 @@ export async function buildAccessSnapshot(
 
   let cloudStatus: string | null = null;
   if (
+    includeCloud &&
     ["PROVISIONING", "BOOTING"].includes(instance.status) &&
     instance.ecsInstanceId
   ) {

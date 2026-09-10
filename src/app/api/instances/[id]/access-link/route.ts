@@ -1,9 +1,9 @@
 import { type NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instanceAccessCodes } from "@/lib/db/schema";
+import { instanceAccessCodes, instances, workspaces } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
-import { getInstance } from "@/lib/instances/service";
+import { InstanceError } from "@/lib/instances/service";
 import { ok, fail } from "@/lib/api";
 
 export async function GET(
@@ -13,7 +13,18 @@ export async function GET(
   try {
     const userId = await requireUserId();
     const { id } = await params;
-    await getInstance(userId, id);
+
+    const instance = await db.query.instances.findFirst({
+      where: eq(instances.id, id),
+    });
+    if (!instance) throw new InstanceError("Instance not found", 404);
+
+    const workspace = await db.query.workspaces.findFirst({
+      where: eq(workspaces.id, instance.workspaceId),
+    });
+    if (!workspace || workspace.userId !== userId) {
+      throw new InstanceError("Instance not found", 404);
+    }
 
     const personal = await db.query.instanceAccessCodes.findFirst({
       where: and(

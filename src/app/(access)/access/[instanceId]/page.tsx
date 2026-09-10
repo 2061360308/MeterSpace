@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 interface LogEntry {
@@ -42,45 +43,49 @@ export default function AccessPage() {
   const code = searchParams.get("code") ?? "";
 
   const [error, setError] = useState<string | null>(null);
-  const [registered, setRegistered] = useState(false);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const sinceRef = useRef<string | undefined>(undefined);
+  const cloudRequestedRef = useRef(false);
 
+  // IP 白名单授权：后台并行执行，不阻塞视图；5xx/网络错误后台重试，4xx 停止
   useEffect(() => {
     if (!code) {
       setError("缺少访问码");
       return;
     }
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
 
-    (async () => {
+    const run = async () => {
       try {
         const res = await fetch(`/api/access/${instanceId}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ code }),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error ?? "访问码无效");
-        if (!cancelled) setRegistered(true);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (cancelled) return;
+        if (res.ok || res.status < 500) return;
+        retry = setTimeout(run, 5000);
+      } catch {
+        if (!cancelled) retry = setTimeout(run, 5000);
       }
-    })();
+    };
+    run();
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       cancelled = true;
+      if (retry) clearTimeout(retry);
       clearInterval(timer);
     };
   }, [instanceId, code]);
 
   useEffect(() => {
-    if (!registered) return;
+    if (!code) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -94,7 +99,9 @@ export default function AccessPage() {
         if (cancelled) return;
 
         const snap: Snapshot = data.snapshot;
-        setSnapshot(snap);
+        setSnapshot((prev) =>
+          prev && prev.cloudStatus ? { ...snap, cloudStatus: prev.cloudStatus } : snap,
+        );
 
         const incoming = snap.logs ?? [];
         setLogs((prev) => {
@@ -131,10 +138,33 @@ export default function AccessPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [registered, instanceId, code]);
+  }, [instanceId, code]);
+
+  // 首屏后异步补充一次 ECS 实时状态（不阻塞首帧）
+  useEffect(() => {
+    if (!snapshot || cloudRequestedRef.current) return;
+    if (snapshot.status !== "PROVISIONING" && snapshot.status !== "BOOTING") return;
+
+    cloudRequestedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = new URLSearchParams({ code, cloud: "1" });
+        const res = await fetch(`/api/access/${instanceId}?${q.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok) return;
+        const snap: Snapshot = data.snapshot;
+        setSnapshot((prev) => (prev ? { ...prev, cloudStatus: snap.cloudStatus } : prev));
+      } catch {
+        // 忽略，步骤 detail 不带实时 ECS 状态
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot, instanceId, code]);
 
   if (error) return <ErrorView message={error} />;
-  if (!snapshot && !registered) return <LoadingView />;
   if (!snapshot) return <LoadingView />;
 
   if (ready) return <SuccessView snapshot={snapshot} now={now} />;
@@ -184,7 +214,7 @@ function LoadingView() {
   return (
     <LoaderCard>
       <Spinner className="h-5 w-5" />
-      <span>正在验证访问码...</span>
+      <span>正在加载实例...</span>
     </LoaderCard>
   );
 }
@@ -259,7 +289,6 @@ function CreatingView({
   const { steps, current } = computeSteps(snapshot);
 
   const rows = [
-    { label: "镜像", value: snapshot.imageUri.split("/").pop() ?? snapshot.imageUri },
     {
       label: "规格",
       value: snapshot.instanceType
@@ -292,66 +321,58 @@ function CreatingView({
 
       {/* 中央卡片 */}
       <div className="absolute inset-0 flex items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-2xl border border-white/15 bg-white/10 p-6 shadow-2xl backdrop-blur-xl">
-          <div className="flex items-center gap-4">
-            <Logo />
-            <div>
+        <div className="w-[80vw] rounded-2xl border border-white/15 bg-white/10 bg-gradient-to-br from-white/25 via-white/[0.06] to-white/0 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Logo />
               <div className="text-xl font-semibold text-white">环境创建中</div>
-              <div className="text-sm text-white/70">
-                已在 {formatElapsed(snapshot.bootStartedAt ?? snapshot.createdAt, undefined, now)} 创建
-                {snapshot.workspaceName ? ` · ${snapshot.workspaceName}` : ""}
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/50">已创建</div>
+              <div className="font-mono text-lg text-white">
+                {formatElapsed(
+                  snapshot.bootStartedAt ?? snapshot.createdAt,
+                  undefined,
+                  now,
+                )}
               </div>
             </div>
           </div>
 
-          <div className="mt-6 space-y-3">
-            {steps.map((s, i) => {
-              const done = i < current || current >= steps.length;
-              const active = i === current;
-              return (
-                <div key={s.key} className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]",
-                      done
-                        ? "bg-emerald-500 text-white"
-                        : active
-                          ? "bg-white/20 text-white"
-                          : "bg-white/10 text-white/50",
-                    )}
-                  >
-                    {done ? "✓" : active ? <Spinner className="h-3 w-3" /> : i + 1}
-                  </div>
-                  <div className="min-w-0">
-                    <div
-                      className={cn(
-                        "text-sm",
-                        active || done ? "text-white" : "text-white/50",
-                      )}
-                    >
-                      {s.title}
-                      {s.detail ? (
-                        <span className="ml-2 text-xs text-white/50">
-                          {s.detail}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          {/* 状态一行 */}
+          <div className="mt-6 flex items-center gap-2">
+            <span
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs",
+                current >= steps.length
+                  ? "bg-emerald-500 text-white"
+                  : "bg-white/20 text-white",
+              )}
+            >
+              {current >= steps.length ? "✓" : <Spinner className="h-3 w-3" />}
+            </span>
+            <span className="shrink-0 text-sm text-white">
+              {current >= steps.length
+                ? "环境就绪"
+                : (steps[current]?.title ?? "准备中")}
+            </span>
+            {current < steps.length && steps[current]?.detail && (
+              <span className="truncate text-xs text-white/50">
+                {steps[current]?.detail}
+              </span>
+            )}
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-2">
+          <Separator className="my-6 bg-white/20" />
+
+          {/* 信息行 */}
+          <div className="space-y-1.5">
             {rows.map((r) => (
-              <div
-                key={r.label}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2"
-              >
-                <div className="text-[11px] text-white/50">{r.label}</div>
-                <div className="mt-0.5 truncate text-sm text-white" title={r.value}>
+              <div key={r.label} className="flex items-center gap-2 text-sm">
+                <span className="shrink-0 text-xs text-white/50">{r.label}</span>
+                <span className="min-w-0 truncate text-white" title={r.value}>
                   {r.value}
-                </div>
+                </span>
               </div>
             ))}
           </div>
