@@ -21,18 +21,97 @@ apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 systemctl enable docker
 systemctl start docker
+
+# 配置 Docker 镜像加速
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "registry-mirrors": ["https://docker.xuanyuan.me"]
+}
+EOF
+systemctl daemon-reload
+systemctl restart docker
+
 echo "[1/9] Docker installed."
 
 # === ACR 登录（镜像来自阿里云 ACR 时，走 RAM Role STS，免 AK 落盘） ===
 {{ACR_LOGIN}}
 
-echo "[2/9] Installing Node.js 22.x..."
-wget -qO- --tries=3 https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y -qq nodejs
+echo "[2/9] Installing Node.js..."
+NODE_MIRROR="https://mirrors.ustc.edu.cn/node/latest/"
+NODE_VERSION=$(curl -s "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.xz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.xz//')
+echo "[2/9] Latest Node.js version: $NODE_VERSION"
+curl -L -o /tmp/node.tar.xz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.xz"
+tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1
+rm -f /tmp/node.tar.xz
+
+# 配置 npm 淘宝镜像源
+npm config set registry https://registry.npmmirror.com
+
 echo "[2/9] Node.js $(node --version) installed."
 
 echo "[3/9] Installing code-server..."
-wget -qO- --tries=3 https://code-server.dev/install.sh | sh
+
+install_code_server() {
+  # 镜像基础 URL
+  MIRROR_URL="https://mirrors.ustc.edu.cn/github-release/coder/code-server/LatestRelease"
+  
+  # 获取版本号
+  echo "[3/9] Fetching latest version from mirror..."
+  VERSION=$(curl -s "$MIRROR_URL/" | grep -oP 'code-server-\K[0-9.]+' | head -1)
+  if [ -z "$VERSION" ]; then
+    echo "[3/9] Error: Failed to fetch version from mirror"
+    exit 1
+  fi
+  echo "[3/9] Latest version: $VERSION"
+  
+  # 系统检测
+  OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+  ARCH=$(uname -m)
+  case $ARCH in
+    x86_64) ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+  esac
+  
+  # 检测发行版
+  DISTRO="unknown"
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO=$ID
+  fi
+  
+  echo "[3/9] Detected: OS=$OS, ARCH=$ARCH, DISTRO=$DISTRO"
+  
+  # 安装
+  case $DISTRO in
+    debian|ubuntu|raspbian)
+      echo "[3/9] Installing deb package..."
+      curl -L -o /tmp/code-server.deb "$MIRROR_URL/code-server_${VERSION}_${ARCH}.deb"
+      dpkg -i /tmp/code-server.deb
+      rm -f /tmp/code-server.deb
+      ;;
+    fedora|centos|rhel|opensuse|amzn)
+      echo "[3/9] Installing rpm package..."
+      curl -L -o /tmp/code-server.rpm "$MIRROR_URL/code-server-$VERSION-$ARCH.rpm"
+      rpm -U /tmp/code-server.rpm
+      rm -f /tmp/code-server.rpm
+      ;;
+    alpine|freebsd)
+      echo "[3/9] Installing via npm..."
+      npm install -g code-server
+      ;;
+    *)
+      echo "[3/9] Installing standalone package..."
+      curl -L -o /tmp/code-server.tar.gz "$MIRROR_URL/code-server-$VERSION-$OS-$ARCH.tar.gz"
+      mkdir -p /opt
+      tar -xzf /tmp/code-server.tar.gz -C /opt/
+      ln -sf /opt/code-server-$VERSION-$OS-$ARCH/bin/code-server /usr/local/bin/code-server
+      rm -f /tmp/code-server.tar.gz
+      ;;
+  esac
+}
+
+install_code_server
 echo "[3/9] Code-server installed."
 
 echo "[4/9] Installing devcontainer CLI..."
