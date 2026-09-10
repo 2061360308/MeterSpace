@@ -38,7 +38,7 @@ echo "[1/9] Docker installed."
 {{ACR_LOGIN}}
 
 echo "[2/9] Installing Node.js..."
-NODE_MIRROR="https://cdn.npmmirror.com/binaries/node/latest/"
+NODE_MIRROR="https://cdn.npmmirror.com/binaries/node/latest"
 NODE_VERSION=$(curl -sf "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.gz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.gz//')
 if [ -z "$NODE_VERSION" ]; then
   echo "[2/9] Warning: Failed to fetch Node.js version, using fallback"
