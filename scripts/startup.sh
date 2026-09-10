@@ -19,8 +19,8 @@ chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-systemctl enable docker || true
-systemctl start docker || true
+systemctl enable docker >/dev/null 2>&1 || true
+systemctl start docker >/dev/null 2>&1 || true
 
 # 配置 Docker 镜像加速
 mkdir -p /etc/docker
@@ -29,8 +29,8 @@ cat > /etc/docker/daemon.json <<'EOF'
   "registry-mirrors": ["https://docker.xuanyuan.me"]
 }
 EOF
-systemctl daemon-reload || true
-systemctl restart docker || true
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl restart docker >/dev/null 2>&1 || true
 
 echo "[1/9] Docker installed."
 
