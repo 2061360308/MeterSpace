@@ -26,7 +26,10 @@ systemctl start docker >/dev/null 2>&1 || true
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<'EOF'
 {
-  "registry-mirrors": ["https://docker.1ms.run"]
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://docker.1ms.run"
+  ]
 }
 EOF
 systemctl daemon-reload >/dev/null 2>&1 || true
@@ -165,9 +168,29 @@ if [ -n "${WS_PROXY:-}" ] && command -v jq >/dev/null 2>&1; then
 fi
 echo "[5/9] devcontainer.json written."
 
+echo "[6/9] Pulling workspace image..."
+IMAGE_URI=$(jq -r '.image // empty' /workspace/.devcontainer/devcontainer.json 2>/dev/null)
+if [ -n "$IMAGE_URI" ]; then
+  for attempt in 1 2 3 4 5; do
+    echo "[6/9] docker pull $IMAGE_URI (attempt $attempt/5)..."
+    if docker pull "$IMAGE_URI" >/dev/null 2>&1; then
+      echo "[6/9] Image ready."
+      break
+    fi
+    echo "[6/9] Pull failed, retrying in 10s..."
+    sleep 10
+  done
+fi
+
 echo "[6/9] Starting devcontainer..."
 cd /workspace
-devcontainer up --workspace-folder .
+for attempt in 1 2 3; do
+  if devcontainer up --workspace-folder .; then
+    break
+  fi
+  echo "[6/9] devcontainer up failed (attempt $attempt/3), retrying..."
+  sleep 10
+done
 echo "[6/9] Devcontainer started."
 
 echo "[6.5/9] Installing features..."

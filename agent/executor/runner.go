@@ -152,7 +152,7 @@ func (e *Executor) Execute() error {
 
 	go func() {
 		defer wg.Done()
-		e.readOutput(stderr, "error")
+		e.readOutput(stderr, "warning")
 	}()
 
 	// Wait for output reading to complete
