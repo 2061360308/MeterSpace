@@ -41,12 +41,18 @@ echo "[2/9] Installing Node.js..."
 NODE_MIRROR="https://cdn.npmmirror.com/binaries/node/latest/"
 NODE_VERSION=$(curl -sf "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.gz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.gz//')
 if [ -z "$NODE_VERSION" ]; then
-  echo "[2/9] Error: Failed to fetch Node.js version"
-  exit 1
+  echo "[2/9] Warning: Failed to fetch Node.js version, using fallback"
+  NODE_VERSION="24.9.0"
 fi
 echo "[2/9] Latest Node.js version: $NODE_VERSION"
-curl -fL -o /tmp/node.tar.gz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.gz"
-tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1
+curl -fL -o /tmp/node.tar.gz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.gz" || {
+  echo "[2/9] Error: Failed to download Node.js"
+  exit 1
+}
+tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 || {
+  echo "[2/9] Error: Failed to extract Node.js"
+  exit 1
+}
 rm -f /tmp/node.tar.gz
 
 # 配置 npm 淘宝镜像源
@@ -90,25 +96,46 @@ install_code_server() {
   case $DISTRO in
     debian|ubuntu|raspbian)
       echo "[3/9] Installing deb package..."
-      curl -L -o /tmp/code-server.deb "$MIRROR_URL/code-server_${VERSION}_${ARCH}.deb"
-      dpkg -i /tmp/code-server.deb
+      curl -fL -o /tmp/code-server.deb "$MIRROR_URL/code-server_${VERSION}_${ARCH}.deb" || {
+        echo "[3/9] Error: Failed to download code-server deb package"
+        return 1
+      }
+      dpkg -i /tmp/code-server.deb || {
+        echo "[3/9] Error: Failed to install code-server deb package"
+        return 1
+      }
       rm -f /tmp/code-server.deb
       ;;
     fedora|centos|rhel|opensuse|amzn)
       echo "[3/9] Installing rpm package..."
-      curl -L -o /tmp/code-server.rpm "$MIRROR_URL/code-server-$VERSION-$ARCH.rpm"
-      rpm -U /tmp/code-server.rpm
+      curl -fL -o /tmp/code-server.rpm "$MIRROR_URL/code-server-$VERSION-$ARCH.rpm" || {
+        echo "[3/9] Error: Failed to download code-server rpm package"
+        return 1
+      }
+      rpm -U /tmp/code-server.rpm || {
+        echo "[3/9] Error: Failed to install code-server rpm package"
+        return 1
+      }
       rm -f /tmp/code-server.rpm
       ;;
     alpine|freebsd)
       echo "[3/9] Installing via npm..."
-      npm install -g code-server
+      npm install -g code-server || {
+        echo "[3/9] Error: Failed to install code-server via npm"
+        return 1
+      }
       ;;
     *)
       echo "[3/9] Installing standalone package..."
-      curl -L -o /tmp/code-server.tar.gz "$MIRROR_URL/code-server-$VERSION-$OS-$ARCH.tar.gz"
+      curl -fL -o /tmp/code-server.tar.gz "$MIRROR_URL/code-server-$VERSION-$OS-$ARCH.tar.gz" || {
+        echo "[3/9] Error: Failed to download code-server standalone package"
+        return 1
+      }
       mkdir -p /opt
-      tar -xzf /tmp/code-server.tar.gz -C /opt/
+      tar -xzf /tmp/code-server.tar.gz -C /opt/ || {
+        echo "[3/9] Error: Failed to extract code-server standalone package"
+        return 1
+      }
       ln -sf /opt/code-server-$VERSION-$OS-$ARCH/bin/code-server /usr/local/bin/code-server
       rm -f /tmp/code-server.tar.gz
       ;;
