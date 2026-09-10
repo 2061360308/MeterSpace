@@ -184,17 +184,28 @@ fi
 
 echo "[6/9] Starting devcontainer..."
 cd /workspace
+DEVCONTAINER_OK=0
 for attempt in 1 2 3; do
   if devcontainer up --workspace-folder .; then
+    DEVCONTAINER_OK=1
     break
   fi
   echo "[6/9] devcontainer up failed (attempt $attempt/3), retrying..."
   sleep 10
 done
-echo "[6/9] Devcontainer started."
+
+if [ "$DEVCONTAINER_OK" = "1" ]; then
+  echo "[6/9] Devcontainer started."
+else
+  echo "[6/9] Warning: devcontainer unavailable, falling back to host mode (code-server runs on host)."
+fi
 
 echo "[6.5/9] Installing features..."
-{{FEATURES_LOOP}}
+if [ "$DEVCONTAINER_OK" = "1" ]; then
+  {{FEATURES_LOOP}}
+else
+  echo "[features] devcontainer unavailable, skip features"
+fi
 
 echo "[6.8/9] Running custom scripts..."
 {{CUSTOM_SCRIPTS_LOOP}}
