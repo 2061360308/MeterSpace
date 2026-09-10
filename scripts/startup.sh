@@ -39,9 +39,9 @@ echo "[1/9] Docker installed."
 
 echo "[2/9] Installing Node.js..."
 NODE_MIRROR="https://mirrors.ustc.edu.cn/node/latest/"
-NODE_VERSION=$(curl -s "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.gz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.gz//')
+NODE_VERSION=$(curl -sf "$NODE_MIRROR/SHASUMS256.txt" | grep "linux-x64.tar.gz" | head -1 | awk '{print $2}' | sed 's/node-v//;s/-linux-x64.tar.gz//')
 echo "[2/9] Latest Node.js version: $NODE_VERSION"
-curl -L -o /tmp/node.tar.gz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.gz"
+curl -fL -o /tmp/node.tar.gz "$NODE_MIRROR/node-v${NODE_VERSION}-linux-x64.tar.gz"
 tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1
 rm -f /tmp/node.tar.gz
 
