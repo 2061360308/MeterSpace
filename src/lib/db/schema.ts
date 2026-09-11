@@ -10,6 +10,7 @@ import {
   real,
   primaryKey,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -73,7 +74,7 @@ export const workspaces = pgTable("workspaces", {
   name: text("name").notNull(),
   provider: text("provider").notNull().default("aliyun"),
   region: text("region").notNull(),
-  imageUri: text("image_uri").notNull(),
+  imageUri: text("image_uri"),
   defaultDiskSize: integer("default_disk_size").default(40),
   defaultBandwidth: integer("default_bandwidth").default(10),
   publicIp: boolean("public_ip").default(true),
@@ -88,6 +89,17 @@ export const workspaces = pgTable("workspaces", {
   releaseHours: integer("release_hours"),
   idleMinutes: integer("idle_minutes"),
   ossWorkspacePath: text("oss_workspace_path"),
+  // === 模板实例化（见 docs/FINAL-PLAN.md §8.1） ===
+  templateId: text("template_id"),
+  templateVersion: text("template_version"),
+  templateParams: jsonb("template_params").$type<Record<string, unknown>>().default({}),
+  entry: text("entry"),
+  activityConfig: jsonb("activity_config").$type<{
+    ports?: { port: number; label?: string; protocol?: "http" | "tcp"; private?: boolean }[];
+    idleMinutes?: number;
+    sampleIntervalSec?: number;
+  }>(),
+  entryTimeout: integer("entry_timeout").default(1800),
   proxyMode: text("proxy_mode").default("inherit"),
   proxyClashSubscription: text("proxy_clash_subscription"),
   proxyClashYaml: text("proxy_clash_yaml"),
@@ -134,7 +146,9 @@ export const instances = pgTable("instances", {
   bootStartedAt: timestamp("boot_started_at", { withTimezone: true }),
   bootCompletedAt: timestamp("boot_completed_at", { withTimezone: true }),
   bootError: text("boot_error"),
+  currentEntry: text("current_entry"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
   idleTriggered: boolean("idle_triggered").default(false),
   cpuPercent: real("cpu_percent"),
   memoryMb: integer("memory_mb"),
@@ -151,6 +165,8 @@ export const instances = pgTable("instances", {
 }, (table) => [
   index("idx_instances_workspace").on(table.workspaceId),
   index("idx_instances_status").on(table.status),
+  index("idx_instances_heartbeat").on(table.lastHeartbeatAt),
+  index("idx_instances_idle").on(table.status, table.lastActiveAt),
 ]);
 
 export const instanceLogs = pgTable("instance_logs", {
@@ -179,6 +195,39 @@ export const instanceScripts = pgTable("instance_scripts", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+/** 模板：含自带载荷的只读配方。user_id 为 NULL 表示平台内置。 */
+export const templates = pgTable("templates", {
+  id: text("id").primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
+  payload: jsonb("payload")
+    .$type<{ path: string; content: string; mode: string; size: number }[]>()
+    .default([]),
+  version: text("version").default("1"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_templates_user").on(table.userId),
+]);
+
+/** 工作区载荷：逐文件存，用户可编辑。 */
+export const workspacePayloads = pgTable("workspace_payloads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  content: text("content").notNull().default(""),
+  mode: text("mode").notNull().default("0644"),
+  size: integer("size").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_workspace_payloads_path").on(table.workspaceId, table.path),
+  index("idx_workspace_payloads_ws").on(table.workspaceId),
+]);
 
 export const instanceAccessCodes = pgTable("instance_access_codes", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -360,5 +409,9 @@ export type StorageVolume = typeof storageVolumes.$inferSelect;
 export type NewStorageVolume = typeof storageVolumes.$inferInsert;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
+export type Template = typeof templates.$inferSelect;
+export type NewTemplate = typeof templates.$inferInsert;
+export type WorkspacePayload = typeof workspacePayloads.$inferSelect;
+export type NewWorkspacePayload = typeof workspacePayloads.$inferInsert;
 
 export { primaryKey };

@@ -92,6 +92,20 @@
       "when": 1788801100000,
       "tag": "0012_add_proxy_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788801200000,
+      "tag": "0013_add_instance_heartbeat",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788801300000,
+      "tag": "0014_add_templates",
+      "breakpoints": true
     }
   ]
 }
