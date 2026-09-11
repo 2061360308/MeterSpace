@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:agent": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../public/agent-linux-amd64 .",
-    "build:agent:arm64": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags=\"-s -w\" -o ../public/agent-linux-arm64 .",
-    "build:agent:all": "npm run build:agent && npm run build:agent:arm64",
-    "build:agent:debug": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../public/agent-linux-amd64 .",
+    "build:agent": "bash scripts/publish-agent.sh",
+    "build:agent:arm64": "bash scripts/publish-agent.sh --all",
+    "build:agent:all": "bash scripts/publish-agent.sh --all",
+    "build:agent:debug": "bash scripts/publish-agent.sh",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:cli-bundle": "bash scripts/build-cli-bundle.sh",
+    "publish:agent": "bash scripts/publish-agent.sh"
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.8.0",
@@ -25,6 +27,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.2.6",
     "drizzle-orm": "^0.45.2",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.41.0",
     "next": "^15.5.25",
     "next-auth": "^5.0.0-beta.32",
