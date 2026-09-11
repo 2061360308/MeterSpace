@@ -9,7 +9,7 @@ import {
   cloudInstances,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
-import { getAliyunProvider } from "@/lib/providers";
+import { getProvider } from "@/lib/providers";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
 import { buildUserData, buildStopHook, type EntrypointVars } from "@/lib/userdata";
 import { resolveFeatures } from "@/lib/features";
@@ -62,20 +62,40 @@ export interface CreateWorkspaceInput {
   proxyUpstreamSecret?: string | null;
 }
 
+interface LaunchIdentity {
+  callbackUrl: string;
+  accessToken: string;
+  /** instances 行 id —— agent 的回调路径用它寻址 */
+  instanceRowId: string;
+}
+
 async function launchInstance(
   workspace: typeof workspaces.$inferSelect,
   cloudInstance: typeof cloudInstances.$inferSelect,
+  identity: LaunchIdentity,
 ): Promise<string> {
-  const provider = getAliyunProvider();
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new Error(`Unknown provider: ${workspace.provider}`);
+  }
   const creds = await provider.getCredentials(workspace.userId);
   const resources = await ensureRegionResources(creds, workspace.region);
   const s = await getUserSettings(workspace.userId);
   const releaseHours =
     workspace.releaseHours ?? s.defaultReleaseHours;
 
+  // agent 用 instanceRowId 作为回调路径；token 与库中该行一致
   const entrypointVars: EntrypointVars = {
-    callbackUrl: getAppBaseUrl(),
-    accessToken: generateAccessToken(),
+    instanceId: identity.instanceRowId,
+    callbackUrl: identity.callbackUrl,
+    accessToken: identity.accessToken,
+    workspaceId: workspace.id,
+    region: workspace.region,
+    entry: workspace.entry ?? "",
+    entryTimeoutSec: workspace.entryTimeout ?? 1800,
+    idleMinutes: workspace.activityConfig?.idleMinutes ?? workspace.idleMinutes ?? 30,
+    sampleIntervalSec: workspace.activityConfig?.sampleIntervalSec ?? 30,
+    activityPorts: workspace.activityConfig?.ports ?? [],
   };
   const userData = buildUserData(entrypointVars);
 
@@ -110,7 +130,10 @@ async function preflightCheck(
   cloudInstance: typeof cloudInstances.$inferSelect,
   releaseHours: number,
 ): Promise<void> {
-  const provider = getAliyunProvider();
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new Error(`Unknown provider: ${workspace.provider}`);
+  }
 
   try {
     const balance = await provider.getBalance();
@@ -142,11 +165,15 @@ async function preflightCheck(
 
 /** Ensure an ACR enterprise instance exists for the region (best-effort). */
 async function ensureAcrInstance(
-  userId: string,
+  providerName: string,
   region: string,
 ): Promise<string | null> {
   try {
-    const provider = getAliyunProvider();
+    const provider = getProvider(providerName);
+    if (!provider) {
+      console.warn(`[acr] unknown provider ${providerName}`);
+      return null;
+    }
     const instances = await provider.listRegistryInstances(region);
     const existing = instances.find(
       (i) => i.status === "Running" || i.status === "ACTIVE",
@@ -220,14 +247,17 @@ export async function createWorkspace(
     details: { name: input.name, provider: input.provider, region: input.region },
   });
 
-  const provider = getAliyunProvider();
+  const provider = getProvider(input.provider);
+  if (!provider) {
+    throw new Error(`Unknown provider: ${input.provider}`);
+  }
   await provider.ensureStorage(input.region, ossBucketForRegion(input.region));
 
   const updatedWorkspace = { ...workspace, ossWorkspacePath };
 
   // Ensure an ACR instance exists when the image is hosted on ACR.
-  if (updatedWorkspace.imageUri.match(/registry\..*\.aliyuncs\.com\//)) {
-    const acrId = await ensureAcrInstance(userId, updatedWorkspace.region);
+  if ((updatedWorkspace.imageUri ?? "").match(/registry\..*\.aliyuncs\.com\//)) {
+    const acrId = await ensureAcrInstance(updatedWorkspace.provider, updatedWorkspace.region);
     if (acrId) {
       await db
         .update(settings)
@@ -247,6 +277,13 @@ export interface StartWorkspaceInput {
   bandwidth?: number;
 }
 
+/**
+ * 启动实例。
+ *
+ * 顺序很重要（docs/FINAL-PLAN.md §9）：**先建 instances 行拿到 id + accessToken，
+ * 再把这些值渲染进 entrypoint**。否则 agent 配置里的 token 与库里的不一致，
+ * agent 永远无法通过鉴权。
+ */
 export async function startWorkspace(
   userId: string,
   workspaceId: string,
@@ -286,27 +323,50 @@ export async function startWorkspace(
     details: { mode: input.mode, instanceType: cloudInstance.instanceType },
   });
 
-  // Pre-launch validation + launch with FAILED rollback on error.
   const s = await getUserSettings(userId);
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
-  try {
-    await preflightCheck(workspace, cloudInstance, releaseHours);
-    const instanceId = await launchInstance(workspace, cloudInstance);
-    
-    // 创建 instances 表记录
-    await db.insert(instances).values({
+
+  // ① 先建行：拿到 instance row id 与 accessToken
+  const [instanceRow] = await db
+    .insert(instances)
+    .values({
       workspaceId,
       cloudInstanceId: input.cloudInstanceId,
       diskSize: workspace.defaultDiskSize ?? 40,
       bandwidth: workspace.defaultBandwidth ?? 10,
       status: "PROVISIONING",
-      ecsInstanceId: instanceId,
       accessToken: generateAccessToken(),
       bootStartedAt: new Date(),
+      currentEntry: workspace.entry ?? null,
+    })
+    .returning();
+
+  try {
+    await preflightCheck(workspace, cloudInstance, releaseHours);
+
+    // ② 用该行渲染 entrypoint 并创建 ECS 实例
+    const ecsInstanceId = await launchInstance(workspace, cloudInstance, {
+      callbackUrl: getAppBaseUrl(),
+      accessToken: instanceRow.accessToken ?? "",
+      instanceRowId: instanceRow.id,
     });
-    
-    return { workspaceId, instanceId };
+
+    await db
+      .update(instances)
+      .set({ ecsInstanceId, updatedAt: new Date() })
+      .where(eq(instances.id, instanceRow.id));
+
+    return { workspaceId, instanceId: ecsInstanceId, instanceRowId: instanceRow.id };
   } catch (e) {
+    // 启动失败：把刚建的行标记为 FAILED，避免留下悬挂的 PROVISIONING
+    await db
+      .update(instances)
+      .set({
+        status: "FAILED",
+        bootError: e instanceof Error ? e.message : String(e),
+        updatedAt: new Date(),
+      })
+      .where(eq(instances.id, instanceRow.id));
     throw e;
   }
 }
@@ -340,15 +400,19 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
     details: { instanceId: instance.ecsInstanceId },
   });
 
-  const provider = getAliyunProvider();
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new WorkspaceError("Unknown provider", 500);
+  }
+  const region = workspace.region;
   let ossUsageBytes: number | null = null;
 
   try {
-    const { invokeId } = await provider.runCommand(instance.ecsInstanceId, buildStopHook());
+    const { invokeId } = await provider.runCommand(instance.ecsInstanceId, region, buildStopHook());
 
     for (let i = 0; i < 24; i++) {
       await new Promise((r) => setTimeout(r, 5000));
-      const result = await provider.getCommandResult(invokeId);
+      const result = await provider.getCommandResult(invokeId, region);
       if (result.status === "Finished" || result.status === "Failed") {
         const match = result.output.match(/OSS_USAGE=(\d+)/);
         if (match) ossUsageBytes = Number(match[1]);
@@ -359,7 +423,7 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
     console.error("stop-hook failed, force deleting", e);
   }
 
-  await provider.deleteInstance(instance.ecsInstanceId);
+  await provider.deleteInstance(instance.ecsInstanceId, region);
 
   await db
     .update(instances)
@@ -384,6 +448,70 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
   return { workspaceId, ossUsageBytes };
 }
 
+/**
+ * 空闲释放的「快速路径」：不跑 stop-hook，直接删 ECS。
+ * 用于 maintenance 的 idle 任务，避免 serverless 函数超时（stop-hook 最长 120s）。
+ */
+export async function releaseIdleWorkspace(userId: string, workspaceId: string) {
+  const workspace = await db.query.workspaces.findFirst({
+    where: and(eq(workspaces.id, workspaceId), eq(workspaces.userId, userId)),
+  });
+  if (!workspace) throw new WorkspaceError("Workspace not found", 404);
+
+  const instance = await db.query.instances.findFirst({
+    where: and(
+      eq(instances.workspaceId, workspaceId),
+      eq(instances.status, "RUNNING"),
+    ),
+  });
+  if (!instance?.ecsInstanceId) {
+    throw new WorkspaceError("Workspace is not running", 409);
+  }
+
+  await db
+    .update(instances)
+    .set({ status: "TERMINATING", updatedAt: new Date() })
+    .where(eq(instances.id, instance.id));
+
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new WorkspaceError("Unknown provider", 500);
+  }
+
+  try {
+    await provider.deleteInstance(instance.ecsInstanceId, workspace.region);
+  } catch (e) {
+    console.error("[releaseIdleWorkspace] delete instance failed:", e);
+    await db
+      .update(instances)
+      .set({ status: "FAILED", bootError: "空闲释放失败：云资源删除失败", updatedAt: new Date() })
+      .where(eq(instances.id, instance.id));
+    throw e;
+  }
+
+  await db
+    .update(instances)
+    .set({
+      status: "STOPPED",
+      publicIp: null,
+      port: null,
+      accessToken: null,
+      stoppedAt: new Date(),
+      stopReason: "idle_release",
+      updatedAt: new Date(),
+    })
+    .where(eq(instances.id, instance.id));
+
+  await db.insert(auditLogs).values({
+    userId,
+    workspaceId,
+    action: "IDLE_RELEASE",
+    details: { instanceId: instance.ecsInstanceId },
+  });
+
+  return { workspaceId };
+}
+
 export async function deleteWorkspace(userId: string, workspaceId: string) {
   const workspace = await db.query.workspaces.findFirst({
     where: and(eq(workspaces.id, workspaceId), eq(workspaces.userId, userId)),
@@ -395,13 +523,16 @@ export async function deleteWorkspace(userId: string, workspaceId: string) {
     where: eq(instances.workspaceId, workspaceId),
   });
 
-  const provider = getAliyunProvider();
-  
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new WorkspaceError("Unknown provider", 500);
+  }
+
   // 删除所有有 ecsInstanceId 的实例
   for (const inst of workspaceInstances) {
     if (inst.ecsInstanceId) {
       try {
-        await provider.deleteInstance(inst.ecsInstanceId);
+        await provider.deleteInstance(inst.ecsInstanceId, workspace.region);
       } catch (e) {
         console.error("delete instance failed", e);
       }
@@ -457,11 +588,14 @@ export async function renewWorkspace(
     throw new WorkspaceError("Workspace is not running", 409);
   }
 
-  const provider = getAliyunProvider();
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new WorkspaceError("Unknown provider", 500);
+  }
   const autoReleaseTime = new Date(
     Date.now() + hours * 3600 * 1000,
   ).toISOString();
-  await provider.setAutoReleaseTime(instance.ecsInstanceId, autoReleaseTime);
+  await provider.setAutoReleaseTime(instance.ecsInstanceId, workspace.region, autoReleaseTime);
 
   await db.insert(auditLogs).values({
     userId,

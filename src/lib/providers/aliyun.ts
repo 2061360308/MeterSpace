@@ -154,9 +154,8 @@ export class AliyunProvider implements CloudProvider {
     return result.instanceId;
   }
 
-  async getInstance(instanceId: string): Promise<CloudInstance | null> {
+  async getInstance(instanceId: string, region: string): Promise<CloudInstance | null> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(instanceId);
     const inst = await ecs.describeInstances(creds, region, instanceId);
     if (!inst) return null;
     return {
@@ -169,23 +168,13 @@ export class AliyunProvider implements CloudProvider {
     };
   }
 
-  private async getRegionForInstance(_id: string): Promise<string> {
-    void _id;
-    const row = await db.query.settings.findFirst({
-      columns: { defaultRegion: true },
-    });
-    return row?.defaultRegion ?? "cn-hangzhou";
-  }
-
-  async deleteInstance(instanceId: string): Promise<void> {
+  async deleteInstance(instanceId: string, region: string): Promise<void> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(instanceId);
     await ecs.deleteInstance(creds, region, instanceId);
   }
 
-  async setAutoReleaseTime(instanceId: string, time: string): Promise<void> {
+  async setAutoReleaseTime(instanceId: string, region: string, time: string): Promise<void> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(instanceId);
     await ecs.modifyInstanceAutoReleaseTime(creds, region, instanceId, time);
   }
 
@@ -265,9 +254,8 @@ export class AliyunProvider implements CloudProvider {
     return ecs.createSecurityGroup(creds, region, vpcId);
   }
 
-  async authorizeSecurityGroup(securityGroupId: string, port: string, cidr = "0.0.0.0/0", description = "code-server"): Promise<void> {
+  async authorizeSecurityGroup(securityGroupId: string, region: string, port: string, cidr = "0.0.0.0/0", description = "code-server"): Promise<void> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(securityGroupId);
     await ecs.authorizeIngress(creds, region, securityGroupId, port, cidr, description);
   }
 
@@ -385,16 +373,14 @@ export class AliyunProvider implements CloudProvider {
     }));
   }
 
-  async runCommand(instanceId: string, content: string): Promise<CloudCommandResult> {
+  async runCommand(instanceId: string, region: string, content: string): Promise<CloudCommandResult> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(instanceId);
     const result = await ecs.runCommand(creds, region, instanceId, content);
     return { invokeId: result.invokeId };
   }
 
-  async getCommandResult(invokeId: string): Promise<CloudInvocationResult> {
+  async getCommandResult(invokeId: string, region: string): Promise<CloudInvocationResult> {
     const creds = await this.getCreds();
-    const region = await this.getRegionForInstance(invokeId);
     const result = await ecs.describeInvocationResults(creds, region, invokeId);
     return {
       status: result.status,
@@ -410,6 +396,18 @@ export class AliyunProvider implements CloudProvider {
       if (statuses.length === 0) return "Released";
       return statuses[0]?.status ?? null;
     } catch {
+      return null;
+    }
+  }
+
+  async getInstancePublicIp(ecsInstanceId: string, region: string): Promise<string | null> {
+    try {
+      const creds = await this.getCreds();
+      const inst = await ecs.describeInstances(creds, region, ecsInstanceId);
+      if (!inst) return null;
+      return inst.publicIpAddress ?? inst.eipAddress?.ipAddress ?? null;
+    } catch (e) {
+      console.warn("[aliyun] getInstancePublicIp failed:", (e as Error).message);
       return null;
     }
   }

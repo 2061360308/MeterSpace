@@ -12,6 +12,22 @@ export interface EntrypointVars {
   instanceId?: string;
   callbackUrl: string;
   accessToken: string;
+  /** 工作区 ID（WS_WORKSPACE_ID），可选 */
+  workspaceId?: string;
+  /** 地域（WS_REGION），可选 */
+  region?: string;
+  /** 入口相对路径；留空则 agent 从 /payload 响应取 */
+  entry?: string;
+  /** 入口执行超时（秒） */
+  entryTimeoutSec?: number;
+  /** 载荷落盘根目录，默认 /opt/ws */
+  workspaceRoot?: string;
+  /** 空闲判定分钟数 */
+  idleMinutes?: number;
+  /** 活跃采样间隔（秒） */
+  sampleIntervalSec?: number;
+  /** 模板声明的端口数组（JSON），用于 agent 采样 */
+  activityPorts?: { port: number; label?: string; protocol?: string; private?: boolean }[];
 }
 
 let cachedTemplate: string | null = null;
@@ -26,10 +42,25 @@ function getEntrypointTemplate(): string {
 export function buildEntrypoint(vars: EntrypointVars): string {
   const template = getEntrypointTemplate();
 
+  const activity = {
+    ports: vars.activityPorts ?? [],
+    idleMinutes: vars.idleMinutes ?? 30,
+    sampleIntervalSec: vars.sampleIntervalSec ?? 30,
+  };
+
+  // 全部走构建期占位符替换；config.json 用引号包裹的 heredoc，
+  // 保证 shell 不会二次展开。
   return template
     .replace(/\{\{INSTANCE_ID\}\}/g, vars.instanceId ?? "")
     .replace(/\{\{CALLBACK_URL\}\}/g, vars.callbackUrl)
-    .replace(/\{\{ACCESS_TOKEN\}\}/g, vars.accessToken);
+    .replace(/\{\{ACCESS_TOKEN\}\}/g, vars.accessToken)
+    .replace(/\{\{WORKSPACE_ID\}\}/g, vars.workspaceId ?? "")
+    .replace(/\{\{REGION\}\}/g, vars.region ?? "")
+    .replace(/\{\{WORKSPACE_ROOT\}\}/g, vars.workspaceRoot ?? "/opt/ws")
+    .replace(/\{\{ENTRY\}\}/g, vars.entry ?? "")
+    .replace(/\{\{ENTRY_TIMEOUT\}\}/g, String(vars.entryTimeoutSec ?? 1800))
+    .replace(/\{\{IDLE_MINUTES\}\}/g, String(vars.idleMinutes ?? 30))
+    .replace(/\{\{ACTIVITY_CONFIG_JSON\}\}/g, JSON.stringify(activity));
 }
 
 export function buildUserData(vars: EntrypointVars): string {

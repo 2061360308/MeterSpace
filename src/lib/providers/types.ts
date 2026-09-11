@@ -183,9 +183,9 @@ export interface CloudProvider {
   getDiskCategories(region: string): Promise<CloudDiskCategory[]>;
 
   createInstance(params: CreateInstanceParams): Promise<string>;
-  getInstance(instanceId: string): Promise<CloudInstance | null>;
-  deleteInstance(instanceId: string): Promise<void>;
-  setAutoReleaseTime(instanceId: string, time: string): Promise<void>;
+  getInstance(instanceId: string, region: string): Promise<CloudInstance | null>;
+  deleteInstance(instanceId: string, region: string): Promise<void>;
+  setAutoReleaseTime(instanceId: string, region: string, time: string): Promise<void>;
 
   getImages(region: string): Promise<CloudImage[]>;
   findImage(region: string, osPattern: string, version: string): Promise<string>;
@@ -196,7 +196,7 @@ export interface CloudProvider {
   createVSwitch(region: string, vpcId: string, zoneId: string, cidrBlock?: string): Promise<string>;
   getSecurityGroups(region: string, vpcId?: string): Promise<CloudSecurityGroup[]>;
   createSecurityGroup(region: string, vpcId: string): Promise<string>;
-  authorizeSecurityGroup(securityGroupId: string, port: string, cidr?: string, description?: string): Promise<void>;
+  authorizeSecurityGroup(securityGroupId: string, region: string, port: string, cidr?: string, description?: string): Promise<void>;
 
   describePrice(params: DescribePriceParams): Promise<CloudPriceDetail[]>;
   getSpotAdvice(region: string, instanceType: string, spotDuration: number): Promise<CloudSpotAdvice>;
@@ -215,8 +215,14 @@ export interface CloudProvider {
   listRepositories(region: string, instanceId: string): Promise<CloudRepository[]>;
   listImageTags(region: string, instanceId: string, repoId: string): Promise<CloudImageTag[]>;
 
-  runCommand(instanceId: string, content: string): Promise<CloudCommandResult>;
-  getCommandResult(invokeId: string): Promise<CloudInvocationResult>;
+  runCommand(instanceId: string, region: string, content: string): Promise<CloudCommandResult>;
+  getCommandResult(invokeId: string, region: string): Promise<CloudInvocationResult>;
 
   getInstanceCloudStatus(ecsInstanceId: string, region: string): Promise<string | null>;
+
+  /**
+   * 查云上实例的公网 IP（agent 就绪回调时落库用）。
+   * 拿不到时返回 null —— 调用方不应因云 API 抖动而失败。
+   */
+  getInstancePublicIp(ecsInstanceId: string, region: string): Promise<string | null>;
 }

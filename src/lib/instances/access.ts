@@ -8,7 +8,7 @@ import {
   workspaces,
   cloudInstances,
 } from "@/lib/db/schema";
-import { getAliyunProvider } from "@/lib/providers";
+import { getProvider } from "@/lib/providers";
 import {
   authorizeIngress,
   describeSecurityGroupRules,
@@ -99,7 +99,10 @@ export async function registerVisitorIp(
   if (!workspace) throw new AccessError("工作区不存在", 404);
 
   const accessCode = await validateAccessCode(instanceId, code);
-  const provider = getAliyunProvider();
+  const provider = getProvider(workspace.provider);
+  if (!provider) {
+    throw new AccessError("Unknown provider", 500);
+  }
   const creds = await provider.getCredentials(workspace.userId);
 
   const cidr = `${ip}/32`;
@@ -141,7 +144,10 @@ async function resolveInstanceType(
     types = hit.types;
   } else {
     try {
-      const provider = getAliyunProvider();
+      const provider = getProvider(workspace.provider);
+      if (!provider) {
+        return null;
+      }
       types = await provider.getInstanceTypes(workspace.region);
     } catch {
       return null;
@@ -149,6 +155,15 @@ async function resolveInstanceType(
     specCache.set(key, { expiresAt: Date.now() + SPEC_TTL_MS, types });
   }
   return types.find((t) => t.id === instanceType) ?? null;
+}
+
+/** 单个对外可用端口（访问页据此渲染多端口按钮，§6.2）。 */
+export interface AccessPort {
+  port: number;
+  label: string;
+  protocol: string;
+  /** 私有端口仅对已登记白名单的访客可见/可点（如内部 DB 端口）。 */
+  private: boolean;
 }
 
 export interface AccessSnapshot {
@@ -162,7 +177,7 @@ export interface AccessSnapshot {
   bootCompletedAt: string | null;
   createdAt: string | null;
   workspaceName: string;
-  imageUri: string;
+  imageUri: string | null;
   region: string;
   provider: string;
   instanceType: string | null;
@@ -171,12 +186,59 @@ export interface AccessSnapshot {
   diskSize: number;
   bandwidth: number;
   allowedPorts: number[];
+  /** 模板声明的业务端口（来自 metadata.activity.ports ∪ agent 运行时覆盖）。 */
+  ports: AccessPort[];
+  /** 当前入口文件名（模板场景），用于页面展示。 */
+  currentEntry: string | null;
   logs: {
     timestamp: string;
     level: string;
     phase: string | null;
     message: string;
   }[];
+}
+
+/**
+ * 汇总对外端口列表（§6.2 两条来源）。
+ *
+ *   来源 A：workspace.activityConfig.ports —— 模板 metadata 声明，构建期就已知
+ *   来源 B：instance.accessSummary.ports —— agent 运行时上报，可覆盖 A
+ *
+ * B 优先级更高（agent 更了解真实监听情况），但仅当它是合法声明时才覆盖；
+ * 同一端口以 B 为准，A 中未被覆盖的项保留。结果按端口号升序，保证按钮顺序稳定。
+ */
+function collectPorts(
+  declared: { port: number; label?: string; protocol?: string; private?: boolean }[] | null | undefined,
+  runtime: unknown,
+): AccessPort[] {
+  const byPort = new Map<number, AccessPort>();
+
+  const push = (
+    raw: { port?: unknown; label?: unknown; protocol?: unknown; private?: unknown },
+    source: "declared" | "runtime",
+  ) => {
+    const port = Number(raw.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+    const existing = byPort.get(port);
+    // runtime 覆盖 declared；同源后者不覆盖前者
+    if (existing && source === "declared") return;
+    byPort.set(port, {
+      port,
+      label: typeof raw.label === "string" && raw.label ? raw.label : `:${port}`,
+      protocol: typeof raw.protocol === "string" && raw.protocol ? raw.protocol : "tcp",
+      private: raw.private === true,
+    });
+  };
+
+  for (const d of declared ?? []) push(d, "declared");
+
+  if (Array.isArray(runtime)) {
+    for (const r of runtime) {
+      if (r && typeof r === "object") push(r as Record<string, unknown>, "runtime");
+    }
+  }
+
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
 /** 组装公开访问页所需的实例快照（轮询用，不要求登录）。
@@ -212,11 +274,13 @@ export async function buildAccessSnapshot(
     ["PROVISIONING", "BOOTING"].includes(instance.status) &&
     instance.ecsInstanceId
   ) {
-    const provider = getAliyunProvider();
-    cloudStatus = await provider.getInstanceCloudStatus(
-      instance.ecsInstanceId,
-      workspace.region,
-    );
+    const provider = getProvider(workspace.provider);
+    if (provider) {
+      cloudStatus = await provider.getInstanceCloudStatus(
+        instance.ecsInstanceId,
+        workspace.region,
+      );
+    }
   }
 
   let spec: CloudInstanceType | null = null;
@@ -245,6 +309,17 @@ export async function buildAccessSnapshot(
     message: l.message,
   }));
 
+  // 运行时端口：agent 心跳把 $WS_EXPOSED_PORTS_FILE 的内容塞在 accessSummary.ports
+  const runtimePorts = (() => {
+    const summary = instance.accessSummary;
+    if (summary && typeof summary === "object" && "ports" in summary) {
+      return (summary as { ports?: unknown }).ports;
+    }
+    return undefined;
+  })();
+
+  const ports = collectPorts(workspace.activityConfig?.ports, runtimePorts);
+
   return {
     status: instance.status,
     bootPhase: instance.bootPhase,
@@ -265,6 +340,8 @@ export async function buildAccessSnapshot(
     diskSize: instance.diskSize,
     bandwidth: instance.bandwidth,
     allowedPorts: accessCode.allowedPorts ?? [8080],
+    ports,
+    currentEntry: instance.currentEntry,
     logs,
   };
 }

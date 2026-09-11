@@ -82,18 +82,21 @@ export class TencentProvider implements CloudProvider {
     notImplemented();
   }
 
-  async getInstance(_instanceId: string): Promise<CloudInstance | null> {
+  async getInstance(_instanceId: string, _region: string): Promise<CloudInstance | null> {
     void _instanceId;
+    void _region;
     notImplemented();
   }
 
-  async deleteInstance(_instanceId: string): Promise<void> {
+  async deleteInstance(_instanceId: string, _region: string): Promise<void> {
     void _instanceId;
+    void _region;
     notImplemented();
   }
 
-  async setAutoReleaseTime(_instanceId: string, _time: string): Promise<void> {
+  async setAutoReleaseTime(_instanceId: string, _region: string, _time: string): Promise<void> {
     void _instanceId;
+    void _region;
     void _time;
     notImplemented();
   }
@@ -147,8 +150,9 @@ export class TencentProvider implements CloudProvider {
     notImplemented();
   }
 
-  async authorizeSecurityGroup(_securityGroupId: string, _port: string, _cidr?: string, _description?: string): Promise<void> {
+  async authorizeSecurityGroup(_securityGroupId: string, _region: string, _port: string, _cidr?: string, _description?: string): Promise<void> {
     void _securityGroupId;
+    void _region;
     void _port;
     void _cidr;
     void _description;
@@ -237,18 +241,26 @@ export class TencentProvider implements CloudProvider {
     notImplemented();
   }
 
-  async runCommand(_instanceId: string, _content: string): Promise<CloudCommandResult> {
+  async runCommand(_instanceId: string, _region: string, _content: string): Promise<CloudCommandResult> {
     void _instanceId;
+    void _region;
     void _content;
     notImplemented();
   }
 
-  async getCommandResult(_invokeId: string): Promise<CloudInvocationResult> {
+  async getCommandResult(_invokeId: string, _region: string): Promise<CloudInvocationResult> {
     void _invokeId;
+    void _region;
     notImplemented();
   }
 
   async getInstanceCloudStatus(_ecsInstanceId: string, _region: string): Promise<string | null> {
+    void _ecsInstanceId;
+    void _region;
+    notImplemented();
+  }
+
+  async getInstancePublicIp(_ecsInstanceId: string, _region: string): Promise<string | null> {
     void _ecsInstanceId;
     void _region;
     notImplemented();

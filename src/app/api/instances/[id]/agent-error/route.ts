@@ -2,10 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instances, instanceLogs } from "@/lib/db/schema";
+import { instances, instanceLogs, workspaces } from "@/lib/db/schema";
 import { verifyAccessToken } from "@/lib/instances/auth";
 import { ok, fail } from "@/lib/api";
-import { getAliyunProvider } from "@/lib/providers";
+import { getProvider } from "@/lib/providers";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,6 +28,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     const instance = await db.query.instances.findFirst({
       where: eq(instances.id, id),
     });
+    const workspace = instance
+      ? await db.query.workspaces.findFirst({
+          where: eq(workspaces.id, instance.workspaceId),
+        })
+      : null;
 
     await db
       .update(instances)
@@ -47,16 +52,17 @@ export async function POST(req: NextRequest, { params }: Params) {
       message: body.error,
     });
 
-    if (instance?.ecsInstanceId) {
+    if (instance?.ecsInstanceId && workspace) {
       try {
-        const provider = getAliyunProvider();
-        await provider.deleteInstance(instance.ecsInstanceId);
+        const provider = getProvider(workspace.provider);
+        await provider?.deleteInstance(instance.ecsInstanceId, workspace.region);
         await db
           .update(instances)
           .set({
             status: "STOPPED",
             stoppedAt: new Date(),
             stopReason: "boot_failed",
+            updatedAt: new Date(),
           })
           .where(eq(instances.id, id));
       } catch (deleteErr) {

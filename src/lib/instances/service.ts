@@ -10,7 +10,7 @@ import {
   cloudInstances,
 } from "@/lib/db/schema";
 import { getUserSettings } from "@/lib/aliyun/auth";
-import { getAliyunProvider } from "@/lib/providers";
+import { getProvider } from "@/lib/providers";
 import { ensureRegionResources, ensureInstanceSecurityGroup } from "@/lib/ecs/provisioning";
 import {
   buildUserData,
@@ -139,8 +139,11 @@ export async function createInstance(
   const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
 
   try {
-    console.log("[createInstance] Getting Aliyun credentials...");
-    const provider = getAliyunProvider();
+    console.log("[createInstance] Getting provider credentials...");
+    const provider = getProvider(workspace.provider);
+    if (!provider) {
+      throw new InstanceError("Unknown provider", 500);
+    }
     const creds = await provider.getCredentials(userId);
     console.log("[createInstance] Credentials OK, ensuring region resources...");
     const resources = await ensureRegionResources(creds, workspace.region);
@@ -271,6 +274,9 @@ export async function getInstance(userId: string, instanceId: string) {
   return {
     ...instance,
     workspaceName: workspace.name,
+    workspaceRegion: workspace.region,
+    workspaceProvider: workspace.provider,
+    workspaceActivityConfig: workspace.activityConfig,
     cloudInstanceName: cloudInstance?.name ?? null,
     cloudInstanceType: cloudInstance?.instanceType ?? null,
     logs,
@@ -310,17 +316,22 @@ export async function stopInstance(userId: string, instanceId: string) {
 
   if (instance.ecsInstanceId) {
     try {
-      const provider = getAliyunProvider();
+      const provider = getProvider(workspace.provider);
+      if (!provider) {
+        throw new InstanceError("Unknown provider", 500);
+      }
+      const region = workspace.region;
       const hookScript = buildStopHook();
       const commandResult = await provider.runCommand(
         instance.ecsInstanceId,
+        region,
         hookScript,
       );
 
       let ossUsageBytes: number | null = null;
       for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 5000));
-        const results = await provider.getCommandResult(commandResult.invokeId);
+        const results = await provider.getCommandResult(commandResult.invokeId, region);
         const output = results.output ?? "";
         const match = output.match(/OSS_USAGE=(\d+)/);
         if (match) {
@@ -329,7 +340,7 @@ export async function stopInstance(userId: string, instanceId: string) {
         }
       }
 
-      await provider.deleteInstance(instance.ecsInstanceId);
+      await provider.deleteInstance(instance.ecsInstanceId, region);
 
       await db
         .update(instances)
@@ -339,6 +350,7 @@ export async function stopInstance(userId: string, instanceId: string) {
           stopReason: "manual",
           ossUsageBytes,
           logsExpireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
         })
         .where(eq(instances.id, instanceId));
     } catch (e) {

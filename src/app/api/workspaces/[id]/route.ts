@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { workspaces, instances, auditLogs } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { deleteWorkspace } from "@/lib/workspaces/service";
-import { getAliyunProvider } from "@/lib/providers";
+import { getProvider } from "@/lib/providers";
 import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 import type { CloudInstance } from "@/lib/providers";
 import { encrypt } from "@/lib/crypto";
@@ -90,8 +90,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     let ecs: CloudInstance | null = null;
     if (latestInstance?.ecsInstanceId) {
       try {
-        const provider = getAliyunProvider();
-        ecs = await provider.getInstance(latestInstance.ecsInstanceId);
+        const provider = getProvider(workspace.provider);
+        ecs = await provider?.getInstance(latestInstance.ecsInstanceId, workspace.region) ?? null;
       } catch {
         ecs = null;
       }
