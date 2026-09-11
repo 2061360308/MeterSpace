@@ -13,6 +13,13 @@ interface LogEntry {
   message: string;
 }
 
+interface AccessPort {
+  port: number;
+  label: string;
+  protocol: string;
+  private: boolean;
+}
+
 interface Snapshot {
   status: string;
   bootPhase: string | null;
@@ -33,6 +40,8 @@ interface Snapshot {
   diskSize: number;
   bandwidth: number;
   allowedPorts: number[];
+  ports?: AccessPort[];
+  currentEntry?: string | null;
   logs: LogEntry[];
 }
 
@@ -297,6 +306,13 @@ function CreatingView({
     },
     { label: "磁盘", value: `${snapshot.diskSize} GB` },
     { label: "带宽", value: `${snapshot.bandwidth} Mbps` },
+    {
+      label: "端口",
+      value:
+        snapshot.allowedPorts?.includes(0)
+          ? "全部端口"
+          : (snapshot.allowedPorts?.join(", ") ?? "—"),
+    },
   ];
 
   return (
@@ -396,12 +412,17 @@ function buildEditorLinks(snapshot: Snapshot): EditorLink[] {
   const port = snapshot.port ?? 8080;
   const baseUrl = `http://${host}:${port}`;
   return [
-    { id: "webide", label: "WebIDE", desc: "浏览器直接打开", url: baseUrl },
     {
       id: "vscode",
       label: "VSCode",
       desc: "VSCode 客户端连接",
       url: host ? `vscode://vscode-remote/ssh-remote+${host}/workspace` : baseUrl,
+    },
+    {
+      id: "ssh",
+      label: "SSH",
+      desc: `ssh root@${host}`,
+      url: host ? `ssh://root@${host}/workspace` : baseUrl,
     },
     {
       id: "cursor",
@@ -430,8 +451,46 @@ function buildEditorLinks(snapshot: Snapshot): EditorLink[] {
   ];
 }
 
+/** 多端口访问按钮（§6.2）。私有端口在快照层已过滤，这里不再区分。 */
+function PortButtons({ snapshot }: { snapshot: Snapshot }) {
+  const host = snapshot.publicIp;
+  const ports = snapshot.ports ?? [];
+  if (!host || ports.length === 0) return null;
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-3 flex items-baseline justify-between">
+        <div className="text-sm font-medium text-white/90">服务入口</div>
+        <div className="text-xs text-white/40">{ports.length} 个端口</div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {ports.map((p) => (
+          <a
+            key={p.port}
+            href={`http://${host}:${p.port}`}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-white/30 hover:bg-white/10"
+          >
+            <div className="min-w-0">
+              <div className="truncate font-medium">{p.label}</div>
+              <div className="mt-0.5 font-mono text-xs text-white/50">
+                {host}:{p.port} · {p.protocol}
+              </div>
+            </div>
+            <span className="ml-3 shrink-0 text-white/40 transition group-hover:text-white">
+              ↗
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SuccessView({ snapshot, now }: { snapshot: Snapshot; now: number }) {
   const links = buildEditorLinks(snapshot);
+  const ports = snapshot.ports ?? [];
 
   return (
     <div className="flex h-full flex-col">
@@ -467,10 +526,12 @@ function SuccessView({ snapshot, now }: { snapshot: Snapshot; now: number }) {
       </header>
 
       <main className="flex-1 overflow-y-auto p-6">
-        {links[0]?.url && (
+        {ports.length > 0 ? (
+          <PortButtons snapshot={snapshot} />
+        ) : (
           <div className="mx-auto max-w-3xl">
             <a
-              href={links[0].url}
+              href={`http://${snapshot.publicIp ?? ""}:${snapshot.port ?? 8080}`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-sky-500 px-6 py-3 text-base font-semibold text-white transition hover:opacity-90"
@@ -484,7 +545,7 @@ function SuccessView({ snapshot, now }: { snapshot: Snapshot; now: number }) {
             </div>
           </div>
         )}
-        <div className="mx-auto mt-6 grid max-w-3xl grid-cols-2 gap-4 md:grid-cols-3">
+        <div className="mx-auto mt-8 grid max-w-3xl grid-cols-2 gap-4 md:grid-cols-3">
           {links.map((l) => (
             <a
               key={l.id}

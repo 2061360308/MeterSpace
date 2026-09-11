@@ -17,6 +17,13 @@ interface InstanceLog {
   message: string;
 }
 
+interface ExposedPort {
+  port: number;
+  label?: string;
+  protocol?: string;
+  private?: boolean;
+}
+
 interface Instance {
   id: string;
   workspaceId: string;
@@ -30,12 +37,17 @@ interface Instance {
   bootStartedAt: string | null;
   bootCompletedAt: string | null;
   bootError: string | null;
+  currentEntry: string | null;
   lastActiveAt: string | null;
+  accessSummary: unknown;
   ossUsageBytes: number | null;
   stoppedAt: string | null;
   stopReason: string | null;
   createdAt: string;
   workspaceName: string;
+  workspaceRegion: string;
+  workspaceProvider: string;
+  workspaceActivityConfig: { ports?: ExposedPort[] } | null;
   cloudInstanceName: string | null;
   cloudInstanceType: string | null;
   logs: InstanceLog[];
@@ -160,9 +172,6 @@ export function InstanceDetail({ id }: { id: string }) {
   const meta = STATUS_META[status] ?? STATUS_META.STOPPED;
   const isRunning = status === "RUNNING";
   const isBooting = status === "PROVISIONING" || status === "BOOTING";
-  const ideUrl = isRunning
-    ? `http://${instance.publicIp}:${instance.port ?? 8080}`
-    : null;
 
   const currentPhaseIndex = instance.bootPhase
     ? BOOT_PHASES.findIndex((p) => p.key === instance.bootPhase)
@@ -251,23 +260,43 @@ export function InstanceDetail({ id }: { id: string }) {
         </Card>
       )}
 
-      {isRunning && ideUrl && (
-        <Card className="space-y-3 p-6">
-          <h2 className="font-medium">访问方式</h2>
-          <p className="text-sm text-gray-600">
-            IDE 地址:{" "}
-            <a
-              href={ideUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 hover:underline"
-            >
-              {ideUrl}
-            </a>
-          </p>
-          <div className="flex gap-2">
+      {isRunning && instance.publicIp && (
+        <Card className="space-y-4 p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">访问方式</h2>
+            {instance.currentEntry && (
+              <span className="font-mono text-xs text-gray-500">
+                当前入口: {instance.currentEntry}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {portsFor(instance).map((p) => {
+              const url = `http://${instance.publicIp}:${p.port}`;
+              return (
+                <a
+                  key={p.port}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between rounded-lg border bg-gray-50 px-4 py-3 transition hover:border-blue-400 hover:bg-white"
+                >
+                  <div>
+                    <div className="font-medium">{p.label ?? `端口 ${p.port}`}</div>
+                    <div className="mt-0.5 font-mono text-xs text-gray-500">
+                      {instance.publicIp}:{p.port} · {p.protocol ?? "tcp"}
+                    </div>
+                  </div>
+                  <span className="text-gray-400">↗</span>
+                </a>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
             <Button onClick={openWorkbench} disabled={busy || !personalCode}>
-              进入工作台
+              进入访问页
             </Button>
             <Button variant="secondary" onClick={handleStop} disabled={busy}>
               停止实例
@@ -361,4 +390,32 @@ function formatDuration(startIso: string): string {
   const minutes = Math.floor(diff / 60);
   const seconds = diff % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+/** 组合模板声明的端口和 agent 运行时上报的端口，过滤私有端口。 */
+function portsFor(instance: Instance): ExposedPort[] {
+  const declared = instance.workspaceActivityConfig?.ports ?? [];
+
+  const runtime: ExposedPort[] = [];
+  const summary = instance.accessSummary;
+  if (
+    summary &&
+    typeof summary === "object" &&
+    "ports" in summary &&
+    Array.isArray((summary as { ports?: unknown }).ports)
+  ) {
+    for (const p of (summary as { ports: unknown[] }).ports) {
+      if (p && typeof p === "object" && typeof (p as { port?: unknown }).port === "number") {
+        runtime.push(p as ExposedPort);
+      }
+    }
+  }
+
+  const merged = new Map<number, ExposedPort>();
+  for (const p of declared) merged.set(p.port, p);
+  for (const p of runtime) merged.set(p.port, p);
+
+  return [...merged.values()]
+    .filter((p) => !p.private)
+    .sort((a, b) => a.port - b.port);
 }

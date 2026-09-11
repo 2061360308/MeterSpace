@@ -68,6 +68,9 @@ export function WorkspaceList() {
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    // 懒处理：serverless 无后台进程，借这次请求触发超时 / 心跳 / 空闲检查
+    fetch("/api/maintenance", { method: "POST" }).catch(() => {});
+
     const wsRes = await fetch("/api/workspaces");
     if (wsRes.ok) {
       const data = await wsRes.json();

@@ -151,6 +151,9 @@ export function WorkspaceDetail({ id }: { id: string }) {
   }
 
   const load = useCallback(async () => {
+    // 懒处理：serverless 无后台进程，借这次请求触发超时 / 心跳 / 空闲检查
+    fetch("/api/maintenance", { method: "POST" }).catch(() => {});
+
     const res = await fetch(`/api/workspaces/${id}`);
     if (res.status === 404) {
       router.replace("/");
