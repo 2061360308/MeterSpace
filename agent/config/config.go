@@ -4,15 +4,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// PortDecl declares a port exposed by the workspace (mirrors Template
+// metadata `activity.ports`, see docs/FINAL-PLAN.md §2.5 / §6.2).
+type PortDecl struct {
+	Port     int    `json:"port"`
+	Label    string `json:"label,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Private  bool   `json:"private,omitempty"`
+}
+
+// ActivityConfig carries liveness/port declarations (docs/FINAL-PLAN.md §2.5).
+type ActivityConfig struct {
+	Ports             []PortDecl `json:"ports,omitempty"`
+	IdleMinutes       int        `json:"idleMinutes,omitempty"`
+	SampleIntervalSec int        `json:"sampleIntervalSec,omitempty"`
+}
+
 // Config holds all agent configuration
 type Config struct {
 	// Instance identification
-	InstanceID string `json:"instance_id"`
+	InstanceID  string `json:"instance_id"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Region      string `json:"region,omitempty"`
 
 	// Backend connection
 	BackendURL   string `json:"backend_url"`
@@ -26,6 +45,20 @@ type Config struct {
 	// Script configuration
 	ScriptPath    string        `json:"script_path"`
 	ScriptTimeout time.Duration `json:"script_timeout"`
+
+	// === 模板协议（docs/FINAL-PLAN.md §5 / §6）===
+	// WorkspaceRoot 载荷落盘根目录，默认 /opt/ws
+	WorkspaceRoot string `json:"workspace_root"`
+	// WorkspaceDir 持久化业务数据目录（备份到 OSS），默认 /workspace
+	WorkspaceDir string `json:"workspace_dir"`
+	// Entry 载荷内入口文件相对路径（由后端 /payload 返回，可被配置覆盖）
+	Entry string `json:"entry,omitempty"`
+	// EntryTimeout 入口执行超时（秒），默认 1800，上限 3600
+	EntryTimeout time.Duration `json:"entry_timeout"`
+	// Activity 探活 + 端口声明
+	Activity ActivityConfig `json:"activity,omitempty"`
+	// ExposedPortsFile 端口声明覆盖文件（可选）
+	ExposedPortsFile string `json:"exposed_ports_file,omitempty"`
 
 	// API server configuration
 	Port int `json:"port"`
@@ -44,15 +77,20 @@ type Config struct {
 // DefaultConfig returns a Config with default values
 func DefaultConfig() *Config {
 	return &Config{
-		HeartbeatInterval:    60 * time.Second,
-		HeartbeatJitter:      15 * time.Second,
-		IdleMinutes:          30,
-		ScriptPath:           "/opt/agent/scripts/startup.sh",
-		ScriptTimeout:        300 * time.Second,
-		Port:                 9527,
-		LogPath:              "/var/log/agent",
-		LogUploadInterval:    30 * time.Second,
-		AllowedIPs:           []string{},
+		HeartbeatInterval:     60 * time.Second,
+		HeartbeatJitter:       15 * time.Second,
+		IdleMinutes:           30,
+		ScriptPath:            "/opt/agent/scripts/startup.sh",
+		ScriptTimeout:         300 * time.Second,
+		WorkspaceRoot:         "/opt/ws",
+		WorkspaceDir:          "/workspace",
+		Entry:                 "",
+		EntryTimeout:          1800 * time.Second,
+		ExposedPortsFile:      "/opt/agent/ports.json",
+		Port:                  9527,
+		LogPath:               "/var/log/agent",
+		LogUploadInterval:     30 * time.Second,
+		AllowedIPs:            []string{},
 		EnableResourceMonitor: true,
 	}
 }
@@ -86,19 +124,27 @@ func loadFromFile(cfg *Config, path string) error {
 	}
 
 	var fileCfg struct {
-		InstanceID            string   `json:"instance_id"`
-		BackendURL            string   `json:"backend_url"`
-		BackendToken          string   `json:"backend_token"`
-		HeartbeatInterval     int      `json:"heartbeat_interval"`
-		HeartbeatJitter       int      `json:"heartbeat_jitter"`
-		IdleMinutes           int      `json:"idle_minutes"`
-		ScriptPath            string   `json:"script_path"`
-		ScriptTimeout         int      `json:"script_timeout"`
-		Port                  int      `json:"port"`
-		LogPath               string   `json:"log_path"`
-		LogUploadInterval     int      `json:"log_upload_interval"`
-		AllowedIPs            []string `json:"allowed_ips"`
-		EnableResourceMonitor bool     `json:"enable_resource_monitor"`
+		InstanceID            string          `json:"instance_id"`
+		WorkspaceID           string          `json:"workspace_id"`
+		Region                string          `json:"region"`
+		BackendURL            string          `json:"backend_url"`
+		BackendToken          string          `json:"backend_token"`
+		HeartbeatInterval     int             `json:"heartbeat_interval"`
+		HeartbeatJitter       int             `json:"heartbeat_jitter"`
+		IdleMinutes           int             `json:"idle_minutes"`
+		ScriptPath            string          `json:"script_path"`
+		ScriptTimeout         int             `json:"script_timeout"`
+		WorkspaceRoot         string          `json:"workspace_root"`
+		WorkspaceDir          string          `json:"workspace_dir"`
+		Entry                 string          `json:"entry"`
+		EntryTimeout          int             `json:"entry_timeout"`
+		Activity              *ActivityConfig `json:"activity"`
+		ExposedPortsFile      string          `json:"exposed_ports_file"`
+		Port                  int             `json:"port"`
+		LogPath               string          `json:"log_path"`
+		LogUploadInterval     int             `json:"log_upload_interval"`
+		AllowedIPs            []string        `json:"allowed_ips"`
+		EnableResourceMonitor bool            `json:"enable_resource_monitor"`
 	}
 
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
@@ -108,6 +154,12 @@ func loadFromFile(cfg *Config, path string) error {
 	// Apply file config
 	if fileCfg.InstanceID != "" {
 		cfg.InstanceID = fileCfg.InstanceID
+	}
+	if fileCfg.WorkspaceID != "" {
+		cfg.WorkspaceID = fileCfg.WorkspaceID
+	}
+	if fileCfg.Region != "" {
+		cfg.Region = fileCfg.Region
 	}
 	if fileCfg.BackendURL != "" {
 		cfg.BackendURL = fileCfg.BackendURL
@@ -129,6 +181,24 @@ func loadFromFile(cfg *Config, path string) error {
 	}
 	if fileCfg.ScriptTimeout > 0 {
 		cfg.ScriptTimeout = time.Duration(fileCfg.ScriptTimeout) * time.Second
+	}
+	if fileCfg.WorkspaceRoot != "" {
+		cfg.WorkspaceRoot = fileCfg.WorkspaceRoot
+	}
+	if fileCfg.WorkspaceDir != "" {
+		cfg.WorkspaceDir = fileCfg.WorkspaceDir
+	}
+	if fileCfg.Entry != "" {
+		cfg.Entry = fileCfg.Entry
+	}
+	if fileCfg.EntryTimeout > 0 {
+		cfg.EntryTimeout = time.Duration(fileCfg.EntryTimeout) * time.Second
+	}
+	if fileCfg.Activity != nil {
+		cfg.Activity = *fileCfg.Activity
+	}
+	if fileCfg.ExposedPortsFile != "" {
+		cfg.ExposedPortsFile = fileCfg.ExposedPortsFile
 	}
 	if fileCfg.Port > 0 {
 		cfg.Port = fileCfg.Port
@@ -181,6 +251,29 @@ func loadFromEnv(cfg *Config) {
 			cfg.ScriptTimeout = time.Duration(n) * time.Second
 		}
 	}
+	if v := os.Getenv("AGENT_WORKSPACE_ROOT"); v != "" {
+		cfg.WorkspaceRoot = v
+	}
+	if v := os.Getenv("AGENT_WORKSPACE_DIR"); v != "" {
+		cfg.WorkspaceDir = v
+	}
+	if v := os.Getenv("AGENT_ENTRY"); v != "" {
+		cfg.Entry = v
+	}
+	if v := os.Getenv("AGENT_ENTRY_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.EntryTimeout = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("AGENT_WORKSPACE_ID"); v != "" {
+		cfg.WorkspaceID = v
+	}
+	if v := os.Getenv("AGENT_REGION"); v != "" {
+		cfg.Region = v
+	}
+	if v := os.Getenv("AGENT_EXPOSED_PORTS_FILE"); v != "" {
+		cfg.ExposedPortsFile = v
+	}
 	if v := os.Getenv("AGENT_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Port = n
@@ -214,6 +307,60 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("backend_token is required")
 	}
 	return nil
+}
+
+// EntryPath returns the absolute path of the entry file inside WorkspaceRoot.
+// Empty Entry yields "" (caller should fall back to the /payload response).
+func (c *Config) EntryPath() string {
+	if c.Entry == "" {
+		return ""
+	}
+	return filepath.Join(c.WorkspaceRoot, filepath.Clean("/"+c.Entry))
+}
+
+// IdleDuration returns the configured idle window as a Duration.
+func (c *Config) IdleDuration() time.Duration {
+	m := c.IdleMinutes
+	if c.Activity.IdleMinutes > 0 {
+		m = c.Activity.IdleMinutes
+	}
+	if m <= 0 {
+		m = 30
+	}
+	return time.Duration(m) * time.Minute
+}
+
+// SampleInterval returns the activity sampling interval.
+func (c *Config) SampleInterval() time.Duration {
+	s := c.Activity.SampleIntervalSec
+	if s <= 0 {
+		s = 30
+	}
+	return time.Duration(s) * time.Second
+}
+
+// PortNumbers returns the declared port numbers (may be empty).
+func (c *Config) PortNumbers() []int {
+	ports := make([]int, 0, len(c.Activity.Ports))
+	for _, p := range c.Activity.Ports {
+		if p.Port > 0 {
+			ports = append(ports, p.Port)
+		}
+	}
+	return ports
+}
+
+// WorkspaceEnv returns the WS_* environment variables injected into entry
+// processes (docs/FINAL-PLAN.md §6.1).
+func (c *Config) WorkspaceEnv() []string {
+	return []string{
+		"WS_ROOT=" + c.WorkspaceRoot,
+		"WS_WORKSPACE=" + c.WorkspaceDir,
+		"WS_EXPOSED_PORTS_FILE=" + c.ExposedPortsFile,
+		"WS_INSTANCE_ID=" + c.InstanceID,
+		"WS_WORKSPACE_ID=" + c.WorkspaceID,
+		"WS_REGION=" + c.Region,
+	}
 }
 
 // IsAllowedIP checks if an IP is in the allowed list

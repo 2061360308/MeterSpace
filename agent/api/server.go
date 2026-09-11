@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/workspace-cloud/agent/access"
+	"github.com/workspace-cloud/agent/activity"
 	"github.com/workspace-cloud/agent/config"
 	"github.com/workspace-cloud/agent/crypto"
 	"github.com/workspace-cloud/agent/executor"
@@ -22,6 +24,7 @@ type Server struct {
 	heartbeat *heartbeat.Manager
 	tracker   *access.Tracker
 	reporter  *reporter.Reporter
+	detector  *activity.Detector
 	server    *http.Server
 	mu        sync.RWMutex
 }
@@ -33,6 +36,7 @@ func NewServer(
 	hb *heartbeat.Manager,
 	tracker *access.Tracker,
 	r *reporter.Reporter,
+	detector *activity.Detector,
 ) *Server {
 	return &Server{
 		cfg:       cfg,
@@ -40,6 +44,7 @@ func NewServer(
 		heartbeat: hb,
 		tracker:   tracker,
 		reporter:  r,
+		detector:  detector,
 	}
 }
 
@@ -85,6 +90,12 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		)
 		userAgent := r.Header.Get("User-Agent")
 		s.tracker.Record(ip, userAgent)
+
+		// An authenticated API call is a direct sign of use — reflect it in the
+		// activity detector so the idle watchdog does not reclaim a live session.
+		if s.detector != nil && r.URL.Path != "/health" {
+			s.detector.MarkActive()
+		}
 
 		next.ServeHTTP(w, r)
 
@@ -249,6 +260,20 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 	var response map[string]interface{}
 
 	switch request.Action {
+	case "run_entry":
+		// Debug/retry hook for the template entry (docs/FINAL-PLAN.md §12.1).
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Minute)
+			defer cancel()
+			if err := s.executor.RunEntry(ctx); err != nil {
+				fmt.Printf("[api] run_entry failed: %v\n", err)
+			}
+		}()
+		response = map[string]interface{}{
+			"status":  "accepted",
+			"action":  request.Action,
+			"message": "Entry execution started",
+		}
 	case "retry_script":
 		go s.executor.Execute()
 		response = map[string]interface{}{

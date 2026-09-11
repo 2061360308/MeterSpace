@@ -42,7 +42,7 @@ func NewReporter(backendURL, backendToken, instanceID string) *Reporter {
 	return r
 }
 
-// HeartbeatPayload represents the heartbeat data
+// HeartbeatPayload represents the heartbeat data (docs/FINAL-PLAN.md §11.2)
 type HeartbeatPayload struct {
 	Token         string                `json:"token"`
 	Status        string                `json:"status"`
@@ -53,6 +53,19 @@ type HeartbeatPayload struct {
 	ScriptError   string                `json:"script_error,omitempty"`
 	ResourceUsage *ResourceUsage        `json:"resource_usage,omitempty"`
 	AccessSummary *access.AccessSummary `json:"access_summary,omitempty"`
+	// CurrentEntry is the entry file the agent is running (or last ran).
+	CurrentEntry string `json:"current_entry,omitempty"`
+	// ExposedPorts lets the agent override the template's declared ports when
+	// the real ports differ (docs/FINAL-PLAN.md §6.2 用途 B).
+	ExposedPorts []PortDecl `json:"exposed_ports,omitempty"`
+}
+
+// PortDecl mirrors the template metadata port declaration.
+type PortDecl struct {
+	Port     int    `json:"port"`
+	Label    string `json:"label,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Private  bool   `json:"private,omitempty"`
 }
 
 // ResourceUsage represents resource usage
@@ -64,10 +77,13 @@ type ResourceUsage struct {
 	DiskTotalMB   int64   `json:"disk_total_mb"`
 }
 
-// ReadyPayload represents the ready notification
+// ReadyPayload represents the ready notification.
+//
+// PublicIP was removed (docs/FINAL-PLAN.md §11.2): the backend resolves the
+// public IP itself via the cloud API when handling agent-ready, because the
+// container cannot reliably learn its own public address.
 type ReadyPayload struct {
 	Token        string `json:"token"`
-	PublicIP     string `json:"publicIp"`
 	AgentVersion string `json:"agent_version"`
 }
 
@@ -166,11 +182,11 @@ func (r *Reporter) GetInstanceID() string {
 	return r.instanceID
 }
 
-// ReportReady notifies the backend that the agent is ready
-func (r *Reporter) ReportReady(publicIP, agentVersion string) error {
+// ReportReady notifies the backend that the agent is ready (P0 fix, §11.3).
+// The backend resolves the public IP itself, so no IP is sent here.
+func (r *Reporter) ReportReady(agentVersion string) error {
 	payload := ReadyPayload{
 		Token:        r.backendToken,
-		PublicIP:     publicIP,
 		AgentVersion: agentVersion,
 	}
 	return r.post("/agent-ready", payload)

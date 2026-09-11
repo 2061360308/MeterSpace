@@ -9,6 +9,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/workspace-cloud/agent/access"
+	"github.com/workspace-cloud/agent/activity"
 	"github.com/workspace-cloud/agent/executor"
 	"github.com/workspace-cloud/agent/reporter"
 )
@@ -18,6 +19,7 @@ type Manager struct {
 	reporter      *reporter.Reporter
 	accessTracker *access.Tracker
 	executor      *executor.Executor
+	detector      *activity.Detector
 	interval      time.Duration
 	jitter        time.Duration
 	agentVersion  string
@@ -25,6 +27,8 @@ type Manager struct {
 	lastActiveAt  time.Time
 	active        bool
 	status        string
+	currentEntry  string
+	exposedPorts  []reporter.PortDecl
 	mu            sync.RWMutex
 	stopCh        chan struct{}
 }
@@ -50,6 +54,28 @@ func NewManager(
 		status:        "starting",
 		stopCh:        make(chan struct{}),
 	}
+}
+
+// SetDetector attaches the activity detector. Once set, `active` is derived
+// from real connections rather than only from agent API calls.
+func (m *Manager) SetDetector(d *activity.Detector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detector = d
+}
+
+// SetCurrentEntry records the entry file currently being run (H3/§11.2).
+func (m *Manager) SetCurrentEntry(entry string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.currentEntry = entry
+}
+
+// SetExposedPorts records the ports the agent actually observed (§6.2 用途 B).
+func (m *Manager) SetExposedPorts(ports []reporter.PortDecl) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.exposedPorts = ports
 }
 
 // SetStatus sets the agent status
@@ -146,7 +172,24 @@ func (m *Manager) sendHeartbeat() {
 	status := m.status
 	active := m.active
 	lastActiveAt := m.lastActiveAt
+	currentEntry := m.currentEntry
+	exposedPorts := m.exposedPorts
+	detector := m.detector
 	m.mu.RUnlock()
+
+	// The detector is the stronger liveness signal: a user hitting the app on
+	// :8000 keeps the workspace alive even if agent API is never called.
+	if detector != nil {
+		lastActiveAt = detector.LastActive()
+		if detector.Connections() != nil {
+			for _, n := range detector.Connections() {
+				if n > 0 {
+					active = true
+					break
+				}
+			}
+		}
+	}
 
 	// Get script status
 	scriptStatus := "unknown"
@@ -177,6 +220,8 @@ func (m *Manager) sendHeartbeat() {
 		ScriptError:   scriptError,
 		ResourceUsage: resourceUsage,
 		AccessSummary: accessSummary,
+		CurrentEntry:  currentEntry,
+		ExposedPorts:  exposedPorts,
 	}
 
 	// Send heartbeat
@@ -184,6 +229,24 @@ func (m *Manager) sendHeartbeat() {
 		// Log error but don't stop heartbeat
 		println("[heartbeat] Failed to send heartbeat:", err.Error())
 	}
+}
+
+// IsIdleNow reports idleness using the detector when available, falling back to
+// the internally tracked lastActiveAt (H3/H4: this is now actually consulted by
+// main's idle checker).
+func (m *Manager) IsIdleNow(idleMinutes int) bool {
+	m.mu.RLock()
+	detector := m.detector
+	lastActiveAt := m.lastActiveAt
+	m.mu.RUnlock()
+
+	if detector != nil {
+		return detector.IsIdle(idleMinutes)
+	}
+	if idleMinutes <= 0 {
+		idleMinutes = 30
+	}
+	return time.Since(lastActiveAt) > time.Duration(idleMinutes)*time.Minute
 }
 
 // IsIdle checks if the agent has been idle for too long
