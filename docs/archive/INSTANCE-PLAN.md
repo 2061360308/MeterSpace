@@ -273,7 +273,7 @@ ALTER TABLE workspaces DROP COLUMN disk_category;
 | Phase 5 | 前端：工作区详情页重构 + 实例详情页 | 1.5天 |
 | Phase 6 | 自定义脚本 CRUD | 0.5天 |
 | Phase 7 | 访问码系统 (个人码 + 邀请码) | 1天 |
-| Phase 8 | 日志清理 Cron + 系统设置扩展 | 0.5天 |
+| Phase 8 | 日志清理后端 + 系统设置扩展 | 0.5天 |
 
 ## 八、需要清理的旧代码
 

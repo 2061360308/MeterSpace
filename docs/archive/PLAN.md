@@ -651,7 +651,7 @@ POST /api/health/:workspaceId/idle
 ① 校验 accessToken（D5）
 ② Neon: UPDATE workspace_states SET idle_triggered=true, last_active_at=NOW()
 ③ 读取 workspace.idle_minutes（null 用全局默认）
-④ 直接触发停止流程（复用第十章），或交给 Vercel Cron 兜底扫描（Hobby 每天一次 / Pro 每分钟）
+④ 直接触发停止流程（复用第十章），或等前端下次打开页面时由 `/api/maintenance` 兜底扫描
 ```
 
 ### 前端心跳

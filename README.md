@@ -2,7 +2,11 @@
 
 类 Codespaces 的自部署云端开发环境服务。前端 + Serverless 部署在 Vercel，运行时按需创建阿里云 ECS，工作区代码通过 ossfs 实时落 OSS。
 
-完整架构与实现细节见 [docs/PLAN.md](docs/PLAN.md)。
+完整架构与实现细节见：
+
+- [docs/FINAL-PLAN.md](docs/FINAL-PLAN.md) — **当前实施手册（唯一权威）**
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 架构总览
+- [docs/archive/](docs/archive/) — 历史设计稿（已作废，仅供追溯）
 
 ## 技术栈
 
