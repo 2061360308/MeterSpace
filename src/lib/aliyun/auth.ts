@@ -13,6 +13,8 @@ export interface UserSettings {
   defaultIdleMinutes: number;
   /** 抢占式实例保障时长（小时），0 或 1；仅该实例启用抢占时生效 */
   defaultSpotDuration: number;
+  /** 停止实例的日志保留天数（1-365），到点由 cleanupExpiredLogs 删除 */
+  logRetentionDays: number;
   acrInstanceId: string | null;
   ossBucket: string | null;
 }
@@ -51,6 +53,7 @@ export async function getUserSettings(
     defaultReleaseHours: row.defaultReleaseHours ?? 0.5,
     defaultIdleMinutes: row.defaultIdleMinutes ?? 30,
     defaultSpotDuration: row.defaultSpotDuration ?? 1,
+    logRetentionDays: row.logRetentionDays ?? 7,
     acrInstanceId: row.acrInstanceId,
     ossBucket: row.ossBucket,
   };

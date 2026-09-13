@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { apiGet } from "@/lib/api-client";
 import { StepsSidebar } from "./steps/steps-sidebar";
 import { StepBasic } from "./steps/step-basic";
 import { StepGit } from "./steps/step-git";
@@ -53,6 +54,45 @@ export function NewWorkspaceForm() {
     }
     return INITIAL_STATE;
   });
+
+  // 用户级默认值 → 工作区快照。
+  //
+  // 磁盘/带宽不走「实例直读 settings」：实例继承自工作区，工作区在创建那一刻
+  // 从 settings 取一次快照。所以这里必须在提交前把 settings 值填进 wizard 状态，
+  // 否则 instantiate 落库的就是硬编码的 40/10，设置页改了也不生效。
+  //
+  // 只覆盖用户还没动过的字段（与 INITIAL_STATE 默认值相同即视为未编辑），
+  // 避免慢请求回来把用户已经手填的值冲掉。
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<{
+      settings: {
+        defaultDiskSize?: number | null;
+        defaultBandwidth?: number | null;
+      } | null;
+    }>("/api/settings")
+      .then((res) => {
+        if (cancelled || !res?.settings) return;
+        const { defaultDiskSize, defaultBandwidth } = res.settings;
+        setState((s) => ({
+          ...s,
+          diskSize:
+            s.diskSize === INITIAL_STATE.diskSize && defaultDiskSize != null
+              ? defaultDiskSize
+              : s.diskSize,
+          bandwidth:
+            s.bandwidth === INITIAL_STATE.bandwidth && defaultBandwidth != null
+              ? defaultBandwidth
+              : s.bandwidth,
+        }));
+      })
+      .catch(() => {
+        // 拉取失败就沿用硬编码兜底值，不阻塞创建流程
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goPrev = () =>
     setState((s) => ({ ...s, currentStep: Math.max(1, s.currentStep - 1) }));

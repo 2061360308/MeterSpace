@@ -207,6 +207,13 @@ export async function createWorkspace(
     proxyUpstreamSecret = encrypt(proxyUpstreamSecret);
   }
 
+  // 用户级默认值 → 工作区快照（实例之后再从工作区继承）。
+  //
+  // 这里必须显式回退到 settings：调用方（尤其是 wizard）可能不传这些字段，
+  // 若直接写 null/undefined，工作区行就定型为「无偏好」，之后实例继承时
+  // 只能落到硬编码兜底值，设置页填的值等于白填。
+  const s = await getUserSettings(userId);
+
   const [workspace] = await db
     .insert(workspaces)
     .values({
@@ -215,8 +222,8 @@ export async function createWorkspace(
       provider: input.provider,
       region: input.region,
       imageUri: input.imageUri,
-      defaultDiskSize: input.diskSize,
-      defaultBandwidth: input.bandwidth,
+      defaultDiskSize: input.diskSize ?? s.defaultDiskSize,
+      defaultBandwidth: input.bandwidth ?? s.defaultBandwidth,
       publicIp: input.publicIp,
       features,
       gitProvider: input.gitProvider ?? null,
@@ -224,8 +231,8 @@ export async function createWorkspace(
       gitBranch: input.gitBranch ?? "main",
       gitTokenEnc,
       autoClone: input.autoClone ?? true,
-      releaseHours: input.releaseHours ?? null,
-      idleMinutes: input.idleMinutes ?? null,
+      releaseHours: input.releaseHours ?? s.defaultReleaseHours,
+      idleMinutes: input.idleMinutes ?? s.defaultIdleMinutes,
       ossWorkspacePath: null,
       proxyMode:
         input.proxyMode === undefined || input.proxyMode === ""

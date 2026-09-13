@@ -18,6 +18,7 @@ import { parseTemplateDefinition, buildParamValues } from "@/lib/templates/valid
 import { renderFile } from "@/lib/templates/render";
 import { getProvider } from "@/lib/providers";
 import { ossBucketForRegion } from "@/lib/workspaces/service";
+import { getUserSettings } from "@/lib/aliyun/auth";
 import { getGitTokenEnc } from "@/lib/git/service";
 import { encrypt } from "@/lib/crypto";
 import {
@@ -243,6 +244,13 @@ export async function instantiateWorkspaceFromLaunch(
     throw new Error(`Unknown provider: ${body.provider}`);
   }
 
+  // 用户级默认值 → 工作区快照（实例之后再从工作区继承）。
+  //
+  // 磁盘/带宽/释放时长/空闲阈值都必须在这里定型：实例只读自己那行的
+  // disk_size / bandwidth，之后再无机会回查 settings。写 null 等于把
+  // 设置页的值丢弃，最后只能落到硬编码兜底。
+  const s = await getUserSettings(userId);
+
   const [workspace] = await db
     .insert(workspaces)
     .values({
@@ -251,8 +259,8 @@ export async function instantiateWorkspaceFromLaunch(
       provider: body.provider ?? "aliyun",
       region: body.region,
       imageUri: null,
-      defaultDiskSize: body.diskSize ?? 40,
-      defaultBandwidth: body.bandwidth ?? 10,
+      defaultDiskSize: body.diskSize ?? s.defaultDiskSize,
+      defaultBandwidth: body.bandwidth ?? s.defaultBandwidth,
       publicIp: body.publicIp ?? true,
       features: [],
       gitProvider: body.gitProvider ?? null,
@@ -266,8 +274,10 @@ export async function instantiateWorkspaceFromLaunch(
       entry: definition.entry,
       activityConfig: activity,
       entryTimeout,
-      idleMinutes: activity.idleMinutes ?? DEFAULT_IDLE_MINUTES,
-      releaseHours: body.releaseHours ?? null,
+      // 模板声明的 idleMinutes 优先（那是模板作者对该负载的判断），
+      // 其次用户级默认值；DEFAULT_IDLE_MINUTES 只作为最后兜底。
+      idleMinutes: activity.idleMinutes ?? s.defaultIdleMinutes,
+      releaseHours: body.releaseHours ?? s.defaultReleaseHours,
       ossWorkspacePath: null,
       proxyMode: body.proxyMode ?? "inherit",
       proxyClashSubscription: body.proxyClashSubscription || null,

@@ -555,13 +555,47 @@ export async function resumeReleasing(
   return { finalized, pending, failed };
 }
 
-/** 收尾落库：清空访问凭据、写停止时间、挂 7 天日志过期。 */
+/** 默认日志保留天数；`settings.logRetentionDays` 缺失时兜底。 */
+const DEFAULT_LOG_RETENTION_DAYS = 7;
+
+/** 取实例所属用户，用于读取该用户的偏好设置。 */
+async function getInstanceOwner(instanceId: string): Promise<string | null> {
+  const row = (
+    await db
+      .select({ userId: workspaces.userId })
+      .from(instances)
+      .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
+      .where(eq(instances.id, instanceId))
+      .limit(1)
+  )[0];
+  return row?.userId ?? null;
+}
+
+/**
+ * 收尾落库：清空访问凭据、写停止时间、按用户偏好挂日志过期。
+ *
+ * 日志保留天数读 `settings.logRetentionDays`（用户级偏好，不随工作区快照）。
+ * 之前这里硬编码 7 天，导致设置页的「日志保留」形同虚设 —— 清理逻辑
+ * （`cleanupExpiredLogs`）本身是好的，只是过期时间从来没按设置算过。
+ */
 async function finalizeRelease(
   instanceId: string,
   ossUsageBytes: number | null,
   stopReason: string,
   bootError: string | null,
 ): Promise<void> {
+  const userId = await getInstanceOwner(instanceId);
+  let retentionDays = DEFAULT_LOG_RETENTION_DAYS;
+  if (userId) {
+    try {
+      const s = await getUserSettings(userId);
+      retentionDays = s.logRetentionDays ?? DEFAULT_LOG_RETENTION_DAYS;
+    } catch (e) {
+      // 设置读不到不该阻塞释放收尾，退回默认值
+      console.warn("[lifecycle] log retention lookup failed, using default:", e);
+    }
+  }
+
   await db
     .update(instances)
     .set({
@@ -574,7 +608,7 @@ async function finalizeRelease(
       ossUsageBytes,
       stopReason,
       stoppedAt: new Date(),
-      logsExpireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      logsExpireAt: new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000),
       bootError,
       updatedAt: new Date(),
     })
