@@ -14,9 +14,7 @@
     "build:cli-bundle": "bash scripts/build-cli-bundle.sh",
     "publish:agent": "bash scripts/publish-agent.sh",
     "db:migrate": "node --import ./node_modules/tsx/dist/loader.mjs scripts/db-migrate.ts",
-    "db:migrate:0019": "node --import ./node_modules/tsx/dist/loader.mjs scripts/db-migrate-0019-only.ts",
-    "db:verify": "node --import ./node_modules/tsx/dist/loader.mjs scripts/db-verify.ts",
-    "db:dump:my-resources": "node --import ./node_modules/tsx/dist/loader.mjs scripts/db-dump-my-resources.ts"
+    "db:verify": "node --import ./node_modules/tsx/dist/loader.mjs scripts/db-verify.ts"
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.8.0",
