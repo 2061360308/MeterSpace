@@ -53,3 +53,6 @@ next-env.d.ts
 
 # workbuddy session data
 .workbuddy/
+
+# local data exports / dumps (may contain user data)
+/.backup/
