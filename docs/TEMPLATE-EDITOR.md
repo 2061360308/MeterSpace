@@ -77,7 +77,13 @@
 
 ## 2. 数据模型
 
-### 2.1 新表（drizzle/0019_split_templates_to_recipes_and_launch_templates.sql）
+### 2.1 新表（当时为 `drizzle/0019_split_templates_to_recipes_and_launch_templates.sql`）
+
+> ⚠️ **2026-09-13 起文件位置已变**：22 个历史迁移（0000–0021）已合并为单一的
+> `drizzle/0000_baseline.sql`，本文引用的 `0019_*.sql` 已归档至
+> `.workbuddy/drizzle-archive-2026-09-13/`。下表定义现在是 baseline 的一部分，
+> 权威版本见 `drizzle/0000_baseline.sql` 的 `recipes` / `launch_templates` 段落。
+> 迁移账本口径见 `docs/DB-MIGRATION.md` §5。
 
 ```sql
 -- === 配方：含 params 与占位符 payload ===
