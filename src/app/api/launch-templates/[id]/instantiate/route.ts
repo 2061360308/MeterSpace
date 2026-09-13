@@ -20,7 +20,8 @@ const bodySchema = z.object({
   diskSize: z.number().int().min(20).default(40),
   bandwidth: z.number().int().min(1).default(10),
   publicIp: z.boolean().default(true),
-  releaseHours: z.number().int().nullable().optional(),
+  // real 列：允许小数（0.5 = 半小时），与 settings.defaultReleaseHours 对齐
+  releaseHours: z.number().positive().nullable().optional(),
   gitProvider: z.string().nullable().optional(),
   gitRepoUrl: z.string().nullable().optional(),
   gitBranch: z.string().default("main"),

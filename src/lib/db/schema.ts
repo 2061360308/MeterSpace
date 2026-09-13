@@ -92,7 +92,9 @@ export const workspaces = pgTable("workspaces", {
   gitBranch: text("git_branch").default("main"),
   gitTokenEnc: text("git_token_enc"),
   autoClone: boolean("auto_clone").default(true),
-  releaseHours: integer("release_hours"),
+  // real：与 settings.default_release_hours 对齐，支持 0.5（半小时）等小数。
+  // ⚠️ 不要改回 integer —— 会把用户级默认值 0.5 写崩（见 drizzle/0001）。
+  releaseHours: real("release_hours"),
   idleMinutes: integer("idle_minutes"),
   ossWorkspacePath: text("oss_workspace_path"),
   // === 模板实例化（见 docs/FINAL-PLAN.md §8.1） ===

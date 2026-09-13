@@ -231,6 +231,7 @@ export async function createWorkspace(
       gitBranch: input.gitBranch ?? "main",
       gitTokenEnc,
       autoClone: input.autoClone ?? true,
+      // release_hours 是 real，可存 0.5（半小时）等小数；两张表类型已对齐。
       releaseHours: input.releaseHours ?? s.defaultReleaseHours,
       idleMinutes: input.idleMinutes ?? s.defaultIdleMinutes,
       ossWorkspacePath: null,

@@ -36,7 +36,8 @@ const bodySchema = z.object({
   gitRepoUrl: z.string().nullable().optional(),
   gitBranch: z.string().default("main"),
   autoClone: z.boolean().default(true),
-  releaseHours: z.number().int().nullable().optional(),
+  // real 列：允许小数（0.5 = 半小时），与 settings.defaultReleaseHours 对齐
+  releaseHours: z.number().positive().nullable().optional(),
   idleMinutes: z.number().int().nullable().optional(),
   proxyMode: z.enum(["inherit", "disabled", "clash", "upstream"]).optional(),
   proxyClashSubscription: z.string().optional(),

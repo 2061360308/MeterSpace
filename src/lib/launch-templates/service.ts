@@ -277,6 +277,7 @@ export async function instantiateWorkspaceFromLaunch(
       // 模板声明的 idleMinutes 优先（那是模板作者对该负载的判断），
       // 其次用户级默认值；DEFAULT_IDLE_MINUTES 只作为最后兜底。
       idleMinutes: activity.idleMinutes ?? s.defaultIdleMinutes,
+      // release_hours 是 real，可存 0.5（半小时）等小数；两张表类型已对齐。
       releaseHours: body.releaseHours ?? s.defaultReleaseHours,
       ossWorkspacePath: null,
       proxyMode: body.proxyMode ?? "inherit",
