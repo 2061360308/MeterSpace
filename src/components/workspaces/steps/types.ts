@@ -1,31 +1,5 @@
 import { type PricePanelData } from "@/components/workspaces/price-panel";
-
-export interface UserImage {
-  id: string;
-  name: string;
-  description: string | null;
-  imageUri: string;
-  architecture: string | null;
-  source: string | null;
-}
-
-export interface UserFeature {
-  id: string;
-  name: string;
-  description: string | null;
-  featureUri: string;
-  options: Record<string, unknown>;
-  source: string | null;
-}
-
-export interface UserScript {
-  id: string;
-  name: string;
-  description: string | null;
-  script: string;
-  sortOrder: number | null;
-  enabled: boolean | null;
-}
+import type { LaunchTemplateSummary } from "@/lib/launch-templates/client";
 
 export interface CloudInstance {
   id: string;
@@ -45,18 +19,17 @@ export interface WizardState {
   cloudInstances: CloudInstance[];
   diskSize: number;
   bandwidth: number;
-  imageUri: string;
   autoClone: boolean;
   gitRepoUrl: string;
   gitBranch: string;
   repos: { fullName: string; defaultBranch: string }[];
   gitAuthed: boolean;
-  myImages: UserImage[];
-  myFeatures: UserFeature[];
-  myScripts: UserScript[];
-  selectedImageId: string;
-  selectedFeatureIds: string[];
-  selectedScriptIds: string[];
+  /** v3：列表内容是 LaunchTemplateSummary[]；shape 与旧 TemplateSummary 兼容。 */
+  templates: LaunchTemplateSummary[];
+  templatesLoaded: boolean;
+  selectedTemplateId: string;
+  /** v3：launch_templates 无 params；保留字段以兼容 wizard 状态。 */
+  templateParams: Record<string, unknown>;
   proxyMode: "inherit" | "disabled" | "clash" | "upstream";
   proxyClashSubscription: string;
   proxyClashYaml: string;
@@ -76,7 +49,7 @@ export interface StepProps {
 export const STEP_CONFIG = [
   { id: 1, title: "基本信息", description: "实例名称与地域" },
   { id: 2, title: "代码仓库", description: "配置代码拉取" },
-  { id: 3, title: "环境配置", description: "选择镜像、工具与脚本" },
+  { id: 3, title: "启动模板", description: "选择已落库的启动模板" },
   { id: 4, title: "网络加速", description: "出口代理与直连白名单" },
   { id: 5, title: "确认创建", description: "检查配置并创建" },
 ] as const;

@@ -4,9 +4,20 @@ import { useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { FolderGit2 } from "lucide-react";
 import { type StepProps } from "./types";
+
+/** Radix Select 不接受空字符串，用一个哨兵值表示「不使用仓库」 */
+const NO_REPO = "__none__";
 
 export function StepGit({ state, setState }: StepProps) {
   useEffect(() => {
@@ -31,11 +42,13 @@ export function StepGit({ state, setState }: StepProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div className="space-y-0.5">
-          <Label htmlFor="auto-clone">自动拉取代码</Label>
-          <p className="text-xs text-muted-foreground">
-            开启后，工作区创建时将自动克隆指定仓库
+          <Label htmlFor="auto-clone" className="text-[13px] leading-6">
+            自动拉取代码
+          </Label>
+          <p className="text-[12px] leading-5 text-muted-foreground">
+            开启后，工作区创建时将自动克隆指定仓库。
           </p>
         </div>
         <Switch
@@ -48,48 +61,52 @@ export function StepGit({ state, setState }: StepProps) {
       </div>
 
       {state.autoClone && (
-        <div className="space-y-4 pt-4 border-t">
+        <div className="space-y-4 border-t border-border/70 pt-4">
           {!state.gitAuthed ? (
-            <div className="rounded-lg border border-dashed p-6 text-center">
-              <FolderGit2 className="mx-auto h-8 w-8 text-muted-foreground" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                需要授权 GitHub 以选择仓库
+            <div className="rounded-lg bg-muted px-4 py-8 text-center">
+              <FolderGit2 className="mx-auto size-8 text-muted-foreground" />
+              <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
+                需要授权 GitHub 才能列出你的仓库。
               </p>
-              <a
-                href="/api/git/auth?provider=github&returnTo=/workspaces/new"
-                className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                <FolderGit2 className="h-4 w-4" />
-                授权 GitHub
-              </a>
+              <Button asChild variant="outline" className="mt-4">
+                <a href="/api/git/auth?provider=github&returnTo=/workspaces/new">
+                  <FolderGit2 data-icon="inline-start" />
+                  授权 GitHub
+                </a>
+              </Button>
             </div>
           ) : (
             <>
               <Field orientation="vertical">
                 <FieldLabel htmlFor="git-repo">仓库</FieldLabel>
                 <FieldContent>
-                  <select
-                    id="git-repo"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={state.gitRepoUrl}
-                    onChange={(e) => {
-                      const repo = state.repos.find(
-                        (r) => r.fullName === e.target.value
-                      );
+                  <Select
+                    value={state.gitRepoUrl || NO_REPO}
+                    onValueChange={(v) => {
+                      if (v === NO_REPO) {
+                        setState((s) => ({ ...s, gitRepoUrl: "" }));
+                        return;
+                      }
+                      const repo = state.repos.find((r) => r.fullName === v);
                       setState((s) => ({
                         ...s,
-                        gitRepoUrl: e.target.value,
+                        gitRepoUrl: v,
                         gitBranch: repo?.defaultBranch ?? "main",
                       }));
                     }}
                   >
-                    <option value="">不使用仓库</option>
-                    {state.repos.map((repo) => (
-                      <option key={repo.fullName} value={repo.fullName}>
-                        {repo.fullName}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id="git-repo" className="w-full">
+                      <SelectValue placeholder="选择仓库" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_REPO}>不使用仓库</SelectItem>
+                      {state.repos.map((repo) => (
+                        <SelectItem key={repo.fullName} value={repo.fullName}>
+                          {repo.fullName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </FieldContent>
               </Field>
 
@@ -107,7 +124,7 @@ export function StepGit({ state, setState }: StepProps) {
                     />
                     {selectedRepo && (
                       <FieldDescription>
-                        默认分支: {selectedRepo.defaultBranch}
+                        默认分支：{selectedRepo.defaultBranch}
                       </FieldDescription>
                     )}
                   </FieldContent>
@@ -118,17 +135,15 @@ export function StepGit({ state, setState }: StepProps) {
         </div>
       )}
 
-      <div className="rounded-lg bg-muted/50 p-4">
-        <p className="text-sm">
-          <span className="font-medium">已配置：</span>
-          <span className="text-muted-foreground">
-            {state.autoClone && state.gitRepoUrl
-              ? `${state.gitRepoUrl} (${state.gitBranch})`
-              : state.autoClone
-              ? "等待选择仓库"
-              : "不拉取代码"}
-          </span>
-        </p>
+      <div className="rounded-lg bg-muted px-4 py-3 text-[13px] leading-6">
+        <span className="font-medium">已配置：</span>
+        <span className="text-muted-foreground">
+          {state.autoClone && state.gitRepoUrl
+            ? `${state.gitRepoUrl}（${state.gitBranch}）`
+            : state.autoClone
+            ? "等待选择仓库"
+            : "不拉取代码"}
+        </span>
       </div>
     </div>
   );

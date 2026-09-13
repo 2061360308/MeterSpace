@@ -3,30 +3,48 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { Slot } from "radix-ui"
 
+/**
+ * Button —— Vercel 视觉语言。
+ *
+ * - 圆角 6px（`rounded-md`，--radius - 2px），比卡片的 8px 略紧，形成层级
+ * - 字重固定 500（Vercel 的三字重体系里，交互元素一律 500）
+ * - 字距归零：中文不适用负字距
+ * - `outline` 用**阴影做边**而非 border，与卡片一致；hover 转为极淡灰底
+ * - 焦点环用 --ring（#0072f5），是 Vercel 的 Focus Blue
+ */
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  [
+    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap",
+    "rounded-md text-[13px] font-medium leading-none",
+    "transition-colors duration-150 outline-none",
+    "focus-visible:ring-2 focus-visible:ring-ring/40",
+    "disabled:pointer-events-none disabled:opacity-45",
+    "aria-invalid:ring-destructive/25",
+    "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  ].join(" "),
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // 主 CTA：深底白字（Vercel 的 #171717）
+        default: "bg-primary text-primary-foreground hover:bg-primary/85",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/30",
+        // 次级：白底 + 阴影边（不用 border，避免 hover 抖动）
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "bg-background text-foreground shadow-border hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/70",
+        ghost: "text-foreground hover:bg-accent hover:text-accent-foreground",
+        link: "text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
+        default: "h-8 px-3",
+        xs: "h-6 gap-1 rounded-sm px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1.5 rounded-md px-2.5 text-[13px]",
+        lg: "h-10 rounded-md px-4 text-sm",
+        icon: "size-8",
+        "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-7",
         "icon-lg": "size-10",
       },
     },

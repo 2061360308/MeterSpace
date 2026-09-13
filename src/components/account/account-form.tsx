@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -47,7 +48,7 @@ function AccountCard({ icon, title, description, badge, children }: AccountCardP
     <Card>
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
             {icon}
           </div>
           <div className="flex-1">
@@ -202,8 +203,23 @@ export function AccountForm() {
 
   if (!loaded) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="h-6 w-6" />
+      <div className="space-y-6">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Skeleton className="size-10 shrink-0 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3 w-52" />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-9 w-full max-w-md" />
+            </CardContent>
+          </Card>
+        ))}
       </div>
     );
   }
@@ -248,7 +264,7 @@ export function AccountForm() {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[13px] leading-6 text-muted-foreground">
             当前余额: <span className="font-medium text-foreground">{formatCurrency(balance)}</span>
           </p>
           <div className="ml-auto flex gap-2">
@@ -285,12 +301,13 @@ export function AccountForm() {
         }
       >
         {gitLoading ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">
-            加载中...
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-28" />
           </div>
         ) : githubToken ? (
           <div className="flex flex-wrap items-center gap-3">
-            <div className="text-sm">
+            <div className="text-[13px] leading-6">
               已连接账号:
               <span className="ml-1 font-medium text-foreground">
                 @{githubToken.username ?? "未知"}
@@ -313,7 +330,7 @@ export function AccountForm() {
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[13px] leading-6 text-muted-foreground">
               连接 GitHub 后可在创建工作区时选择仓库
             </p>
             <Button asChild className="ml-auto">
@@ -332,7 +349,7 @@ export function AccountForm() {
         description="腾讯云账号接入即将支持"
         badge={<Badge tone="gray">未绑定</Badge>}
       >
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13px] leading-6 text-muted-foreground">
           腾讯云支持正在开发中，敬请期待。
         </p>
       </AccountCard>
@@ -343,7 +360,7 @@ export function AccountForm() {
         description="AWS 账号接入即将支持"
         badge={<Badge tone="gray">未绑定</Badge>}
       >
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13px] leading-6 text-muted-foreground">
           AWS 支持正在开发中，敬请期待。
         </p>
       </AccountCard>
@@ -351,7 +368,7 @@ export function AccountForm() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
               <Lock className="size-5" />
             </div>
             <div className="flex-1">
@@ -382,7 +399,7 @@ export function AccountForm() {
             </div>
           </div>
         </CardContent>
-        <CardFooter className="border-t px-6 py-4">
+        <CardFooter className="border-t border-border/70 py-4">
           <Button onClick={changePassword} disabled={savingPassword}>
             {savingPassword && <Spinner className="mr-2 size-4" />}
             修改密码

@@ -13,24 +13,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SettingGroup, SettingItem } from "@/components/settings/setting-item";
-import {
-  REGIONS,
-  INSTANCE_TYPES,
-  DISK_CATEGORIES,
-  SPOT_STRATEGIES,
-} from "@/lib/constants";
 
 export function SettingsForm() {
   const router = useRouter();
-  const [region, setRegion] = useState("cn-hangzhou");
-  const [spec, setSpec] = useState("ecs.g6.xlarge");
-  const [diskCategory, setDiskCategory] = useState("cloud_essd");
   const [diskSize, setDiskSize] = useState(40);
   const [bandwidth, setBandwidth] = useState(10);
   const [releaseHours, setReleaseHours] = useState(4);
   const [idleMinutes, setIdleMinutes] = useState(30);
-  const [spotStrategy, setSpotStrategy] = useState("NoSpot");
   const [spotDuration, setSpotDuration] = useState(1);
   const [logRetentionDays, setLogRetentionDays] = useState(7);
   const [githubMirror, setGithubMirror] = useState("");
@@ -44,14 +35,10 @@ export function SettingsForm() {
       .then((r) => r.json())
       .then((s) => {
         if (s.settings) {
-          setRegion(s.settings.defaultRegion ?? "cn-hangzhou");
-          setSpec(s.settings.defaultSpec ?? "ecs.g6.xlarge");
-          setDiskCategory(s.settings.defaultDiskCategory ?? "cloud_essd");
           setDiskSize(s.settings.defaultDiskSize ?? 40);
           setBandwidth(s.settings.defaultBandwidth ?? 10);
           setReleaseHours(s.settings.defaultReleaseHours ?? 4);
           setIdleMinutes(s.settings.defaultIdleMinutes ?? 30);
-          setSpotStrategy(s.settings.defaultSpotStrategy ?? "NoSpot");
           setSpotDuration(s.settings.defaultSpotDuration ?? 1);
           setLogRetentionDays(s.settings.logRetentionDays ?? 7);
           setGithubMirror(s.settings.githubMirror ?? "");
@@ -65,14 +52,10 @@ export function SettingsForm() {
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
-        defaultRegion: region,
-        defaultSpec: spec,
-        defaultDiskCategory: diskCategory,
         defaultDiskSize: diskSize,
         defaultBandwidth: bandwidth,
         defaultReleaseHours: releaseHours,
         defaultIdleMinutes: idleMinutes,
-        defaultSpotStrategy: spotStrategy,
         defaultSpotDuration: spotDuration,
         logRetentionDays,
         githubMirror: githubMirror || null,
@@ -99,8 +82,17 @@ export function SettingsForm() {
 
   if (!loaded) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="h-6 w-6" />
+      <div className="space-y-8">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-4">
+            <Skeleton className="h-4 w-28" />
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, j) => (
+                <Skeleton key={j} className="h-[62px] w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -109,50 +101,8 @@ export function SettingsForm() {
     <div className="space-y-6">
       <SettingGroup
         title="工作区默认值"
-        description="新建工作区时默认使用的地域、规格与存储配置"
+        description="新建工作区时默认使用的存储与网络配置。地域与规格在新建工作区时按需选择"
       >
-        <SettingItem label="默认地域">
-          <Select value={region} onValueChange={setRegion}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="选择地域" />
-            </SelectTrigger>
-            <SelectContent>
-              {REGIONS.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {r.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingItem>
-        <SettingItem label="默认规格">
-          <Select value={spec} onValueChange={setSpec}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="选择规格" />
-            </SelectTrigger>
-            <SelectContent>
-              {INSTANCE_TYPES.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.id} ({t.note})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingItem>
-        <SettingItem label="磁盘类型">
-          <Select value={diskCategory} onValueChange={setDiskCategory}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="选择磁盘类型" />
-            </SelectTrigger>
-            <SelectContent>
-              {DISK_CATEGORIES.map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingItem>
         <SettingItem label="磁盘大小 (GB)" description="系统盘容量，最小 20 GB">
           <Input
             type="number"
@@ -173,15 +123,17 @@ export function SettingsForm() {
 
       <SettingGroup
         title="生命周期与抢占"
-        description="控制工作区的自动释放、空闲回收与抢占式实例策略"
+        description="控制工作区的自动释放、空闲回收，以及抢占式实例的保障时长"
       >
         <SettingItem
           label="自动释放 (小时)"
-          description="创建后无操作达到该时长自动释放"
+          description="创建后达到该时长自动释放，最小 0.5 小时（30 分钟）"
         >
           <Input
             type="number"
-            min={1}
+            min={0.5}
+            max={720}
+            step={0.5}
             value={releaseHours}
             onChange={(e) => setReleaseHours(Number(e.target.value))}
           />
@@ -194,21 +146,10 @@ export function SettingsForm() {
             onChange={(e) => setIdleMinutes(Number(e.target.value))}
           />
         </SettingItem>
-        <SettingItem label="抢占策略">
-          <Select value={spotStrategy} onValueChange={setSpotStrategy}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="选择抢占策略" />
-            </SelectTrigger>
-            <SelectContent>
-              {SPOT_STRATEGIES.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingItem>
-        <SettingItem label="抢占保障 (小时)">
+        <SettingItem
+          label="抢占保障 (小时)"
+          description="启动实例时勾选「抢占」后，向云厂商申请的保障时长。0 = 无保障（随时可释放、最便宜），1 = 保障 1 小时"
+        >
           <Select
             value={String(spotDuration)}
             onValueChange={(v) => setSpotDuration(Number(v))}
@@ -257,9 +198,9 @@ export function SettingsForm() {
             onChange={(e) => setLogRetentionDays(Number(e.target.value))}
           />
         </SettingItem>
-        <div className="flex justify-end rounded-lg border bg-card p-4">
+        <div className="flex justify-end rounded-lg bg-card p-4 shadow-border">
           <Button onClick={save} disabled={saving}>
-            {saving && <Spinner className="mr-2 size-4" />}
+            {saving && <Spinner data-icon="inline-start" />}
             保存设置
           </Button>
         </div>

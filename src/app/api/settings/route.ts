@@ -20,14 +20,10 @@ export async function GET() {
       settings: {
         accessKeyId: decrypt(row.aliAccessKeyId),
         accessKeySecret: "",
-        defaultRegion: row.defaultRegion,
-        defaultSpec: row.defaultSpec,
-        defaultDiskCategory: row.defaultDiskCategory,
         defaultDiskSize: row.defaultDiskSize,
         defaultBandwidth: row.defaultBandwidth,
         defaultReleaseHours: row.defaultReleaseHours,
         defaultIdleMinutes: row.defaultIdleMinutes,
-        defaultSpotStrategy: row.defaultSpotStrategy,
         defaultSpotDuration: row.defaultSpotDuration,
         acrInstanceId: row.acrInstanceId,
         ossBucket: row.ossBucket,
@@ -53,15 +49,13 @@ export async function GET() {
 const bodySchema = z.object({
   accessKeyId: z.string().min(1).optional(),
   accessKeySecret: z.string().min(1).optional(),
-  defaultRegion: z.string().optional(),
-  defaultSpec: z.string().optional(),
-  defaultDiskCategory: z.string().optional(),
   defaultDiskSize: z.number().int().optional(),
   defaultBandwidth: z.number().int().optional(),
-  defaultReleaseHours: z.number().int().optional(),
+  // 允许小数：DB 列是 real，最小 0.5 小时（30 分钟）
+  defaultReleaseHours: z.number().min(0.5).max(720).optional(),
   defaultIdleMinutes: z.number().int().optional(),
-  defaultSpotStrategy: z.string().optional(),
-  defaultSpotDuration: z.number().int().optional(),
+  // 阿里云只接受 0（无保障）/ 1（保障 1 小时）
+  defaultSpotDuration: z.number().int().min(0).max(1).optional(),
   logRetentionDays: z.number().int().min(1).max(365).optional(),
   githubMirror: z.string().max(500).nullable().optional(),
   dockerMirror: z.string().max(500).nullable().optional(),
@@ -91,14 +85,10 @@ export async function POST(req: NextRequest) {
     };
     if (body.accessKeyId) values.aliAccessKeyId = encrypt(body.accessKeyId);
     if (body.accessKeySecret) values.aliAccessSecret = encrypt(body.accessKeySecret);
-    if (body.defaultRegion !== undefined) values.defaultRegion = body.defaultRegion;
-    if (body.defaultSpec !== undefined) values.defaultSpec = body.defaultSpec;
-    if (body.defaultDiskCategory !== undefined) values.defaultDiskCategory = body.defaultDiskCategory;
     if (body.defaultDiskSize !== undefined) values.defaultDiskSize = body.defaultDiskSize;
     if (body.defaultBandwidth !== undefined) values.defaultBandwidth = body.defaultBandwidth;
     if (body.defaultReleaseHours !== undefined) values.defaultReleaseHours = body.defaultReleaseHours;
     if (body.defaultIdleMinutes !== undefined) values.defaultIdleMinutes = body.defaultIdleMinutes;
-    if (body.defaultSpotStrategy !== undefined) values.defaultSpotStrategy = body.defaultSpotStrategy;
     if (body.defaultSpotDuration !== undefined) values.defaultSpotDuration = body.defaultSpotDuration;
     if (body.logRetentionDays !== undefined) values.logRetentionDays = body.logRetentionDays;
     if (body.githubMirror !== undefined) values.githubMirror = body.githubMirror;

@@ -1,236 +1,156 @@
+/**
+ * Wizard 第 3 步：选启动模板。
+ *
+ * v3：仅展示当前用户的 launch_templates（不含参数），无 ParamField 渲染。
+ * 标题：「启动模板」；空态引导「去新建」。
+ */
+
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Spinner } from "@/components/ui/spinner";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ImageIcon, Puzzle, FileCode } from "lucide-react";
+import { LayoutTemplate } from "lucide-react";
+import {
+  fetchLaunchTemplates,
+  entryKindLabel,
+  CATEGORY_LABEL,
+  ORIGIN_LABEL,
+  type LaunchTemplateSummary,
+} from "@/lib/launch-templates/client";
 import { type StepProps } from "./types";
 
 export function StepEnvironment({ state, setState }: StepProps) {
   useEffect(() => {
-    if (state.myImages.length > 0) return;
+    if (state.templatesLoaded) return;
 
-    Promise.all([
-      fetch("/api/my-resources/images").then((r) => r.json()),
-      fetch("/api/my-resources/features").then((r) => r.json()),
-      fetch("/api/my-resources/scripts").then((r) => r.json()),
-    ])
-      .then(([imagesData, featuresData, scriptsData]) => {
+    fetchLaunchTemplates()
+      .then((items) => {
         setState((s) => ({
           ...s,
-          myImages: imagesData.images ?? [],
-          myFeatures: featuresData.features ?? [],
-          myScripts: scriptsData.scripts ?? [],
+          templates: items as unknown as WizardState["templates"],
+          templatesLoaded: true,
         }));
       })
-      .catch(() => {});
-  }, [state.myImages.length, setState]);
+      .catch(() => {
+        setState((s) => ({ ...s, templatesLoaded: true }));
+      });
+  }, [state.templatesLoaded, setState]);
 
-  const toggleFeature = (featureId: string, checked: boolean) => {
-    setState((s) => {
-      const selectedFeatureIds = checked
-        ? [...s.selectedFeatureIds, featureId]
-        : s.selectedFeatureIds.filter((id) => id !== featureId);
-      return { ...s, selectedFeatureIds };
-    });
+  const selectTemplate = (id: string) => {
+    setState((s) => ({
+      ...s,
+      selectedTemplateId: id,
+      // launch_templates 无 params；只是兼容结构
+      templateParams: {},
+    }));
   };
 
-  const toggleScript = (scriptId: string, checked: boolean) => {
-    setState((s) => {
-      const selectedScriptIds = checked
-        ? [...s.selectedScriptIds, scriptId]
-        : s.selectedScriptIds.filter((id) => id !== scriptId);
-      return { ...s, selectedScriptIds };
-    });
-  };
-
-  const isLoading = state.myImages.length === 0;
-
-  if (isLoading) {
+  if (!state.templatesLoaded) {
     return (
-      <div className="flex items-center justify-center p-6">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Spinner className="h-4 w-4" />
-          <span>加载我的资源...</span>
-        </div>
+      <div className="space-y-3">
+        <Skeleton className="h-5 w-24" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-[62px] w-full rounded-lg" />
+        ))}
       </div>
     );
   }
 
-  const selectedImage = state.myImages.find((img) => img.id === state.selectedImageId);
+  const selectedTemplate = state.templates.find(
+    (t) => t.id === state.selectedTemplateId,
+  );
 
   return (
     <div className="space-y-6">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <ImageIcon className="h-4 w-4" />
-          <Label className="text-base font-medium">运行镜像</Label>
-        </div>
-        {state.myImages.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              还没有镜像，请先在{" "}
-              <a href="/my-resources/images" className="text-primary underline">
-                我的镜像
-              </a>{" "}
-              中添加
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-2">
-            {state.myImages.map((image) => (
-              <label
-                key={image.id}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-                  state.selectedImageId === image.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="image"
-                  className="mt-1"
-                  checked={state.selectedImageId === image.id}
-                  onChange={() => setState((s) => ({ ...s, selectedImageId: image.id }))}
-                />
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{image.name}</span>
-                    <Badge tone={image.source === "marketplace" ? "blue" : "gray"} className="text-xs">
-                      {image.source === "marketplace" ? "市场" : "自定义"}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono truncate">
-                    {image.imageUri}
-                  </p>
-                </div>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Puzzle className="h-4 w-4" />
-          <Label className="text-base font-medium">Features</Label>
-          <span className="text-xs text-muted-foreground">
-            ({state.selectedFeatureIds.length} 已选)
+          <LayoutTemplate className="size-4" />
+          <Label className="text-[13px] font-medium leading-6">启动模板</Label>
+          <span className="text-[12px] leading-5 text-muted-foreground">
+            （不可在系统内修改；要在 IDE 改就下载 → 改 → 重新上传）
           </span>
         </div>
-        {state.myFeatures.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              还没有 Features，可以在{" "}
-              <a href="/marketplace/features" className="text-primary underline">
-                市场
-              </a>{" "}
-              中安装
+        {state.templates.length === 0 ? (
+          <div className="rounded-lg bg-muted px-4 py-6 text-center">
+            <p className="text-[13px] leading-6 text-muted-foreground">
+              还没有启动模板。前往{" "}
+              <Link href="/launch-templates/new" className="underline">
+                新建
+              </Link>
+              ，上传 zip 或从配方派生。
             </p>
           </div>
         ) : (
-          <div className="grid gap-2">
-            {state.myFeatures.map((feature) => (
-              <div
-                key={feature.id}
-                className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
-                  state.selectedFeatureIds.includes(feature.id)
-                    ? "border-primary bg-primary/5"
-                    : "border-border"
-                }`}
-              >
-                <Checkbox
-                  id={`feature-${feature.id}`}
-                  checked={state.selectedFeatureIds.includes(feature.id)}
-                  onCheckedChange={(checked) => toggleFeature(feature.id, checked === true)}
-                  className="mt-0.5"
-                />
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor={`feature-${feature.id}`} className="font-medium cursor-pointer">
-                    {feature.name}
-                  </Label>
-                  <p className="text-xs text-muted-foreground font-mono truncate">
-                    {feature.featureUri}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <FileCode className="h-4 w-4" />
-          <Label className="text-base font-medium">自定义脚本</Label>
-          <span className="text-xs text-muted-foreground">
-            ({state.selectedScriptIds.length} 已选)
-          </span>
-        </div>
-        {state.myScripts.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              还没有脚本，可以在{" "}
-              <a href="/my-resources/scripts" className="text-primary underline">
-                我的脚本
-              </a>{" "}
-              中添加
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-2">
-            {state.myScripts
-              .filter((s) => s.enabled)
-              .map((script) => (
-                <div
-                  key={script.id}
-                  className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
-                    state.selectedScriptIds.includes(script.id)
-                      ? "border-primary bg-primary/5"
-                      : "border-border"
+          <RadioGroup
+            value={state.selectedTemplateId}
+            onValueChange={selectTemplate}
+            className="grid gap-2"
+          >
+            {state.templates.map((tpl) => {
+              const active = state.selectedTemplateId === tpl.id;
+              const lt = tpl as unknown as LaunchTemplateSummary;
+              return (
+                <Label
+                  key={tpl.id}
+                  htmlFor={`tpl-${tpl.id}`}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg bg-card p-3 font-normal shadow-border transition-colors ${
+                    active ? "bg-accent" : "hover:bg-accent/50"
                   }`}
                 >
-                  <Checkbox
-                    id={`script-${script.id}`}
-                    checked={state.selectedScriptIds.includes(script.id)}
-                    onCheckedChange={(checked) => toggleScript(script.id, checked === true)}
-                    className="mt-0.5"
-                  />
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={`script-${script.id}`} className="font-medium cursor-pointer">
-                      {script.name}
-                    </Label>
-                    {script.description && (
-                      <p className="text-xs text-muted-foreground">{script.description}</p>
+                  <RadioGroupItem id={`tpl-${tpl.id}`} value={tpl.id} className="mt-0.5" />
+                  <span className="flex-1 space-y-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-medium leading-6">
+                        {tpl.name}
+                      </span>
+                      <Badge tone="gray">{entryKindLabel(tpl.entry)}</Badge>
+                      {lt.category && (
+                        <Badge tone="gray">
+                          {CATEGORY_LABEL[lt.category] ?? lt.category}
+                        </Badge>
+                      )}
+                      <Badge tone="gray">{ORIGIN_LABEL[lt.originKind]}</Badge>
+                      <span className="text-[12px] leading-5 text-muted-foreground">
+                        {tpl.fileCount} 个文件
+                      </span>
+                    </span>
+                    {tpl.description && (
+                      <span className="block truncate text-[12px] leading-5 text-muted-foreground">
+                        {tpl.description}
+                      </span>
                     )}
-                  </div>
-                </div>
-              ))}
-          </div>
+                  </span>
+                </Label>
+              );
+            })}
+          </RadioGroup>
         )}
       </div>
 
-      {selectedImage && (
+      {selectedTemplate && (
         <Card className="bg-muted/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">当前配置</CardTitle>
+          <CardHeader>
+            <CardTitle>当前配置</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm">
+          <CardContent className="space-y-1 text-[13px] leading-6">
             <p>
-              <span className="text-muted-foreground">镜像:</span>{" "}
-              <span className="font-mono">{selectedImage.imageUri}</span>
+              <span className="text-muted-foreground">启动模板：</span>
+              {selectedTemplate.name}
             </p>
             <p>
-              <span className="text-muted-foreground">Features:</span>{" "}
-              {state.selectedFeatureIds.length} 个
+              <span className="text-muted-foreground">入口：</span>
+              <span className="font-mono text-[12px]">
+                {selectedTemplate.entry}
+              </span>
             </p>
             <p>
-              <span className="text-muted-foreground">脚本:</span>{" "}
-              {state.selectedScriptIds.length} 个
+              <span className="text-muted-foreground">文件数：</span>
+              {selectedTemplate.fileCount} 个
             </p>
           </CardContent>
         </Card>
@@ -238,3 +158,6 @@ export function StepEnvironment({ state, setState }: StepProps) {
     </div>
   );
 }
+
+// 类型别名（state.templates 现在是 LaunchTemplateSummary[]，但保持 shape 与旧 TemplateSummary 一致）
+type WizardState = import("./types").WizardState;

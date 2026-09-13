@@ -6,6 +6,8 @@ import Link from "next/link"
 import { ListFilterIcon, Plus, Cloud, Trash2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
+import { PageHeader } from "@/components/ui/page-header"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Empty,
@@ -145,9 +147,16 @@ export default function CloudInstancesPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
+      <div className="px-6 pt-6">
+        <PageHeader
+          title="弹性规格"
+          description="把常用的云主机规格存下来，创建工作区时可以直接套用。"
+        />
+      </div>
+
       {/* 操作栏 */}
-      <div className="flex items-center justify-between px-6 py-1.5">
+      <div className="flex items-center justify-between px-6 pb-3">
         <Select value={provider} onValueChange={handleProviderChange}>
           <SelectTrigger className="w-32 h-8">
             <SelectValue placeholder="选择提供商" />
@@ -168,7 +177,7 @@ export default function CloudInstancesPage() {
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 p-0">
-              <div className="px-4 py-2.5 text-sm font-medium">规格参数</div>
+              <div className="px-4 py-2.5 text-[13px] font-medium">规格参数</div>
               <Separator />
               <div className="p-4 space-y-4">
                 <div className="space-y-2">
@@ -225,8 +234,17 @@ export default function CloudInstancesPage() {
       {/* 实例列表 */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Spinner className="h-8 w-8" />
+          <div className="space-y-2 pt-1">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-3 py-2.5">
+                <Skeleton className="h-4 w-[180px]" />
+                <Skeleton className="h-4 w-[72px]" />
+                <Skeleton className="h-4 w-[88px]" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-4 w-[120px]" />
+                <Skeleton className="h-7 w-7 rounded-md" />
+              </div>
+            ))}
           </div>
         ) : !hasInstances ? (
           <Empty>
@@ -266,7 +284,7 @@ export default function CloudInstancesPage() {
             </EmptyContent>
           </Empty>
         ) : (
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-lg bg-card shadow-border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -284,8 +302,8 @@ export default function CloudInstancesPage() {
                     <TableCell className="font-medium">{inst.name}</TableCell>
                     <TableCell>{PROVIDER_LABELS[inst.provider] ?? inst.provider}</TableCell>
                     <TableCell>{REGION_LABELS[inst.region] ?? inst.region}</TableCell>
-                    <TableCell className="font-mono text-sm">{inst.instanceType}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
+                    <TableCell className="font-mono text-[12px]">{inst.instanceType}</TableCell>
+                    <TableCell className="tnum text-[12px] text-muted-foreground">
                       {new Date(inst.createdAt).toLocaleString("zh-CN")}
                     </TableCell>
                     <TableCell>

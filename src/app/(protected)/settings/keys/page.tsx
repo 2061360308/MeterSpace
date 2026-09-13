@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Spinner } from "@/components/ui/spinner"
+import { Skeleton } from "@/components/ui/skeleton"
+import { PageHeader } from "@/components/ui/page-header"
 import { SettingGroup, SettingItemRow } from "@/components/settings/setting-item"
 import { toast } from "sonner"
 import { Plus, Trash2, Key, Copy, Check } from "lucide-react"
@@ -46,7 +47,9 @@ export default function KeysSettingsPage() {
     }
   }, [])
 
-  useEffect(() => { fetchKeys() }, [fetchKeys])
+  useEffect(() => {
+    fetchKeys()
+  }, [fetchKeys])
 
   const handleAddKey = async () => {
     if (!newKey.name) {
@@ -73,12 +76,15 @@ export default function KeysSettingsPage() {
   }
 
   const handleDeleteKey = async (id: string) => {
+    // 乐观删除：先从列表移除，失败再还原（U7）
+    const prev = keys
+    setKeys((list) => list.filter((k) => k.id !== id))
     try {
       const res = await fetch(`/api/settings/keys/${id}`, { method: "DELETE" })
       if (!res.ok) throw new Error("删除失败")
-      await fetchKeys()
       toast.success("密钥已删除")
     } catch (e) {
+      setKeys(prev)
       toast.error((e as Error).message)
     }
   }
@@ -96,122 +102,119 @@ export default function KeysSettingsPage() {
     setCopied(false)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="h-6 w-6" />
-      </div>
-    )
-  }
-
   return (
-    <SettingGroup
-      title="API 密钥"
-      description="管理用于 API 访问的密钥"
-      action={
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open)
-            if (!open) closeDialog()
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              创建密钥
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{createdKey ? "密钥已创建" : "创建新密钥"}</DialogTitle>
-              <DialogDescription>
-                {createdKey
-                  ? "请立即复制密钥，之后将无法再次查看完整密钥"
-                  : "创建一个新的 API 密钥"}
-              </DialogDescription>
-            </DialogHeader>
-            {createdKey ? (
-              <div className="space-y-4">
-                <div className="rounded-lg bg-muted p-4 font-mono text-sm break-all">
-                  {createdKey}
-                </div>
-                <Button onClick={handleCopy} className="w-full">
-                  {copied ? (
-                    <>
-                      <Check className="mr-2 h-4 w-4" />
-                      已复制
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="mr-2 h-4 w-4" />
-                      复制密钥
-                    </>
-                  )}
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">密钥名称</Label>
-                  <Input
-                    id="name"
-                    placeholder="例如：开发密钥"
-                    value={newKey.name}
-                    onChange={(e) =>
-                      setNewKey({ ...newKey, name: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-            )}
-            <DialogFooter>
+    <div className="space-y-6">
+      <PageHeader
+        title="API 密钥"
+        description="用于通过 API 访问 MeterSpace。完整密钥只在创建时显示一次，请及时保存。"
+        actions={
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open)
+              if (!open) closeDialog()
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Plus data-icon="inline-start" />
+                创建密钥
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{createdKey ? "密钥已创建" : "创建新密钥"}</DialogTitle>
+                <DialogDescription>
+                  {createdKey
+                    ? "请立即复制密钥，关闭后将无法再次查看完整密钥。"
+                    : "给密钥起个容易辨认的名字，例如它会被哪个服务使用。"}
+                </DialogDescription>
+              </DialogHeader>
               {createdKey ? (
-                <Button onClick={closeDialog}>完成</Button>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={closeDialog}>
-                    取消
+                <div className="space-y-4">
+                  <div className="break-all rounded-md bg-muted p-4 font-mono text-[12px] leading-6">
+                    {createdKey}
+                  </div>
+                  <Button onClick={handleCopy} className="w-full">
+                    {copied ? (
+                      <>
+                        <Check data-icon="inline-start" />
+                        已复制
+                      </>
+                    ) : (
+                      <>
+                        <Copy data-icon="inline-start" />
+                        复制密钥
+                      </>
+                    )}
                   </Button>
-                  <Button onClick={handleAddKey}>创建</Button>
-                </>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">密钥名称</Label>
+                    <Input
+                      id="name"
+                      placeholder="例如：开发密钥"
+                      value={newKey.name}
+                      onChange={(e) => setNewKey({ ...newKey, name: e.target.value })}
+                    />
+                  </div>
+                </div>
               )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      }
-    >
-      {keys.length === 0 ? (
-        <div className="py-6 text-center text-sm text-muted-foreground">
-          暂无密钥
-        </div>
-      ) : (
-        keys.map((key) => (
-          <SettingItemRow key={key.id}>
-            <div className="flex items-center justify-center h-10 w-10 shrink-0 rounded-lg bg-muted">
-              <Key className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">{key.name}</div>
-              <div className="mt-1 font-mono text-sm text-muted-foreground">
-                {key.keyPrefix}...
+              <DialogFooter>
+                {createdKey ? (
+                  <Button onClick={closeDialog}>完成</Button>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={closeDialog}>
+                      取消
+                    </Button>
+                    <Button onClick={handleAddKey}>创建</Button>
+                  </>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        }
+      />
+
+      <SettingGroup title="已创建的密钥">
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
+            ))}
+          </div>
+        ) : keys.length === 0 ? (
+          <div className="rounded-lg bg-card px-4 py-8 text-center text-[13px] leading-6 text-muted-foreground shadow-border">
+            还没有密钥。点右上角「创建密钥」生成第一个。
+          </div>
+        ) : (
+          keys.map((key) => (
+            <SettingItemRow key={key.id}>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <Key className="h-5 w-5" />
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                创建于 {new Date(key.createdAt).toLocaleDateString()}
-                {key.lastUsedAt &&
-                  ` · 最后使用 ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium leading-6">{key.name}</div>
+                <div className="font-mono text-[12px] leading-5 text-muted-foreground">
+                  {key.keyPrefix}...
+                </div>
+                <div className="tnum text-[12px] leading-5 text-muted-foreground">
+                  创建于 {new Date(key.createdAt).toLocaleDateString()}
+                  {key.lastUsedAt &&
+                    ` · 最后使用 ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                </div>
               </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDeleteKey(key.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </SettingItemRow>
-        ))
-      )}
-    </SettingGroup>
+              <Button variant="outline" size="sm" onClick={() => handleDeleteKey(key.id)}>
+                <Trash2 data-icon="inline-start" />
+                删除
+              </Button>
+            </SettingItemRow>
+          ))
+        )}
+      </SettingGroup>
+    </div>
   )
 }

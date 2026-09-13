@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverContent,
@@ -143,7 +144,7 @@ export function SpotConfigPopover({
                   onDurationChange(checked ? 1 : 0)
                 }
               />
-              <Label htmlFor="spot-1h" className="text-sm font-normal cursor-pointer">
+              <Label htmlFor="spot-1h" className="cursor-pointer text-[13px] font-normal leading-6">
                 使用 1 小时
               </Label>
             </div>
@@ -155,7 +156,7 @@ export function SpotConfigPopover({
                   onPriceLimitChange(checked ? null : (currentSpotPrice || 1))
                 }
               />
-              <Label htmlFor="spot-auto" className="text-sm font-normal cursor-pointer">
+              <Label htmlFor="spot-auto" className="cursor-pointer text-[13px] font-normal leading-6">
                 自动出价
               </Label>
             </div>
@@ -166,8 +167,8 @@ export function SpotConfigPopover({
           {/* Price Slider */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">上限价格</Label>
-              <span className="text-sm font-medium text-orange-500">
+              <Label className="text-[13px] font-medium leading-6">上限价格</Label>
+              <span className="tnum text-[13px] font-medium leading-6">
                 {formatCurrency(sliderValue)}/时
               </span>
             </div>
@@ -181,7 +182,7 @@ export function SpotConfigPopover({
               onValueChange={([v]) => onPriceLimitChange(v)}
             />
 
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="tnum flex items-center justify-between text-[12px] leading-5 text-muted-foreground">
               <span>{formatCurrency(sliderMin)} ({Math.round(sliderMin / onDemandPrice * 100) || 10}%)</span>
               <span>{sliderPercent}%</span>
               <span>按量 {formatCurrency(sliderMax)}</span>
@@ -205,11 +206,9 @@ export function SpotConfigPopover({
 
           {/* Chart */}
           <div className="space-y-2">
-            <Label className="text-sm font-medium">近30天价格走势</Label>
+            <Label className="text-[13px] font-medium leading-6">近30天价格走势</Label>
             {historyLoading ? (
-              <div className="flex items-center justify-center h-[140px]">
-                <Spinner className="h-5 w-5" />
-              </div>
+              <Skeleton className="h-[140px] w-full rounded-lg" />
             ) : (
               <SpotPriceChart
                 history={history}
@@ -222,7 +221,7 @@ export function SpotConfigPopover({
           {priceData.spotAdvice && (
             <>
               <Separator />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <div className="tnum flex items-center justify-between text-[12px] leading-5 text-muted-foreground">
                 <span>
                   释放率 {(priceData.spotAdvice.releaseRate * 100).toFixed(1)}%
                 </span>

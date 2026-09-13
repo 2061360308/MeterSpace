@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instanceCache, priceCache } from "@/lib/db/schema";
+import { instanceCache, priceCache, priceQuoteCache } from "@/lib/db/schema";
 import type { PriceProvider } from "@/lib/price/provider";
 import type { SpotPriceEstimate } from "@/lib/price/types";
 
@@ -18,6 +18,9 @@ export interface CachedInstanceType {
   cpuCoreCount: number;
   memorySize: number;
   gpuCount: number;
+  instanceTypeFamily?: string | null;
+  cpuArchitecture?: string | null;
+  gpuSpec?: string | null;
 }
 
 export async function getCachedInstanceTypes(
@@ -38,6 +41,9 @@ export async function getCachedInstanceTypes(
         cpuCoreCount: r.cpuCoreCount,
         memorySize: r.memorySize,
         gpuCount: r.gpuCount,
+        instanceTypeFamily: r.instanceTypeFamily,
+        cpuArchitecture: r.cpuArchitecture,
+        gpuSpec: r.gpuSpec,
       })),
       cached: true,
       refreshedAt: rows[0].refreshedAt,
@@ -50,7 +56,7 @@ export async function getCachedInstanceTypes(
 export async function upsertInstanceTypes(
   providerName: string,
   region: string,
-  instances: { instanceTypeId: string; cpuCoreCount: number; memorySize: number; gpuCount: number }[],
+  instances: CachedInstanceType[],
 ): Promise<void> {
   if (instances.length === 0) return;
 
@@ -69,6 +75,9 @@ export async function upsertInstanceTypes(
           cpuCoreCount: inst.cpuCoreCount,
           memorySize: inst.memorySize,
           gpuCount: inst.gpuCount,
+          instanceTypeFamily: inst.instanceTypeFamily ?? null,
+          cpuArchitecture: inst.cpuArchitecture ?? null,
+          gpuSpec: inst.gpuSpec ?? null,
           refreshedAt: now,
         })),
       )
@@ -78,6 +87,9 @@ export async function upsertInstanceTypes(
           cpuCoreCount: sql`excluded.cpu_core_count`,
           memorySize: sql`excluded.memory_size`,
           gpuCount: sql`excluded.gpu_count`,
+          instanceTypeFamily: sql`excluded.instance_type_family`,
+          cpuArchitecture: sql`excluded.cpu_architecture`,
+          gpuSpec: sql`excluded.gpu_spec`,
           refreshedAt: now,
         },
       });
@@ -186,12 +198,78 @@ export async function getOrFetchPrices(
   return result;
 }
 
-// ─── Refresh Region ───────────────────────────────────────
+// ─── Quote Cache (describePrice 明细) ─────────────────────
 
+export interface QuoteParams {
+  provider: string;
+  region: string;
+  instanceType: string;
+  diskCategory: string;
+  diskSize: number;
+  bandwidth: number;
+  spotStrategy: string;
+  spotDuration: number;
+}
+
+export async function getCachedQuote<T>(
+  params: QuoteParams,
+): Promise<{ details: T; refreshedAt: Date | null } | null> {
+  const row = await db.query.priceQuoteCache.findFirst({
+    where: and(
+      eq(priceQuoteCache.provider, params.provider),
+      eq(priceQuoteCache.region, params.region),
+      eq(priceQuoteCache.instanceType, params.instanceType),
+      eq(priceQuoteCache.diskCategory, params.diskCategory),
+      eq(priceQuoteCache.diskSize, params.diskSize),
+      eq(priceQuoteCache.bandwidth, params.bandwidth),
+      eq(priceQuoteCache.spotStrategy, params.spotStrategy),
+      eq(priceQuoteCache.spotDuration, params.spotDuration),
+    ),
+  });
+
+  if (!row || !isFresh(row.refreshedAt)) return null;
+  return { details: row.details as T, refreshedAt: row.refreshedAt };
+}
+
+export async function upsertQuote(
+  params: QuoteParams,
+  details: unknown,
+): Promise<void> {
+  const now = new Date();
+  await db
+    .insert(priceQuoteCache)
+    .values({
+      provider: params.provider,
+      region: params.region,
+      instanceType: params.instanceType,
+      diskCategory: params.diskCategory,
+      diskSize: params.diskSize,
+      bandwidth: params.bandwidth,
+      spotStrategy: params.spotStrategy,
+      spotDuration: params.spotDuration,
+      details,
+      refreshedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        priceQuoteCache.provider,
+        priceQuoteCache.region,
+        priceQuoteCache.instanceType,
+        priceQuoteCache.diskCategory,
+        priceQuoteCache.diskSize,
+        priceQuoteCache.bandwidth,
+        priceQuoteCache.spotStrategy,
+        priceQuoteCache.spotDuration,
+      ],
+      set: { details: sql`excluded.details`, refreshedAt: now },
+    });
+}
+
+// ─── Refresh Region ───────────────────────────────────────
 export async function refreshRegionInstances(
   provider: PriceProvider,
   region: string,
-  fetchInstances: () => Promise<{ instanceTypeId: string; cpuCoreCount: number; memorySize: number; gpuCount: number }[]>,
+  fetchInstances: () => Promise<CachedInstanceType[]>,
 ): Promise<{ total: number }> {
   const instances = await fetchInstances();
   await upsertInstanceTypes(provider.name, region, instances);

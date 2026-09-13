@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { REGIONS, PROVIDERS } from "@/lib/constants";
 import { type StepProps } from "./types";
@@ -78,10 +78,7 @@ export function StepBasic({ state, setState }: StepProps) {
         <FieldLabel>地域</FieldLabel>
         <FieldContent>
           {loading ? (
-            <div className="flex items-center gap-2 h-10">
-              <Spinner className="h-4 w-4" />
-              <span className="text-sm text-muted-foreground">加载地域...</span>
-            </div>
+            <Skeleton className="h-8 w-full rounded-md" />
           ) : (
             <Select
               value={state.region}

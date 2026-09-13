@@ -2,14 +2,12 @@
 
 import * as React from "react"
 import {
-  BookOpen,
-  Bot,
   Cloud,
-  Code,
   LayoutDashboard,
+  LayoutTemplate,
+  Rocket,
   Settings2,
   SquareTerminal,
-  Terminal,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -57,35 +55,20 @@ const navGroups = [
     label: "资源管理",
     items: [
       {
-        title: "镜像",
-        url: "/my-resources/images",
-        icon: BookOpen,
+        title: "配方",
+        url: "/recipes",
+        icon: LayoutTemplate,
       },
       {
-        title: "开发环境",
-        url: "/my-resources/features",
-        icon: Code,
-      },
-      {
-        title: "脚本",
-        url: "/my-resources/scripts",
-        icon: Terminal,
+        title: "模板",
+        url: "/launch-templates",
+        icon: Rocket,
       },
     ],
   },
   {
-    label: "其他",
+    label: "设置",
     items: [
-      {
-        title: "Playground",
-        url: "#",
-        icon: Bot,
-        items: [
-          { title: "History", url: "#" },
-          { title: "Starred", url: "#" },
-          { title: "Settings", url: "#" },
-        ],
-      },
       {
         title: "设置",
         url: "/settings",

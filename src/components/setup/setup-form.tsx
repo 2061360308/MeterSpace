@@ -7,27 +7,18 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  REGIONS,
-  INSTANCE_TYPES,
-  DISK_CATEGORIES,
-  SPOT_STRATEGIES,
-} from "@/lib/constants";
+import { APIError } from "@/components/ui/error";
 import { formatCurrency } from "@/lib/utils";
+import { Check } from "lucide-react";
 
 export function SetupForm() {
   const router = useRouter();
   const [accessKeyId, setAccessKeyId] = useState("");
   const [accessKeySecret, setAccessKeySecret] = useState("");
-  const [region, setRegion] = useState("cn-hangzhou");
-  const [spec, setSpec] = useState("ecs.g6.xlarge");
-  const [diskCategory, setDiskCategory] = useState("cloud_essd");
   const [diskSize, setDiskSize] = useState(40);
   const [bandwidth, setBandwidth] = useState(10);
   const [releaseHours, setReleaseHours] = useState(4);
   const [idleMinutes, setIdleMinutes] = useState(30);
-  const [spotStrategy, setSpotStrategy] = useState("NoSpot");
-  const [spotDuration, setSpotDuration] = useState(1);
 
   const [balance, setBalance] = useState<number | null>(null);
   const [testing, setTesting] = useState(false);
@@ -64,15 +55,10 @@ export function SetupForm() {
         body: JSON.stringify({
           accessKeyId,
           accessKeySecret,
-          defaultRegion: region,
-          defaultSpec: spec,
-          defaultDiskCategory: diskCategory,
           defaultDiskSize: diskSize,
           defaultBandwidth: bandwidth,
           defaultReleaseHours: releaseHours,
           defaultIdleMinutes: idleMinutes,
-          defaultSpotStrategy: spotStrategy,
-          defaultSpotDuration: spotDuration,
         }),
       });
       if (!res.ok) {
@@ -89,149 +75,105 @@ export function SetupForm() {
   }
 
   return (
-    <Card className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">首次设置</h1>
+    <Card className="gap-8 px-6 py-6">
+      <div className="space-y-1.5">
+        <h1 className="text-[20px] font-semibold leading-7 tracking-[-0.01em]">
+          首次设置
+        </h1>
+        <p className="text-[13px] leading-6 text-muted-foreground">
+          绑定云账号并设定默认值，之后随时可以在「设置」里改。
+        </p>
+      </div>
 
       <section className="space-y-4">
-        <h2 className="font-medium">① 阿里云账号</h2>
-        <div>
-          <Label>AccessKey ID</Label>
+        <h2 className="text-[15px] font-semibold leading-6 tracking-[-0.01em]">
+          ① 阿里云账号
+        </h2>
+        <div className="space-y-2">
+          <Label htmlFor="setup-ak">AccessKey ID</Label>
           <Input
+            id="setup-ak"
             value={accessKeyId}
             onChange={(e) => setAccessKeyId(e.target.value)}
             placeholder="LTAI5t..."
           />
         </div>
-        <div>
-          <Label>AccessKey Secret</Label>
+        <div className="space-y-2">
+          <Label htmlFor="setup-sk">AccessKey Secret</Label>
           <Input
+            id="setup-sk"
             type="password"
             value={accessKeySecret}
             onChange={(e) => setAccessKeySecret(e.target.value)}
             placeholder="••••••••"
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button variant="secondary" onClick={testConnection} disabled={testing}>
-            {testing ? <Spinner /> : "测试连接"}
+            {testing && <Spinner data-icon="inline-start" />}
+            测试连接
           </Button>
           {balance !== null && (
-            <span className="text-sm text-green-600">
-              ✅ 连接成功！余额: {formatCurrency(balance)}
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium leading-6 text-[#0d7a43] dark:text-[#4cc38a]">
+              <Check className="size-4" />
+              连接成功，余额 {formatCurrency(balance)}
             </span>
           )}
         </div>
       </section>
 
       <section className="space-y-4">
-        <h2 className="font-medium">② 全局默认设置</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>默认地域</Label>
-            <select
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {REGIONS.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>默认实例规格</Label>
-            <select
-              value={spec}
-              onChange={(e) => setSpec(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {INSTANCE_TYPES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.id} ({t.note})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>默认磁盘类型</Label>
-            <select
-              value={diskCategory}
-              onChange={(e) => setDiskCategory(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {DISK_CATEGORIES.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>默认磁盘大小 (GB)</Label>
+        <h2 className="text-[15px] font-semibold leading-6 tracking-[-0.01em]">
+          ② 全局默认设置
+        </h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="setup-disk">默认磁盘大小 (GB)</Label>
             <Input
+              id="setup-disk"
               type="number"
               value={diskSize}
               onChange={(e) => setDiskSize(Number(e.target.value))}
             />
           </div>
-          <div>
-            <Label>默认公网带宽 (Mbps)</Label>
+          <div className="space-y-2">
+            <Label htmlFor="setup-bw">默认公网带宽 (Mbps)</Label>
             <Input
+              id="setup-bw"
               type="number"
               value={bandwidth}
               onChange={(e) => setBandwidth(Number(e.target.value))}
             />
           </div>
-          <div>
-            <Label>自动释放时长 (小时)</Label>
+          <div className="space-y-2">
+            <Label htmlFor="setup-release">自动释放时长 (小时)</Label>
             <Input
+              id="setup-release"
               type="number"
+              min={0.5}
+              max={720}
+              step={0.5}
               value={releaseHours}
               onChange={(e) => setReleaseHours(Number(e.target.value))}
             />
           </div>
-          <div>
-            <Label>无操作休眠阈值 (分钟)</Label>
+          <div className="space-y-2">
+            <Label htmlFor="setup-idle">无操作休眠阈值 (分钟)</Label>
             <Input
+              id="setup-idle"
               type="number"
               value={idleMinutes}
               onChange={(e) => setIdleMinutes(Number(e.target.value))}
             />
           </div>
-          <div>
-            <Label>默认抢占策略</Label>
-            <select
-              value={spotStrategy}
-              onChange={(e) => setSpotStrategy(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {SPOT_STRATEGIES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>抢占保障时长 (小时)</Label>
-            <select
-              value={spotDuration}
-              onChange={(e) => setSpotDuration(Number(e.target.value))}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value={0}>0（无保障）</option>
-              <option value={1}>1 小时</option>
-            </select>
-          </div>
         </div>
       </section>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <APIError message={error} />}
 
       <Button className="w-full" onClick={save} disabled={saving}>
-        {saving ? <Spinner /> : "保存并进入仪表盘 →"}
+        {saving && <Spinner data-icon="inline-start" />}
+        {saving ? "保存中…" : "保存并进入仪表盘"}
       </Button>
     </Card>
   );

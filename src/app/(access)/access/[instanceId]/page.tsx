@@ -97,9 +97,19 @@ export default function AccessPage() {
     if (!code) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 实例进入终态后不再打维护接口（effect 作用域内的标志，跨 tick 保持）
+    let settled = false;
 
     const tick = async () => {
       try {
+        // 借这次轮询驱动服务端懒处理。
+        // 创建/停止都已异步化（resumeProvisioning / resumeReleasing 挂在
+        // /api/maintenance 上），而这个页面正是用户等待时唯一开着的页面 ——
+        // 不打这一枪，实例就会一直停在 PROVISIONING / RELEASING。
+        if (!settled) {
+          fetch("/api/maintenance", { method: "POST" }).catch(() => {});
+        }
+
         const q = new URLSearchParams({ code });
         if (sinceRef.current) q.set("since", sinceRef.current);
         const res = await fetch(`/api/access/${instanceId}?${q.toString()}`);
@@ -127,13 +137,21 @@ export default function AccessPage() {
         });
 
         if (snap.status === "RUNNING") {
+          settled = true;
           setReady(true);
           return;
         }
-        if (snap.status === "FAILED" || snap.status === "TERMINATING") {
-          setError(snap.bootError ?? "实例创建失败");
+        // 终态：停止 / 失败 / 释放完成
+        if (
+          snap.status === "FAILED" ||
+          snap.status === "TERMINATING" ||
+          snap.status === "STOPPED"
+        ) {
+          settled = true;
+          setError(snap.bootError ?? "实例已停止");
           return;
         }
+        // RELEASING 属于进行中，继续轮询直到转为 STOPPED
         timer = setTimeout(tick, 3000);
       } catch {
         if (!cancelled) {
@@ -214,7 +232,7 @@ function formatElapsed(startIso: string | null, endIso: string | null | undefine
 function LoaderCard({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="flex items-center gap-3 text-slate-300">{children}</div>
+      <div className="flex items-center gap-3 text-neutral-400">{children}</div>
     </div>
   );
 }
@@ -233,7 +251,7 @@ function ErrorView({ message }: { message: string }) {
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center">
         <div className="text-lg font-semibold text-red-300">无法访问实例</div>
-        <p className="mt-2 text-sm text-slate-300">{message}</p>
+        <p className="mt-2 text-[13px] leading-6 text-neutral-400">{message}</p>
       </div>
     </div>
   );
@@ -323,7 +341,7 @@ function CreatingView({
         className="absolute inset-0 overflow-y-auto bg-black p-6 font-mono text-xs leading-5 text-emerald-400/60"
       >
         {logs.length === 0 && (
-          <div className="text-slate-600">等待日志输出...</div>
+          <div className="text-neutral-500">等待日志输出...</div>
         )}
         {logs.map((l, i) => (
           <div key={`${l.timestamp}-${i}`} className="whitespace-pre-wrap">

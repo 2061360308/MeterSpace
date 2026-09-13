@@ -50,6 +50,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 
             for (const log of logs) {
               const data = JSON.stringify({
+                // id 必须下发：前端按 id 去重，缺了它每次重连都会把整批日志重复追加
+                id: log.id,
                 timestamp: log.timestamp.toISOString(),
                 level: log.level,
                 phase: log.phase,

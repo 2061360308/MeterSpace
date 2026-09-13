@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   workspaces,
@@ -79,7 +79,10 @@ async function launchInstance(
     throw new Error(`Unknown provider: ${workspace.provider}`);
   }
   const creds = await provider.getCredentials(workspace.userId);
-  const resources = await ensureRegionResources(creds, workspace.region);
+  const resources = await ensureRegionResources(creds, workspace.region, {
+    userId: workspace.userId,
+    provider: workspace.provider,
+  });
   const s = await getUserSettings(workspace.userId);
   const releaseHours =
     workspace.releaseHours ?? s.defaultReleaseHours;
@@ -113,8 +116,10 @@ async function launchInstance(
     diskCategory: "cloud_essd",
     diskSize: workspace.defaultDiskSize ?? 40,
     bandwidth: workspace.defaultBandwidth ?? 10,
+    // 本路径（/api/workspaces/[id]/start）暂不暴露抢占开关，固定按量付费；
+    // spotDuration 保持与 settings 同步，避免两条建实例路径各写一份常量后漂移。
     spotStrategy: "NoSpot",
-    spotDuration: 1,
+    spotDuration: s.defaultSpotDuration ?? 1,
     spotPriceLimit: null,
     autoReleaseTime,
     userData,
@@ -298,6 +303,28 @@ export async function startWorkspace(
     throw new WorkspaceError("请先选择弹性规格", 400);
   }
 
+  // 重复启动守卫：与 `createInstance` 保持一致。
+  // 原先这里没有任何检查，同一个工作区可以被启动出两个实例（双倍计费）。
+  const existing = await db.query.instances.findFirst({
+    where: and(
+      eq(instances.workspaceId, workspaceId),
+      inArray(instances.status, [
+        "RUNNING",
+        "PROVISIONING",
+        "BOOTING",
+        "RELEASING",
+      ]),
+    ),
+  });
+  if (existing) {
+    throw new WorkspaceError(
+      existing.status === "RELEASING"
+        ? "工作区正在释放上一个实例，请稍后再试"
+        : "工作区已有实例在运行或启动中",
+      409,
+    );
+  }
+
   // Load cloud instance to get instanceType
   const cloudInstance = await db.query.cloudInstances.findFirst({
     where: eq(cloudInstances.id, input.cloudInstanceId),
@@ -371,6 +398,16 @@ export async function startWorkspace(
   }
 }
 
+/**
+ * 停止工作区。
+ *
+ * 与 `stopInstance` 一样走**异步停止**（docs/UI-PERFORMANCE.md U1）：
+ * 请求内只置 `RELEASING` 并投递 stop-hook，立即返回；
+ * 「等 hook 跑完 → 删 ECS」由 `/api/maintenance` 的 `resumeReleasing` 收尾。
+ *
+ * ⚠️ 不要在这里同步等待 hook：原实现是 24 × 5s = 120s 同步阻塞，Vercel 必然 504。
+ * ⚠️ 更不要在 hook 完成前删 ECS：hook 是数据持久化入口，提前删会丢用户代码。
+ */
 export async function stopWorkspace(userId: string, workspaceId: string) {
   const workspace = await db.query.workspaces.findFirst({
     where: and(eq(workspaces.id, workspaceId), eq(workspaces.userId, userId)),
@@ -390,7 +427,11 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
 
   await db
     .update(instances)
-    .set({ status: "TERMINATING", updatedAt: new Date() })
+    .set({
+      status: "RELEASING",
+      releaseRequestedAt: new Date(),
+      updatedAt: new Date(),
+    })
     .where(eq(instances.id, instance.id));
 
   await db.insert(auditLogs).values({
@@ -404,48 +445,31 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
   if (!provider) {
     throw new WorkspaceError("Unknown provider", 500);
   }
-  const region = workspace.region;
-  let ossUsageBytes: number | null = null;
 
   try {
-    const { invokeId } = await provider.runCommand(instance.ecsInstanceId, region, buildStopHook());
-
-    for (let i = 0; i < 24; i++) {
-      await new Promise((r) => setTimeout(r, 5000));
-      const result = await provider.getCommandResult(invokeId, region);
-      if (result.status === "Finished" || result.status === "Failed") {
-        const match = result.output.match(/OSS_USAGE=(\d+)/);
-        if (match) ossUsageBytes = Number(match[1]);
-        break;
-      }
-    }
+    const { invokeId } = await provider.runCommand(
+      instance.ecsInstanceId,
+      workspace.region,
+      buildStopHook(),
+    );
+    await db
+      .update(instances)
+      .set({ stopInvokeId: invokeId, updatedAt: new Date() })
+      .where(eq(instances.id, instance.id));
   } catch (e) {
-    console.error("stop-hook failed, force deleting", e);
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[stopWorkspace] stop-hook dispatch failed:", message);
+    await db
+      .update(instances)
+      .set({
+        bootError: `停止脚本投递失败，将自动重试：${message}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(instances.id, instance.id));
+    return { workspaceId, status: "RELEASING" as const, hookDispatch: "failed" as const };
   }
 
-  await provider.deleteInstance(instance.ecsInstanceId, region);
-
-  await db
-    .update(instances)
-    .set({
-      status: "STOPPED",
-      publicIp: null,
-      port: null,
-      accessToken: null,
-      ossUsageBytes: ossUsageBytes ?? undefined,
-      stoppedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(instances.id, instance.id));
-
-  await db.insert(auditLogs).values({
-    userId,
-    workspaceId,
-    action: "TERMINATE",
-    details: { instanceId: instance.ecsInstanceId, ossUsageBytes },
-  });
-
-  return { workspaceId, ossUsageBytes };
+  return { workspaceId, status: "RELEASING" as const, hookDispatch: "ok" as const };
 }
 
 /**

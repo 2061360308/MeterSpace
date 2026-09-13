@@ -10,6 +10,10 @@ import {
 } from "@/lib/db/schema";
 import { getProvider } from "@/lib/providers";
 import {
+  getCachedInstanceTypes,
+  upsertInstanceTypes,
+} from "@/lib/price/service";
+import {
   authorizeIngress,
   describeSecurityGroupRules,
   ruleExists,
@@ -129,32 +133,55 @@ export async function registerVisitorIp(
   return { registered };
 }
 
-// 短缓存避免频繁调用 getInstanceTypes（aliyun 侧无缓存）
-const specCache = new Map<string, { expiresAt: number; types: CloudInstanceType[] }>();
-const SPEC_TTL_MS = 60 * 60 * 1000;
+// 实例规格：优先读 DB 缓存（instance_cache），未命中再打云。
+// 不要退回进程内 Map —— serverless 下每次冷启动都会重新打云，
+// 公开访问页的首屏会被这个调用拖住（docs/UI-PERFORMANCE.md U4）。
 
 async function resolveInstanceType(
   workspace: typeof workspaces.$inferSelect,
   instanceType: string,
 ): Promise<CloudInstanceType | null> {
-  const key = `${workspace.provider}:${workspace.region}`;
-  const hit = specCache.get(key);
-  let types: CloudInstanceType[];
-  if (hit && hit.expiresAt > Date.now()) {
-    types = hit.types;
-  } else {
-    try {
-      const provider = getProvider(workspace.provider);
-      if (!provider) {
-        return null;
-      }
-      types = await provider.getInstanceTypes(workspace.region);
-    } catch {
-      return null;
-    }
-    specCache.set(key, { expiresAt: Date.now() + SPEC_TTL_MS, types });
+  const cached = await getCachedInstanceTypes(workspace.provider, workspace.region);
+  if (cached.cached) {
+    const hit = cached.instances.find((t) => t.instanceTypeId === instanceType);
+    if (!hit) return null;
+    return {
+      id: hit.instanceTypeId,
+      cpu: hit.cpuCoreCount,
+      memory: hit.memorySize,
+      family: hit.instanceTypeFamily ?? undefined,
+      architecture: hit.cpuArchitecture ?? undefined,
+      gpuAmount: hit.gpuCount,
+      gpuSpec: hit.gpuSpec ?? undefined,
+    };
   }
-  return types.find((t) => t.id === instanceType) ?? null;
+
+  try {
+    const provider = getProvider(workspace.provider);
+    if (!provider) return null;
+    const types = await provider.getInstanceTypes(workspace.region);
+
+    // 顺手回填缓存，让后续请求（含其它函数实例）不再打云
+    void upsertInstanceTypes(
+      workspace.provider,
+      workspace.region,
+      types.map((t) => ({
+        instanceTypeId: t.id,
+        cpuCoreCount: t.cpu,
+        memorySize: t.memory,
+        gpuCount: t.gpuAmount ?? 0,
+        instanceTypeFamily: t.family,
+        cpuArchitecture: t.architecture,
+        gpuSpec: t.gpuSpec,
+      })),
+    ).catch(() => {
+      /* 回填失败不影响本次返回 */
+    });
+
+    return types.find((t) => t.id === instanceType) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** 单个对外可用端口（访问页据此渲染多端口按钮，§6.2）。 */
@@ -191,6 +218,8 @@ export interface AccessSnapshot {
   /** 当前入口文件名（模板场景），用于页面展示。 */
   currentEntry: string | null;
   logs: {
+    /** 日志行 id —— 前端增量合并 / 去重 / 虚拟滚动的稳定 key */
+    id: string;
     timestamp: string;
     level: string;
     phase: string | null;
@@ -303,6 +332,8 @@ export async function buildAccessSnapshot(
         limit: 100,
       });
   const logs = [...logRows].reverse().map((l) => ({
+    // id 下发：前端增量合并 / 去重 / 虚拟滚动的稳定 key 都依赖它
+    id: l.id,
     timestamp: l.timestamp.toISOString(),
     level: l.level,
     phase: l.phase,

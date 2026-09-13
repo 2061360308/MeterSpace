@@ -9,17 +9,14 @@ import {
   auditLogs,
   cloudInstances,
 } from "@/lib/db/schema";
-import { getUserSettings } from "@/lib/aliyun/auth";
 import { getProvider } from "@/lib/providers";
-import { ensureRegionResources, ensureInstanceSecurityGroup } from "@/lib/ecs/provisioning";
-import {
-  buildUserData,
-  buildStopHook,
-  type EntrypointVars,
-} from "@/lib/userdata";
-import { getAppBaseUrl, RAM_ROLE_NAME } from "@/lib/workspaces/service";
+import { buildStopHook } from "@/lib/userdata";
 import { ALL_PORTS } from "@/lib/constants";
-import { checkAndFixTimeouts } from "./lifecycle";
+import {
+  checkAndFixTimeouts,
+  cleanupExpiredLogs,
+  provisionInstanceCloud,
+} from "./lifecycle";
 
 export class InstanceError extends Error {
   constructor(message: string, public status: number = 500) {
@@ -109,6 +106,9 @@ export async function createInstance(
       cloudInstanceId,
       diskSize,
       bandwidth,
+      // 落库：真正的 ECS 创建发生在异步的 resumeProvisioning，
+      // 不存下来那边就只能硬编码（原先的 bug：勾了抢占却建成按量付费实例）。
+      useSpot: Boolean(input.spotStrategy && input.spotStrategy !== "NoSpot"),
       status: "PROVISIONING",
       accessToken: generateAccessToken(),
       bootStartedAt: new Date(),
@@ -135,76 +135,43 @@ export async function createInstance(
     },
   });
 
-  const s = await getUserSettings(userId);
-  const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
-
+  // ☞ 云资源创建（ECS）**在这里同步跑完**（U9 反转）。
+  //
+  //   原先为了不让按钮长时间转圈，只落一行 PROVISIONING 就返回，真正的创建
+  //   甩给 `/api/maintenance` tick。代价是：参数必须全部落库（漏一个就静默失效，
+  //   如 use_spot），而且用户一关页面实例就根本不会被创建。
+  //
+  //   现在基础网络资源已落库（region_resources），建 ECS 只剩 2 次云 API、1~3 秒，
+  //   完全可以放在请求里跑完：
+  //     - 参数从入参直接取，不必再落库（结构上杜绝「参数漏存」类 bug）
+  //     - 失败立刻返回错误，用户当场看到原因，而不是后台静默标 FAILED
+  //     - 不再依赖前端开着页面推进
+  //
+  //   仍保留 `resumeProvisioning` 作为兜底：这里请求中断/超时留下的孤儿行
+  //   （PROVISIONING 且 ecs_instance_id 为空）由下一个 tick 接手。
   try {
-    console.log("[createInstance] Getting provider credentials...");
-    const provider = getProvider(workspace.provider);
-    if (!provider) {
-      throw new InstanceError("Unknown provider", 500);
-    }
-    const creds = await provider.getCredentials(userId);
-    console.log("[createInstance] Credentials OK, ensuring region resources...");
-    const resources = await ensureRegionResources(creds, workspace.region);
-    console.log("[createInstance] Region resources OK, building user data...");
-    const instanceSgId = await ensureInstanceSecurityGroup(
-      creds,
-      workspace.region,
-      resources.vpcId,
-      instance.id,
-    );
-
-    const callbackUrl = getAppBaseUrl();
-    const entrypointVars: EntrypointVars = {
-      instanceId: instance.id,
-      callbackUrl,
-      accessToken: instance.accessToken!,
-    };
-
-    const userData = buildUserData(entrypointVars);
-    const autoReleaseTime = new Date(
-      Date.now() + releaseHours * 3600 * 1000,
-    ).toISOString().replace(/\.\d{3}Z$/, "Z");
-
-    console.log("[createInstance] Creating ECS instance via Aliyun API...");
-    const ecsInstanceId = await provider.createInstance({
-      region: workspace.region,
-      imageId: resources.imageId,
-      instanceType: cloudInstance.instanceType,
-      securityGroupId: instanceSgId,
-      vSwitchId: resources.vSwitchId,
-      ramRoleName: RAM_ROLE_NAME,
-      diskCategory: "cloud_essd",
-      diskSize: instance.diskSize,
-      bandwidth: instance.bandwidth,
-      spotStrategy: input.spotStrategy ?? "NoSpot",
-      spotDuration: input.spotDuration ?? 1,
-      spotPriceLimit: input.spotPriceLimit ?? null,
-      autoReleaseTime,
-      userData,
-      tags: { "instance-id": instance.id, "managed-by": "workspace-cloud" },
-    });
-    console.log("[createInstance] ECS instance created:", ecsInstanceId);
-
+    // 先打认领标记，避免 maintenance tick 在同一时间重复创建
     await db
       .update(instances)
-      .set({ ecsInstanceId, securityGroupId: instanceSgId })
+      .set({ provisionClaimedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, instance.id));
 
-    return { instanceId: instance.id, ecsInstanceId, personalCode };
+    await provisionInstanceCloud(instance.id);
   } catch (e) {
-    console.error("[createInstance] Error:", e);
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[instances] createInstance: cloud provisioning failed:", message);
     await db
       .update(instances)
-      .set({
-        status: "FAILED",
-        bootError: e instanceof Error ? e.message : String(e),
-        updatedAt: new Date(),
-      })
+      .set({ status: "FAILED", bootError: message, updatedAt: new Date() })
       .where(eq(instances.id, instance.id));
-    throw e;
+    throw new InstanceError(`创建云实例失败：${message}`, 502);
   }
+
+  return {
+    instanceId: instance.id,
+    personalCode,
+    status: "PROVISIONING" as const,
+  };
 }
 
 export async function listInstances(userId: string, workspaceId: string) {
@@ -302,9 +269,14 @@ export async function stopInstance(userId: string, instanceId: string) {
     throw new InstanceError("Instance is not running", 409);
   }
 
+  // ① 先前置状态：请求返回后前端立刻能看到「释放中」，而不是一直等
   await db
     .update(instances)
-    .set({ status: "RELEASING" })
+    .set({
+      status: "RELEASING",
+      releaseRequestedAt: new Date(),
+      updatedAt: new Date(),
+    })
     .where(eq(instances.id, instanceId));
 
   await db.insert(auditLogs).values({
@@ -314,90 +286,62 @@ export async function stopInstance(userId: string, instanceId: string) {
     details: { instanceId, ecsInstanceId: instance.ecsInstanceId },
   });
 
-  if (instance.ecsInstanceId) {
-    try {
-      const provider = getProvider(workspace.provider);
-      if (!provider) {
-        throw new InstanceError("Unknown provider", 500);
-      }
-      const region = workspace.region;
-      const hookScript = buildStopHook();
-      const commandResult = await provider.runCommand(
-        instance.ecsInstanceId,
-        region,
-        hookScript,
-      );
+  // ② 没有云资源（创建早期失败的行）→ 直接判定停止，无需等 hook
+  if (!instance.ecsInstanceId) {
+    await finalizeReleaseInline(instanceId);
+    await cleanupExpiredLogs(instance.workspaceId);
+    return { instanceId, status: "STOPPED", phase: "done" as const };
+  }
 
-      let ossUsageBytes: number | null = null;
-      for (let i = 0; i < 24; i++) {
-        await new Promise((r) => setTimeout(r, 5000));
-        const results = await provider.getCommandResult(commandResult.invokeId, region);
-        const output = results.output ?? "";
-        const match = output.match(/OSS_USAGE=(\d+)/);
-        if (match) {
-          ossUsageBytes = parseInt(match[1], 10);
-          break;
-        }
-      }
-
-      await provider.deleteInstance(instance.ecsInstanceId, region);
-
-      await db
-        .update(instances)
-        .set({
-          status: "STOPPED",
-          stoppedAt: new Date(),
-          stopReason: "manual",
-          ossUsageBytes,
-          logsExpireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          updatedAt: new Date(),
-        })
-        .where(eq(instances.id, instanceId));
-    } catch (e) {
-      await db
-        .update(instances)
-        .set({
-          status: "FAILED",
-          bootError: `Stop failed: ${e instanceof Error ? e.message : String(e)}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(instances.id, instanceId));
-    }
-  } else {
+  // ③ 投递 stop-hook 后立即返回。
+  //    ⚠️ 绝不等 hook 跑完（原实现 24 × 5s = 120s，Vercel 免费版必然 504）。
+  //    收尾由 /api/maintenance tick 里的 resumeReleasing 负责，
+  //    且必须 gate 在 hook 完成之后才删 ECS —— 否则会丢用户未提交的代码。
+  let hookDispatch: "ok" | "failed" = "ok";
+  try {
+    const provider = getProvider(workspace.provider);
+    if (!provider) throw new InstanceError("Unknown provider", 500);
+    const { invokeId } = await provider.runCommand(
+      instance.ecsInstanceId,
+      workspace.region,
+      buildStopHook(),
+    );
+    await db
+      .update(instances)
+      .set({ stopInvokeId: invokeId, updatedAt: new Date() })
+      .where(eq(instances.id, instanceId));
+  } catch (e) {
+    // 投递失败不阻塞请求：resumeReleasing 会在宽限期内重投，超时后强制释放
+    hookDispatch = "failed";
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[stopInstance] stop-hook dispatch failed:", message);
     await db
       .update(instances)
       .set({
-        status: "STOPPED",
-        stoppedAt: new Date(),
-        stopReason: "manual",
-        logsExpireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        bootError: `停止脚本投递失败，将自动重试：${message}`,
+        updatedAt: new Date(),
       })
       .where(eq(instances.id, instanceId));
   }
 
-  await cleanupExpiredLogs(instance.workspaceId);
-
-  return { instanceId, status: "STOPPED" };
+  return { instanceId, status: "RELEASING" as const, hookDispatch };
 }
 
-async function cleanupExpiredLogs(workspaceId: string): Promise<void> {
-  try {
-    const expiredInstances = await db.query.instances.findMany({
-      where: and(
-        eq(instances.workspaceId, workspaceId),
-        eq(instances.status, "STOPPED"),
-      ),
-    });
-
-    const now = new Date();
-    for (const inst of expiredInstances) {
-      if (inst.logsExpireAt && new Date(inst.logsExpireAt) < now) {
-        await db
-          .delete(instanceLogs)
-          .where(eq(instanceLogs.instanceId, inst.id));
-      }
-    }
-  } catch (e) {
-    console.error("[instances] Failed to cleanup expired logs:", e);
-  }
+/** 无云资源时的就地收尾（不涉及 hook）。 */
+async function finalizeReleaseInline(instanceId: string): Promise<void> {
+  await db
+    .update(instances)
+    .set({
+      status: "STOPPED",
+      publicIp: null,
+      port: null,
+      accessToken: null,
+      stopInvokeId: null,
+      releaseRequestedAt: null,
+      stoppedAt: new Date(),
+      stopReason: "manual",
+      logsExpireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      updatedAt: new Date(),
+    })
+    .where(eq(instances.id, instanceId));
 }

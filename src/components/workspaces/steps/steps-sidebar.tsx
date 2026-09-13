@@ -27,15 +27,22 @@ function getStepSummary(step: number, state: WizardState): string {
       return "未配置";
     }
     case 3: {
-      const image = state.myImages.find((i) => i.id === state.selectedImageId);
-      const parts = [];
-      if (image) parts.push(image.name);
-      if (state.selectedFeatureIds.length > 0) parts.push(`${state.selectedFeatureIds.length} Features`);
-      if (state.selectedScriptIds.length > 0) parts.push(`${state.selectedScriptIds.length} 脚本`);
-      return parts.length > 0 ? parts.join(" · ") : "未配置";
+      const tpl = state.templates.find((t) => t.id === state.selectedTemplateId);
+      if (!tpl) return "未配置";
+      const paramCount = (tpl.params ?? []).length;
+      return paramCount > 0 ? `${tpl.name} · ${paramCount} 项参数` : tpl.name;
     }
-    case 4:
-      return "检查配置";
+    case 4: {
+      const label =
+        state.proxyMode === "inherit"
+          ? "跟随全局设置"
+          : state.proxyMode === "disabled"
+            ? "直连"
+            : state.proxyMode === "clash"
+              ? "Clash (mihomo)"
+              : "上游代理";
+      return label;
+    }
     default:
       return "";
   }
@@ -45,7 +52,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
   switch (step) {
     case 1:
       return (
-        <dl className="space-y-1 text-sm">
+        <dl className="space-y-1.5 text-[12px] leading-5">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">名称</dt>
             <dd className="font-medium truncate ml-2">{state.name || "—"}</dd>
@@ -78,7 +85,7 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
       );
     case 2:
       return (
-        <dl className="space-y-1 text-sm">
+        <dl className="space-y-1.5 text-[12px] leading-5">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">自动拉取</dt>
             <dd className="font-medium">{state.autoClone ? "是" : "否"}</dd>
@@ -100,44 +107,81 @@ function StepDetail({ step, state }: { step: number; state: WizardState }) {
         </dl>
       );
     case 3: {
-      const image = state.myImages.find((i) => i.id === state.selectedImageId);
-      const features = state.myFeatures.filter((f) =>
-        state.selectedFeatureIds.includes(f.id)
-      );
-      const scripts = state.myScripts.filter((s) =>
-        state.selectedScriptIds.includes(s.id)
-      );
+      const tpl = state.templates.find((t) => t.id === state.selectedTemplateId);
       return (
-        <dl className="space-y-1 text-sm">
+        <dl className="space-y-1.5 text-[12px] leading-5">
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">镜像</dt>
-            <dd className="font-medium truncate ml-2">{image?.name || "—"}</dd>
+            <dt className="text-muted-foreground">模板</dt>
+            <dd className="font-medium truncate ml-2">{tpl?.name || "—"}</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">Features</dt>
-            <dd className="font-medium">{features.length}</dd>
+            <dt className="text-muted-foreground">入口</dt>
+            <dd className="font-medium truncate ml-2">{tpl?.entry || "—"}</dd>
           </div>
-          {features.length > 0 && (
-            <dd className="text-xs text-muted-foreground truncate">
-              {features.map((f) => f.name).join(", ")}
-            </dd>
-          )}
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">脚本</dt>
-            <dd className="font-medium">{scripts.length}</dd>
+            <dt className="text-muted-foreground">文件数</dt>
+            <dd className="font-medium">{tpl?.fileCount ?? 0}</dd>
           </div>
-          {scripts.length > 0 && (
-            <dd className="text-xs text-muted-foreground truncate">
-              {scripts.map((s) => s.name).join(", ")}
-            </dd>
-          )}
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">参数</dt>
+            <dd className="font-medium">{(tpl?.params ?? []).length} 项</dd>
+          </div>
         </dl>
       );
     }
     case 4:
       return (
-        <p className="text-sm text-muted-foreground">
-          确认所有配置无误后，点击创建工作区
+        <dl className="space-y-1.5 text-[12px] leading-5">
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">代理模式</dt>
+            <dd className="font-medium truncate ml-2">
+              {state.proxyMode === "inherit"
+                ? "跟随全局设置"
+                : state.proxyMode === "disabled"
+                  ? "直连"
+                  : state.proxyMode === "clash"
+                    ? "Clash (mihomo)"
+                    : "上游代理"}
+            </dd>
+          </div>
+          {state.proxyMode === "clash" && (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">订阅地址</dt>
+                <dd className="font-medium truncate ml-2">
+                  {state.proxyClashSubscription || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">粘贴 YAML</dt>
+                <dd className="font-medium truncate ml-2">
+                  {state.proxyClashYaml ? "已填写" : "—"}
+                </dd>
+              </div>
+            </>
+          )}
+          {state.proxyMode === "upstream" && (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">上游地址</dt>
+                <dd className="font-medium truncate ml-2">
+                  {state.proxyUpstreamUrl || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">用户名</dt>
+                <dd className="font-medium truncate ml-2">
+                  {state.proxyUpstreamUsername || "—"}
+                </dd>
+              </div>
+            </>
+          )}
+        </dl>
+      );
+    case 5:
+      return (
+        <p className="text-[12px] leading-5 text-muted-foreground">
+          确认所有配置无误后，点击创建工作区。
         </p>
       );
     default:
@@ -167,9 +211,9 @@ export function StepsSidebar({ state }: StepsSidebarProps) {
   };
 
   return (
-    <Card className="p-4 border-0 shadow-none">
-      <h3 className="font-medium mb-4">配置概要</h3>
-      <div className="space-y-2">
+    <Card className="px-4">
+      <h3 className="text-[13px] font-medium leading-6">配置概要</h3>
+      <div className="space-y-1">
         {STEP_CONFIG.map((step) => {
           const isCurrent = state.currentStep === step.id;
           const isCompleted = state.completedSteps.has(step.id);
@@ -185,33 +229,33 @@ export function StepsSidebar({ state }: StepsSidebarProps) {
             >
               <CollapsibleTrigger asChild>
                 <button
-                  className={`w-full flex items-start gap-3 rounded-lg p-2 text-left transition-colors ${
+                  className={`flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors ${
                     isCurrent
-                      ? "bg-primary/10 text-primary"
+                      ? "bg-accent text-accent-foreground shadow-border"
                       : isCompleted
-                      ? "hover:bg-muted cursor-pointer"
-                      : "text-muted-foreground cursor-default"
+                      ? "cursor-pointer hover:bg-accent/60"
+                      : "cursor-default text-muted-foreground"
                   }`}
                   disabled={!canExpand}
                 >
                   <div className="mt-0.5">
                     {isCompleted ? (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                        <Check className="h-3 w-3" />
+                      <div className="flex size-5 items-center justify-center rounded-full bg-foreground text-background">
+                        <Check className="size-3" />
                       </div>
                     ) : isCurrent ? (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-primary">
-                        <div className="h-2 w-2 rounded-full bg-primary" />
+                      <div className="flex size-5 items-center justify-center rounded-full border-2 border-foreground">
+                        <div className="size-2 rounded-full bg-foreground" />
                       </div>
                     ) : (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-muted-foreground/30">
-                        <Circle className="h-3 w-3 text-muted-foreground/30" />
+                      <div className="flex size-5 items-center justify-center rounded-full border-2 border-border">
+                        <Circle className="size-3 text-muted-foreground/30" />
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm ${isCurrent ? "font-medium" : ""}`}>
+                      <span className={`text-[13px] leading-6 ${isCurrent ? "font-medium" : ""}`}>
                         {step.id}. {step.title}
                       </span>
                       {canExpand && (
@@ -225,7 +269,7 @@ export function StepsSidebar({ state }: StepsSidebarProps) {
                       )}
                     </div>
                     {(isCompleted || isCurrent) && !isOpen && (
-                      <div className="text-xs text-muted-foreground truncate">
+                      <div className="truncate text-[12px] leading-5 text-muted-foreground">
                         {summary}
                       </div>
                     )}

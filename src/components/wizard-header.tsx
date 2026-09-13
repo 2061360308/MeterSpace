@@ -13,22 +13,22 @@ export function WizardHeader({ title = "新建工作区" }: WizardHeaderProps) {
   const router = useRouter();
 
   return (
-    <header className="border-b bg-white shrink-0">
-      <div className="container mx-auto px-4 h-16 flex items-center gap-4">
+    <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 backdrop-blur">
+      <div className="mx-auto flex h-14 w-full max-w-[1200px] items-center gap-3 px-5">
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={() => router.back()}
-          className="shrink-0"
+          className="-ml-1 shrink-0"
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="size-4" />
         </Button>
-        <div className="flex items-center gap-2">
-          <Link href="/" className="text-lg font-semibold">
+        <div className="flex min-w-0 items-center gap-2 text-[13px]">
+          <Link href="/" className="font-medium">
             MeterSpace
           </Link>
-          <span className="text-muted-foreground">/</span>
-          <span className="text-sm text-muted-foreground">{title}</span>
+          <span className="text-muted-foreground/60">/</span>
+          <span className="truncate text-muted-foreground">{title}</span>
         </div>
       </div>
     </header>

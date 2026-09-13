@@ -7,14 +7,11 @@ import type { AliCredentials } from "./client";
 export interface UserSettings {
   accessKeyId: string;
   accessKeySecret: string;
-  defaultRegion: string;
-  defaultSpec: string;
-  defaultDiskCategory: string;
   defaultDiskSize: number;
   defaultBandwidth: number;
   defaultReleaseHours: number;
   defaultIdleMinutes: number;
-  defaultSpotStrategy: string;
+  /** 抢占式实例保障时长（小时），0 或 1；仅该实例启用抢占时生效 */
   defaultSpotDuration: number;
   acrInstanceId: string | null;
   ossBucket: string | null;
@@ -49,14 +46,10 @@ export async function getUserSettings(
   return {
     accessKeyId: decrypt(row.aliAccessKeyId),
     accessKeySecret: decrypt(row.aliAccessSecret),
-    defaultRegion: row.defaultRegion ?? "cn-hangzhou",
-    defaultSpec: row.defaultSpec ?? "ecs.g6.xlarge",
-    defaultDiskCategory: row.defaultDiskCategory ?? "cloud_essd",
     defaultDiskSize: row.defaultDiskSize ?? 40,
     defaultBandwidth: row.defaultBandwidth ?? 10,
     defaultReleaseHours: row.defaultReleaseHours ?? 0.5,
     defaultIdleMinutes: row.defaultIdleMinutes ?? 30,
-    defaultSpotStrategy: row.defaultSpotStrategy ?? "NoSpot",
     defaultSpotDuration: row.defaultSpotDuration ?? 1,
     acrInstanceId: row.acrInstanceId,
     ossBucket: row.ossBucket,

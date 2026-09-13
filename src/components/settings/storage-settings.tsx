@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
+import { Skeleton } from "@/components/ui/skeleton"
+import { APIError } from "@/components/ui/error"
 import { SettingGroup, SettingItemRow } from "@/components/settings/setting-item"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -15,7 +17,6 @@ import {
   MapPin,
   Check,
   Cloud,
-  AlertCircle,
 } from "lucide-react"
 import {
   Dialog,
@@ -47,10 +48,10 @@ const PROVIDER_TABS = [
 
 function ProviderPlaceholder({ name }: { name: string }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border bg-card px-4 py-12 text-center">
-      <Cloud className="h-8 w-8 text-muted-foreground/50" />
-      <p className="text-sm font-medium">{name} 地域开通即将支持</p>
-      <p className="text-sm text-muted-foreground">敬请期待</p>
+    <div className="flex flex-col items-center gap-2 rounded-lg bg-card px-4 py-12 text-center shadow-border">
+      <Cloud className="size-8 text-muted-foreground/50" />
+      <p className="text-[13px] font-medium leading-6">{name} 地域开通即将支持</p>
+      <p className="text-[13px] leading-6 text-muted-foreground">敬请期待</p>
     </div>
   )
 }
@@ -214,8 +215,14 @@ export function StorageSettings() {
 
   if (!loaded) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="h-6 w-6" />
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-28" />
+          <div className="space-y-3">
+            <Skeleton className="h-[72px] w-full rounded-lg" />
+            <Skeleton className="h-[72px] w-full rounded-lg" />
+          </div>
+        </div>
       </div>
     )
   }
@@ -257,21 +264,18 @@ export function StorageSettings() {
                     </DialogDescription>
                   </DialogHeader>
                   {regionsLoading ? (
-                    <div className="flex items-center justify-center py-10">
-                      <Spinner className="h-6 w-6" />
+                    <div className="space-y-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} className="h-9 w-full rounded-md" />
+                      ))}
                     </div>
                   ) : regionsError ? (
-                    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center">
-                      <AlertCircle className="h-6 w-6 text-destructive" />
-                      <p className="text-sm text-muted-foreground">
-                        获取可用地域失败：{regionsError}
-                      </p>
-                      <Button variant="outline" onClick={loadAvailableRegions}>
-                        重试
-                      </Button>
-                    </div>
+                    <APIError
+                      message={`获取可用地域失败：${regionsError}`}
+                      onRetry={loadAvailableRegions}
+                    />
                   ) : availableRegions.length === 0 ? (
-                    <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                    <div className="py-8 text-center text-[13px] leading-6 text-muted-foreground">
                       所有可用地域均已完成开通
                     </div>
                   ) : (
@@ -284,15 +288,15 @@ export function StorageSettings() {
                             type="button"
                             onClick={() => setSelectedRegion(r.id)}
                             className={
-                              "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors " +
+                              "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-[13px] leading-6 transition-colors " +
                               (active
-                                ? "border-primary bg-primary/5"
-                                : "bg-card hover:bg-accent")
+                                ? "bg-accent text-accent-foreground shadow-border"
+                                : "hover:bg-accent/60")
                             }
                           >
                             <span>{r.label}</span>
                             {active && (
-                              <Check className="h-4 w-4 shrink-0 text-primary" />
+                              <Check className="size-4 shrink-0" />
                             )}
                           </button>
                         )
@@ -307,7 +311,7 @@ export function StorageSettings() {
                       onClick={handleActivate}
                       disabled={!selectedRegion || activating}
                     >
-                      {activating && <Spinner className="mr-2 h-4 w-4" />}
+                      {activating && <Spinner data-icon="inline-start" />}
                       开通
                     </Button>
                   </DialogFooter>
@@ -316,23 +320,23 @@ export function StorageSettings() {
             }
           >
             {regions.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-muted-foreground sm:px-6">
+              <div className="rounded-lg bg-card px-4 py-8 text-center text-[13px] leading-6 text-muted-foreground shadow-border">
                 尚未开通任何地域，点击右上角「添加地域」开始
               </div>
             ) : (
               regions.map((region) => (
                 <SettingItemRow key={region}>
-                  <div className="flex items-center justify-center h-10 w-10 shrink-0 rounded-lg bg-muted">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                     <MapPin className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium">
+                    <div className="text-[13px] font-medium leading-6">
                       {regionLabels[region] ?? region}
                     </div>
-                    <div className="mt-1 font-mono text-sm text-muted-foreground">
+                    <div className="mt-1 font-mono text-[12px] leading-5 text-muted-foreground">
                       {region}
                     </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
+                    <div className="mt-1 text-[12px] leading-5 text-muted-foreground">
                       OSS 存储桶: my-dev-workspace-{region}
                     </div>
                   </div>
@@ -427,26 +431,27 @@ export function StorageSettings() {
         }
       >
         {volumeLoading ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            加载中...
+          <div className="space-y-3">
+            <Skeleton className="h-[72px] w-full rounded-lg" />
+            <Skeleton className="h-[72px] w-full rounded-lg" />
           </div>
         ) : volumes.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            暂无存储卷
+          <div className="rounded-lg bg-card px-4 py-8 text-center text-[13px] leading-6 text-muted-foreground shadow-border">
+            还没有存储卷。点右上角「添加存储卷」创建第一个。
           </div>
         ) : (
           volumes.map((volume) => (
             <SettingItemRow key={volume.id}>
-              <div className="flex items-center justify-center h-10 w-10 shrink-0 rounded-lg bg-muted">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                 <Folder className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-medium">{volume.name}</div>
-                <div className="mt-1 font-mono text-sm text-muted-foreground">
+                <div className="text-[13px] font-medium leading-6">{volume.name}</div>
+                <div className="mt-1 font-mono text-[12px] leading-5 text-muted-foreground">
                   {volume.mountPath}
                 </div>
                 {volume.description && (
-                  <div className="mt-1 text-sm text-muted-foreground">
+                  <div className="mt-1 text-[12px] leading-5 text-muted-foreground">
                     {volume.description}
                   </div>
                 )}

@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { APIError } from "@/components/ui/error";
 import { formatCurrency } from "@/lib/utils";
 
 export interface PricePanelData {
@@ -54,76 +56,67 @@ export function PricePanel({
   const isLastStep = currentStep === totalSteps;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-10 border-t bg-background px-4 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
-      {hint && (
-        <div className="mx-auto mb-2 flex max-w-6xl items-center rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          {hint}
-        </div>
-      )}
+    <div className="fixed bottom-0 left-0 right-0 z-10 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="mx-auto max-w-[1200px] space-y-2">
+        {hint && <APIError message={hint} />}
 
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
-          <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             {data.loading ? (
-              <span className="text-sm text-muted-foreground">
-                正在计算价格...
+              <span className="text-[13px] leading-6 text-muted-foreground">
+                正在计算价格…
               </span>
             ) : (
               <>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-[13px] leading-6 text-muted-foreground">
                   {useSpot ? "当前配置市场价格" : "当前配置费用"}
                 </span>
-                <span className="text-2xl font-semibold text-orange-500">
+                <span className="tnum text-[24px] font-semibold leading-8 tracking-[-0.02em]">
                   {formatCurrency(total)}
-                  <span className="text-sm">/时</span>
+                  <span className="text-[13px] font-normal leading-6 text-muted-foreground">
+                    /时
+                  </span>
                 </span>
                 {useSpot && data.spotAdvice && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="tnum text-[12px] leading-5 text-muted-foreground">
                     共减 {formatCurrency(saved)}/时 · 释放率{" "}
                     {(data.spotAdvice.releaseRate * 100).toFixed(0)}%
                   </span>
                 )}
               </>
             )}
-          </div>
 
-          <div className="hidden items-center gap-4 text-xs text-muted-foreground md:flex">
             {data.hourly && (
-              <>
+              <div className="tnum hidden items-center gap-3 text-[12px] leading-5 text-muted-foreground md:flex">
                 <span>实例 {formatCurrency(data.hourly.instance)}</span>
+                <span className="text-border">·</span>
                 <span>系统盘 {formatCurrency(data.hourly.disk)}</span>
+                <span className="text-border">·</span>
                 <span>带宽 {formatCurrency(data.hourly.bandwidth)}</span>
-              </>
+              </div>
             )}
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            第 {currentStep} / {totalSteps} 步
-          </span>
-          {currentStep > 1 && (
-            <Button variant="outline" onClick={onPrev}>
-              上一步
-            </Button>
-          )}
-          {isLastStep ? (
-            <Button
-              onClick={onProceed}
-              disabled={proceeding}
-              className="bg-orange-500 hover:bg-orange-600"
-            >
-              {proceeding ? "创建中..." : "创建工作区"}
-            </Button>
-          ) : (
-            <Button
-              onClick={onNext}
-              disabled={proceeding}
-              className="bg-orange-500 hover:bg-orange-600"
-            >
-              下一步
-            </Button>
-          )}
+          <div className="flex items-center gap-3">
+            <span className="tnum text-[12px] leading-5 text-muted-foreground">
+              第 {currentStep} / {totalSteps} 步
+            </span>
+            {currentStep > 1 && (
+              <Button variant="outline" onClick={onPrev}>
+                上一步
+              </Button>
+            )}
+            {isLastStep ? (
+              <Button onClick={onProceed} disabled={proceeding}>
+                {proceeding && <Spinner data-icon="inline-start" />}
+                {proceeding ? "创建中…" : "创建工作区"}
+              </Button>
+            ) : (
+              <Button onClick={onNext} disabled={proceeding}>
+                下一步
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>

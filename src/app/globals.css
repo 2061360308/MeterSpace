@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   MeterSpace Design Tokens — Vercel / Geist 视觉语言（中文适配版）
+
+   核心特征（来自 Vercel DESIGN.md）：
+   - 极简黑白灰，非纯黑主色 #171717
+   - 用「阴影」替代 border（0 0 0 1px 扩散层）
+   - 严格三字重：400 阅读 / 500 交互 / 600 强调
+   - 圆角 4 / 6 / 8px 三档
+   - 留白节奏：区块间距大，靠阴影边与间距分隔，不靠线条
+
+   中文适配（原规范未覆盖，此处自行定义）：
+   - 中文字体栈回退（PingFang SC / Microsoft YaHei / Noto Sans SC）
+   - 负字距重置：Geist 在 24px+ 使用 -0.96px~-2.88px，中文字符会粘连，
+     故标题字距统一收敛到 -0.01em 以内
+   - 行高放宽：中文正文 1.7（拉丁版为 1.56）
+   - 字重映射：中文的 500 已足够表达 emphasis，正文慎用 600
+   ========================================================================== */
+
 @theme {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -28,74 +46,244 @@
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  /* Geist 字体栈 + 中文回退 */
+  --font-sans: var(--font-geist-sans), "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular,
+    "Roboto Mono", Menlo, Monaco, "Cascadia Code", "Source Han Mono SC",
+    Consolas, "Courier New", monospace;
+
+  /* 圆角三档（对齐 Vercel 4 / 6 / 8） */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* 阴影即边框 —— Vercel 的签名手法 */
+  --shadow-border: 0 0 0 1px rgb(0 0 0 / 0.08);
+  --shadow-card: 0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 2px rgb(0 0 0 / 0.04);
+  --shadow-card-hover: 0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 2px rgb(0 0 0 / 0.04),
+    0 8px 8px -8px rgb(0 0 0 / 0.04);
+  --shadow-elevated: 0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 2px rgb(0 0 0 / 0.04),
+    0 8px 8px -8px rgb(0 0 0 / 0.04), 0 0 0 1px #fafafa;
+
+  /* Vercel 工作流强调色（仅用于流程语境，不做通用主色） */
+  --color-ship: #ff5b4f;
+  --color-preview: #de1d8d;
+  --color-develop: #0a72ef;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+  /* 中文段落避免孤字成行 */
+  .text-pretty-cn {
+    text-wrap: pretty;
+  }
+  /* 阴影即边框：替代 border */
+  .shadow-border {
+    box-shadow: var(--shadow-border);
+  }
+  /* 技术标签：Geist Mono 大写 */
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
 }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* ---- 表面 ---- */
+    --background: 0 0% 100%; /* #ffffff */
+    --foreground: 0 0% 9%; /* #171717 */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 0 0% 9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-  .dark {
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --popover-foreground: 0 0% 9%;
+
+    /* ---- 主色：#171717 深底白字主 CTA ---- */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+
+    /* ---- 次级 / 静默面：#fafafa ---- */
+    --secondary: 0 0% 98%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 98%;
+    --muted-foreground: 0 0% 40%; /* #666666 */
+    --accent: 0 0% 98%;
+    --accent-foreground: 0 0% 9%;
+
+    /* ---- 语义色 ---- */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* ---- 线条：Vercel 灰 #ebebeb ---- */
+    --border: 0 0% 92%;
+    --input: 0 0% 92%;
+
+    /* ---- 焦点环：#0072f5 (hsla(212,100%,48%)) ---- */
+    --ring: 212 100% 48%;
+
+    --radius: 0.5rem; /* 8px → sm 4 / md 6 / lg 8 */
+
+    /* ---- 侧栏：几乎与背景同色，仅靠阴影边分隔 ---- */
+    --sidebar-background: 0 0% 98.5%;
+    --sidebar-foreground: 0 0% 30%;
+    --sidebar-primary: 0 0% 9%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 0 0% 94%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 92%;
+    --sidebar-ring: 212 100% 48%;
+  }
+
+  .dark {
+    --background: 0 0% 0%; /* Vercel 深色为纯黑 */
+    --foreground: 0 0% 98%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 212 100% 58%;
+
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 0 0% 70%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 212 100% 58%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    color: hsl(var(--foreground));
+    background: hsl(var(--background));
+    font-family: var(--font-sans);
+    /* 中文正文行高放宽到 1.7，比拉丁版 1.56 更易读 */
+    font-size: 14px;
+    line-height: 1.7;
+    /* 中文字距必须归零，Geist 的负字距会让汉字粘连 */
+    letter-spacing: 0;
+  }
+
+  /* ---- 中文标题：字距保守，字重分级 ---- */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    /* 收敛到 -0.01em：既有 Vercel 的紧凑感，又不破坏汉字结构 */
+    letter-spacing: -0.01em;
+    line-height: 1.4;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 24px;
+  }
+  h2 {
+    font-size: 18px;
+  }
+  h3 {
+    font-size: 16px;
+  }
+
+  /* 中文正文强调用 500 即可，600 在汉字上过重 */
+  strong,
+  b {
+    font-weight: 500;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+    font-feature-settings: "liga" 1;
+  }
+
+  /* tabular 数字用等宽，避免数字跳动 */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: hsl(var(--foreground) / 0.9);
+    color: hsl(var(--background));
   }
 }
 
-body {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
-  font-family: Arial, Helvetica, sans-serif;
+/* ---- 滚动条：Vercel 风格极细滚动条 ---- */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
 }
 
 @keyframes collapsible-down {
-  from { height: 0; }
-  to { height: var(--radix-collapsible-content-height); }
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
 }
 
 @keyframes collapsible-up {
-  from { height: var(--radix-collapsible-content-height); }
-  to { height: 0; }
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
 }
 
 [data-slot="collapsible-content"][data-state="open"] {
@@ -104,4 +292,11 @@ body {
 
 [data-slot="collapsible-content"][data-state="closed"] {
   animation: collapsible-up 200ms ease-out;
+}
+
+/* ---- 骨架屏：Vercel 用极淡的灰扫光，不用 pulse 呼吸 ---- */
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
 }

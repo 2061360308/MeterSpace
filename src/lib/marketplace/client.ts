@@ -1,46 +1,4 @@
-export interface MarketplaceImage {
-  id: string;
-  name: string;
-  description: string;
-  imageUri: string;
-  architecture: string;
-  category: string;
-  icon?: string;
-  tags: string[];
-}
-
-export interface MarketplaceFeature {
-  id: string;
-  name: string;
-  description: string;
-  featureUri: string;
-  category: string;
-  icon?: string;
-  tags: string[];
-  options?: Record<string, unknown>;
-}
-
-interface RawImage {
-  id: string;
-  name: string;
-  description: string;
-  uri: string;
-  architecture: string;
-  tags: string[];
-  source: string;
-}
-
-interface RawFeature {
-  id: string;
-  name: string;
-  description: string;
-  uri: string;
-  tags: string[];
-  source: string;
-  options?: Record<string, unknown>;
-}
-
-/** 市场模板条目：definition 是标准模板元数据，payload 是内联文件数组（§9 / §14）。 */
+/** 市场模板条目：定义是标准模板元数据，payload 是内联文件数组（§9 / §14）。 */
 export interface MarketplaceTemplate {
   id: string;
   name: string;
@@ -69,26 +27,11 @@ interface TemplatesIndex {
   templates: RawTemplate[];
 }
 
-interface ImagesIndex {
-  count: number;
-  updatedAt: string;
-  images: RawImage[];
-}
-
-interface FeaturesIndex {
-  count: number;
-  updatedAt: string;
-  features: RawFeature[];
-}
-
 const BASE_URL =
   process.env.MARKETPLACE_URL ??
   "https://oilu.cn/MeterSpaceMarket";
 
-let cachedImages: MarketplaceImage[] | null = null;
-let cachedFeatures: MarketplaceFeature[] | null = null;
 let cachedTemplates: MarketplaceTemplate[] | null = null;
-let cachedAt = 0;
 let cachedTemplatesAt = 0;
 const CACHE_TTL = 10 * 60 * 1000;
 
@@ -110,44 +53,8 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
-function mapImage(raw: RawImage): MarketplaceImage {
-  return {
-    id: raw.id,
-    name: raw.name,
-    description: raw.description,
-    imageUri: raw.uri,
-    architecture: raw.architecture,
-    category: raw.source,
-    tags: raw.tags,
-  };
-}
-
-function mapFeature(raw: RawFeature): MarketplaceFeature {
-  return {
-    id: raw.id,
-    name: raw.name,
-    description: raw.description,
-    featureUri: raw.uri,
-    category: raw.source,
-    tags: raw.tags,
-    options: raw.options,
-  };
-}
-
-export async function getMarketplaceImages(): Promise<MarketplaceImage[]> {
-  if (cachedImages && Date.now() - cachedAt < CACHE_TTL) {
-    return cachedImages;
-  }
-
-  const data = await fetchJson<ImagesIndex>(`${BASE_URL}/api/images.json`);
-  if (!data) return [];
-  cachedImages = data.images.map(mapImage);
-  cachedAt = Date.now();
-  return cachedImages;
-}
-
 /**
- * 市场模板（G5）。拉取失败时返回空数组而非抛错 —— 市场是可选增强，
+ * 市场模板。拉取失败时返回空数组而非抛错 —— 市场是可选增强，
  * 不能因为它挂了就让 /api/templates 整个 500。
  */
 export async function getMarketplaceTemplates(): Promise<MarketplaceTemplate[]> {
@@ -172,17 +79,5 @@ export async function getMarketplaceTemplates(): Promise<MarketplaceTemplate[]> 
     }));
   cachedTemplates = list;
   cachedTemplatesAt = Date.now();
-  return list;
-}
-
-export async function getMarketplaceFeatures(): Promise<MarketplaceFeature[]> {
-  if (cachedFeatures && Date.now() - cachedAt < CACHE_TTL) {
-    return cachedFeatures;
-  }
-
-  const data = await fetchJson<FeaturesIndex>(`${BASE_URL}/api/features.json`);
-  if (!data) return [];
-  cachedFeatures = data.features.map(mapFeature);
-  cachedAt = Date.now();
-  return cachedFeatures;
+  return cachedTemplates;
 }

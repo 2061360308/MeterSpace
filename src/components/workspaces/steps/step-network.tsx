@@ -19,9 +19,9 @@ export function StepNetwork({ state, setState }: StepProps) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Network className="h-4 w-4" />
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Network className="size-4" />
             网络加速
           </CardTitle>
         </CardHeader>
@@ -44,7 +44,7 @@ export function StepNetwork({ state, setState }: StepProps) {
                 <SelectItem value="upstream">上游代理 (HTTP/SOCKS5)</SelectItem>
               </SelectContent>
             </Select>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
               ECS 会先直连探测境外站点，全部可达时自动直连，否则通过所选模式出口。
             </p>
           </div>
@@ -71,7 +71,7 @@ export function StepNetwork({ state, setState }: StepProps) {
                   }
                   placeholder={"proxies:\n  - name: my-proxy\n    type: socks5\n    ..."}
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
                   留空时使用订阅地址自动生成；两者都提供时优先使用粘贴的配置。
                 </p>
               </div>
@@ -92,7 +92,7 @@ export function StepNetwork({ state, setState }: StepProps) {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-sm text-muted-foreground">用户名（可选）</p>
+                  <p className="mb-1 text-[12px] leading-5 text-muted-foreground">用户名（可选）</p>
                   <Input
                     value={state.proxyUpstreamUsername}
                     onChange={(e) =>
@@ -102,7 +102,7 @@ export function StepNetwork({ state, setState }: StepProps) {
                   />
                 </div>
                 <div>
-                  <p className="mb-1 text-sm text-muted-foreground">密码（可选）</p>
+                  <p className="mb-1 text-[12px] leading-5 text-muted-foreground">密码（可选）</p>
                   <Input
                     type="password"
                     value={state.proxyUpstreamSecret}

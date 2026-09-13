@@ -83,15 +83,15 @@ export function ProxySettings({
             测试配置
           </Button>
           <Button size="sm" type="submit" disabled={saving}>
-            {saving && <Spinner className="mr-2 size-4" />}
+            {saving && <Spinner data-icon="inline-start" />}
             保存代理设置
           </Button>
         </div>
       }
     >
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="text-sm font-medium">代理模式</p>
+          <p className="text-[13px] font-medium leading-6">代理模式</p>
           <p className="text-sm leading-relaxed text-muted-foreground">
             Clash 需要订阅地址或粘贴配置；上游代理需提供一个 HTTP(S)/SOCKS5 出口
           </p>
@@ -115,8 +115,8 @@ export function ProxySettings({
 
       {mode === "clash" && (
         <>
-          <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
-            <p className="text-sm font-medium">Clash 订阅地址</p>
+          <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
+            <p className="text-[13px] font-medium leading-6">Clash 订阅地址</p>
             <Input
               value={v.proxyClashSubscription}
               onChange={(e) =>
@@ -128,8 +128,8 @@ export function ProxySettings({
               启动时 ECS 拉取订阅生成配置；与下方「粘贴配置」二选一，如果已粘贴完整配置可留空。
             </p>
           </div>
-          <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
-            <p className="text-sm font-medium">Clash 配置（YAML，粘贴模式）</p>
+          <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
+            <p className="text-[13px] font-medium leading-6">Clash 配置（YAML，粘贴模式）</p>
             <Textarea
               rows={8}
               value={v.proxyClashYaml}
@@ -146,8 +146,8 @@ export function ProxySettings({
       )}
 
       {mode === "upstream" && (
-        <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
-          <p className="text-sm font-medium">上游代理地址</p>
+        <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
+          <p className="text-[13px] font-medium leading-6">上游代理地址</p>
           <Input
             value={v.proxyUpstreamUrl}
             onChange={(e) => onChange({ proxyUpstreamUrl: e.target.value })}
@@ -175,9 +175,9 @@ export function ProxySettings({
         </div>
       )}
 
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+      <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">连通性探测地址</p>
+          <p className="text-[13px] font-medium leading-6">连通性探测地址</p>
           <Badge tone="gray">每行一个</Badge>
         </div>
         <Textarea
@@ -191,9 +191,9 @@ export function ProxySettings({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+      <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">代理直通白名单 (no_proxy)</p>
+          <p className="text-[13px] font-medium leading-6">代理直通白名单 (no_proxy)</p>
           <Badge tone="gray">每行一个</Badge>
         </div>
         <Textarea
@@ -214,8 +214,8 @@ export function ProxySettings({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
-        <p className="text-sm font-medium">Clash 内核下载回退地址（可选）</p>
+      <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border">
+        <p className="text-[13px] font-medium leading-6">Clash 内核下载回退地址（可选）</p>
         <Input
           value={v.clashBinUrl}
           onChange={(e) => onChange({ clashBinUrl: e.target.value })}

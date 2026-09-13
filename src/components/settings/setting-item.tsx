@@ -17,14 +17,14 @@ export function SettingGroup({
     <section className={cn("space-y-4", className)}>
       <div>
         <div className="flex items-center gap-3">
-          <h2 className="shrink-0 text-sm font-semibold tracking-wide text-foreground">
+          <h2 className="shrink-0 text-[15px] font-semibold leading-6 tracking-[-0.01em] text-foreground">
             {title}
           </h2>
-          <div aria-hidden className="h-px flex-1 bg-border" />
+          <div aria-hidden className="h-px flex-1 bg-border/70" />
           {action && <div className="shrink-0">{action}</div>}
         </div>
         {description && (
-          <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-1.5 text-[13px] leading-6 text-muted-foreground">{description}</p>
         )}
       </div>
       <div className="space-y-3">{children}</div>
@@ -42,11 +42,11 @@ export function SettingItem({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+    <div className="flex flex-col gap-2 rounded-lg bg-card p-4 shadow-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium">{label}</p>
+        <p className="text-[13px] font-medium leading-6">{label}</p>
         {description && (
-          <p className="text-sm leading-relaxed text-muted-foreground">
+          <p className="text-[13px] leading-6 text-muted-foreground">
             {description}
           </p>
         )}
@@ -66,7 +66,7 @@ export function SettingItemRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-4 rounded-lg border bg-card p-4",
+        "flex items-center gap-4 rounded-lg bg-card p-4 shadow-border",
         className
       )}
     >

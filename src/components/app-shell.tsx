@@ -24,9 +24,16 @@ const routes: Record<string, string> = {
   "/settings": "通用",
   "/settings/env": "环境变量",
   "/settings/keys": "API 密钥",
-  "/account": "Account",
-  "/dashboard": "Dashboard",
+  "/account": "账号",
   "/cloud-instances": "弹性规格",
+  "/recipes": "配方",
+  "/recipes/upload": "上传配方",
+  "/recipes/new": "新建配方",
+  "/launch-templates": "模板",
+  "/launch-templates/new": "新建模板",
+  "/launch-templates/new/upload": "上传模板",
+  "/launch-templates/new/use": "使用配方新建",
+  "/setup": "初始化",
 }
 
 function getBreadcrumbs(pathname: string) {
@@ -41,6 +48,12 @@ function getBreadcrumbs(pathname: string) {
       crumbs.push({ label, href: path })
     } else if (path.match(/^\/workspaces\/[^/]+$/)) {
       crumbs.push({ label: `工作区详情`, href: path })
+    } else if (path.match(/^\/instances\/[^/]+$/)) {
+      crumbs.push({ label: `实例详情`, href: path })
+    } else if (path.match(/^\/recipes\/[^/]+$/)) {
+      crumbs.push({ label: `配方详情`, href: path })
+    } else if (path.match(/^\/launch-templates\/[^/]+$/)) {
+      crumbs.push({ label: `模板详情`, href: path })
     } else if (path === "/cloud-instances/new") {
       crumbs.push({ label: `创建弹性规格`, href: path })
     }
@@ -63,20 +76,19 @@ export function AppShell({
   return (
     <SidebarProvider>
       <AppSidebar user={user} />
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-          <div className="flex min-w-0 items-center gap-2 px-4">
+      <SidebarInset className="bg-background">
+        {/* 顶栏保持轻薄：只用一条极淡分隔线，不用阴影抢内容焦点 */}
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+          <div className="flex min-w-0 items-center gap-2 px-5">
             <SidebarTrigger className="-ml-1" />
             <Separator
               orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
+              className="mr-1 data-[orientation=vertical]:h-4"
             />
             <Breadcrumb className="min-w-0">
               <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:flex">
-                  <BreadcrumbLink href="/">
-                    Workspace Cloud
-                  </BreadcrumbLink>
+                  <BreadcrumbLink href="/">Workspace Cloud</BreadcrumbLink>
                 </BreadcrumbItem>
                 {crumbs.map((crumb) => (
                   <BreadcrumbItem key={crumb.href} className="hidden md:flex">
@@ -96,8 +108,11 @@ export function AppShell({
             </Breadcrumb>
           </div>
         </header>
-        <div className="flex flex-1 flex-col overflow-auto p-6">
-          {children}
+        {/* 内容区：限宽 + 大留白。中文长行更难扫读，1200px 是舒适上限 */}
+        <div className="flex flex-1 flex-col overflow-auto">
+          <div className="mx-auto w-full max-w-[1200px] flex-1 p-6">
+            {children}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

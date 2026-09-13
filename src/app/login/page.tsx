@@ -8,10 +8,10 @@ export default async function LoginPage() {
   if (session?.user?.id) redirect("/");
 
   return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-6 bg-background p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex items-center gap-2 self-center font-medium">
-          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+        <div className="flex items-center gap-2 self-center text-[13px] font-medium">
+          <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-background">
             <svg viewBox="0 0 24 24" fill="none" className="size-4">
               <path
                 d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"

@@ -4,7 +4,7 @@ export default function AccessLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="h-dvh w-full overflow-hidden bg-slate-950 text-white">
+    <div className="h-dvh w-full overflow-hidden bg-[#0a0a0a] text-white">
       {children}
     </div>
   );

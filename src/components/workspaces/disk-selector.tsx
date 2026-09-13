@@ -1,6 +1,9 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export interface DiskSelection {
   category: string;
@@ -23,79 +26,67 @@ export function DiskSelector({
   onChange: (v: DiskSelection) => void;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
-        {DISK_OPTIONS.map((d) => (
-          <label
-            key={d.id}
-            onClick={() => onChange({ ...value, category: d.id })}
-            className={
-              "cursor-pointer rounded-md border p-3 text-sm " +
-              (value.category === d.id
-                ? "border-blue-500 bg-blue-50"
-                : "border-gray-200 hover:border-blue-300")
-            }
-          >
-            <div className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="diskCategory"
-                checked={value.category === d.id}
-                onChange={() => onChange({ ...value, category: d.id })}
-              />
-              <span className="font-medium">{d.label}</span>
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              最大 IOPS/吞吐 (MB/s): {d.iops}
-            </div>
-            <div className="mt-0.5 text-xs text-gray-400">{d.note}</div>
-          </label>
-        ))}
-      </div>
+    <div className="space-y-5">
+      <RadioGroup
+        value={value.category}
+        onValueChange={(v) => onChange({ ...value, category: v })}
+        className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+      >
+        {DISK_OPTIONS.map((d) => {
+          const active = value.category === d.id;
+          return (
+            <Label
+              key={d.id}
+              htmlFor={`disk-${d.id}`}
+              className={`cursor-pointer flex-col items-stretch gap-1 rounded-lg bg-card p-3 font-normal shadow-border transition-colors ${
+                active ? "bg-accent" : "hover:bg-accent/50"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <RadioGroupItem id={`disk-${d.id}`} value={d.id} />
+                <span className="text-[13px] font-medium leading-6">{d.label}</span>
+              </span>
+              <span className="pl-6 text-[12px] leading-5 text-muted-foreground">
+                最大 IOPS/吞吐 (MB/s)：{d.iops}
+              </span>
+              <span className="pl-6 text-[12px] leading-5 text-muted-foreground/80">
+                {d.note}
+              </span>
+            </Label>
+          );
+        })}
+      </RadioGroup>
 
-      <div className="flex items-center gap-4">
-        <select
-          className="w-40 rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={value.category}
-          onChange={(e) => onChange({ ...value, category: e.target.value })}
-        >
-          {DISK_OPTIONS.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.label}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">容量</span>
+          <span className="text-[13px] leading-6 text-muted-foreground">容量</span>
           <Input
             type="number"
-            className="w-24"
+            className="tnum w-24"
             value={value.size}
             onChange={(e) => onChange({ ...value, size: Number(e.target.value) })}
           />
-          <span className="text-sm text-gray-500">GiB</span>
+          <span className="text-[13px] leading-6 text-muted-foreground">GiB</span>
         </div>
       </div>
 
-      <div className="flex gap-6 text-sm">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+      <div className="flex flex-wrap gap-6">
+        <Label className="text-[13px] font-normal leading-6">
+          <Checkbox
             checked={value.releaseWithInstance}
-            onChange={(e) =>
-              onChange({ ...value, releaseWithInstance: e.target.checked })
+            onCheckedChange={(c) =>
+              onChange({ ...value, releaseWithInstance: c === true })
             }
           />
           随实例释放
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+        </Label>
+        <Label className="text-[13px] font-normal leading-6">
+          <Checkbox
             checked={value.encrypted}
-            onChange={(e) => onChange({ ...value, encrypted: e.target.checked })}
+            onCheckedChange={(c) => onChange({ ...value, encrypted: c === true })}
           />
           加密
-        </label>
+        </Label>
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   HardDrive,
   Play,
@@ -13,10 +14,13 @@ import {
   Pencil,
   FolderCode,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
@@ -33,7 +37,20 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { formatBytes, formatRelativeTime, STATUS_META } from "@/lib/utils";
+import { APIError } from "@/components/ui/error";
+import {
+  formatBytes,
+  formatRelativeTime,
+  isTransientStatus,
+  statusMeta,
+} from "@/lib/utils";
+import {
+  apiGet,
+  apiSend,
+  pingMaintenance,
+  queryKeys,
+  POLL_SETTLING_MS,
+} from "@/lib/api-client";
 
 interface WorkspaceFeature {
   id: string;
@@ -46,7 +63,8 @@ interface WorkspaceRow {
   name: string;
   provider: string;
   region: string;
-  imageUri: string;
+  imageUri: string | null;
+  templateId: string | null;
   features: WorkspaceFeature[];
   createdAt: string;
   state: {
@@ -60,93 +78,148 @@ interface WorkspaceRow {
   } | null;
 }
 
+type WorkspaceListResponse = { workspaces: WorkspaceRow[] };
+
+const providerLabel = (p: string) => (p === "aliyun" ? "阿里云" : p);
+
 export function WorkspaceList() {
   const router = useRouter();
-  const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const queryClient = useQueryClient();
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    // 懒处理：serverless 无后台进程，借这次请求触发超时 / 心跳 / 空闲检查
-    fetch("/api/maintenance", { method: "POST" }).catch(() => {});
+  const { data, isPending, error } = useQuery({
+    queryKey: queryKeys.workspaces,
+    queryFn: () => {
+      // 懒处理打点：不 await，只借这次加载触发超时 / 空闲 / 异步停止收尾
+      pingMaintenance();
+      return apiGet<WorkspaceListResponse>("/api/workspaces");
+    },
+    // 只在有实例处于进行中状态时轮询；全部稳定则完全停轮询
+    refetchInterval: (query) =>
+      (query.state.data?.workspaces ?? []).some((w) =>
+        isTransientStatus(w.state?.status),
+      )
+        ? POLL_SETTLING_MS
+        : false,
+  });
 
-    const wsRes = await fetch("/api/workspaces");
-    if (wsRes.ok) {
-      const data = await wsRes.json();
-      setWorkspaces(data.workspaces);
-    }
-    setLoading(false);
-  }, []);
+  const workspaces = data?.workspaces ?? [];
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [load]);
+  const stopMutation = useMutation({
+    mutationFn: (id: string) => apiSend(`/api/workspaces/${id}/stop`, "POST"),
+    // 乐观更新：立刻把该行标成「释放中」，不等接口回来
+    onMutate: async (id: string) => {
+      setPendingId(id);
+      await queryClient.cancelQueries({ queryKey: queryKeys.workspaces });
+      const previous = queryClient.getQueryData<WorkspaceListResponse>(
+        queryKeys.workspaces,
+      );
+      queryClient.setQueryData<WorkspaceListResponse>(
+        queryKeys.workspaces,
+        (old) =>
+          old
+            ? {
+                workspaces: old.workspaces.map((w) =>
+                  w.id === id && w.state
+                    ? { ...w, state: { ...w.state, status: "RELEASING" } }
+                    : w,
+                ),
+              }
+            : old,
+      );
+      return { previous };
+    },
+    onError: (e, _id, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKeys.workspaces, ctx.previous);
+      }
+      toast.error(e instanceof Error ? e.message : "停止失败");
+    },
+    onSuccess: () => {
+      toast.success("已开始释放，快照完成后自动停止");
+    },
+    onSettled: () => {
+      setPendingId(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
 
-  async function handleAction(path: string, method: string) {
-    setBusyId(path);
-    setError("");
-    const res = await fetch(path, { method });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "操作失败，请重试");
-    }
-    await load();
-    router.refresh();
-    setBusyId(null);
-  }
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiSend(`/api/workspaces/${id}`, "DELETE"),
+    onMutate: async (id: string) => {
+      setPendingId(id);
+      await queryClient.cancelQueries({ queryKey: queryKeys.workspaces });
+      const previous = queryClient.getQueryData<WorkspaceListResponse>(
+        queryKeys.workspaces,
+      );
+      // 乐观移除该行
+      queryClient.setQueryData<WorkspaceListResponse>(
+        queryKeys.workspaces,
+        (old) =>
+          old ? { workspaces: old.workspaces.filter((w) => w.id !== id) } : old,
+      );
+      return { previous };
+    },
+    onError: (e, _id, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKeys.workspaces, ctx.previous);
+      }
+      toast.error(e instanceof Error ? e.message : "删除失败");
+    },
+    onSuccess: () => toast.success("工作区已删除"),
+    onSettled: () => {
+      setPendingId(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
 
   async function openWorkbench(instanceId?: string | null) {
     if (!instanceId) return;
-    setBusyId(instanceId);
-    setError("");
+    setPendingId(instanceId);
     try {
-      const res = await fetch(`/api/instances/${instanceId}/access-link`);
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.url) {
+      const data = await apiGet<{ url?: string }>(
+        `/api/instances/${instanceId}/access-link`,
+      );
+      if (data.url) {
         router.push(data.url);
         return;
       }
+      toast.error("无法打开工作台，请重试");
     } catch {
-      // 网络异常，走失败提示
+      toast.error("无法打开工作台，请重试");
+    } finally {
+      setPendingId(null);
     }
-    setBusyId(null);
-    setError("无法打开工作台，请重试");
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="h-6 w-6" />
-      </div>
-    );
-  }
+  const actionsBusy = isPending || error !== null;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-6 py-4">
-        <h1 className="text-xl font-semibold">工作区</h1>
-        <Link href="/workspaces/new">
-          <Button>
-            <FolderCode className="mr-2 h-4 w-4" />
-            新建工作区
-          </Button>
-        </Link>
-      </div>
+    <div className="flex h-full flex-col">
+      <PageHeader
+        title="工作区"
+        description="每个工作区对应一套云端开发环境，按需启动、用完释放。"
+        actions={
+          <Link href="/workspaces/new">
+            <Button>
+              <FolderCode className="size-4" />
+              新建工作区
+            </Button>
+          </Link>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
+      <div className="flex-1 overflow-y-auto">
         {error && (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-            <button className="ml-2 underline" onClick={() => setError("")}>
-              关闭
-            </button>
-          </div>
+          <APIError
+            message={error instanceof Error ? error.message : "加载失败"}
+            className="mb-4"
+          />
         )}
 
-        {workspaces.length === 0 ? (
+        {isPending ? (
+          <WorkspaceListSkeleton />
+        ) : workspaces.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -167,139 +240,199 @@ export function WorkspaceList() {
           <div className="space-y-2">
             {workspaces.map((w) => {
               const status = w.state?.status ?? "STOPPED";
-              const meta = STATUS_META[status] ?? STATUS_META.STOPPED;
+              const meta = statusMeta(status);
               const isRunning = status === "RUNNING";
-              const isBusy = status === "PROVISIONING" || status === "TERMINATING";
-              const imageName = w.imageUri.split("/").pop() ?? w.imageUri;
-              const providerLabel = w.provider === "aliyun" ? "阿里云" : w.provider;
-              const featureNames = w.features?.map((f) => f.name).join(", ");
-              const displayFeatures = featureNames
-                ? featureNames.length > 30
-                  ? featureNames.slice(0, 30) + "..."
-                  : featureNames
-                : "-";
+              const rowBusy = isTransientStatus(status);
+              const imageName = w.imageUri
+                ? w.imageUri.split("/").pop() ?? w.imageUri
+                : w.templateId ?? "模板工作区";
+              const featureNames = (w.features ?? [])
+                .map((f) => f.name)
+                .join(" · ");
 
               return (
-                <Card key={w.id} className="py-0 gap-0 overflow-hidden">
-                  <CardContent className="px-4 py-3">
-                    <div className="flex items-center gap-4">
-                      {/* 左侧信息区 */}
-                      <div className="flex-1 min-w-0">
-                        {/* 上方：镜像名称 */}
-                        <div className="text-[11px] text-muted-foreground font-mono truncate mb-1">
-                          {imageName}
-                        </div>
-                        {/* 中间：名称 + 状态徽章 */}
-                        <div className="flex items-center gap-2 mb-1">
-                          <Link
-                            href={`/workspaces/${w.id}`}
-                            className="text-lg font-semibold truncate hover:underline"
-                          >
-                            {w.name}
-                          </Link>
-                          <Badge tone={meta.tone} className="shrink-0 text-[10px] px-1.5 py-0">
-                            {meta.label}
-                          </Badge>
-                        </div>
-                        {/* 下方：features + scripts */}
-                        <div className="text-xs text-muted-foreground truncate">
-                          {displayFeatures}
-                        </div>
+                <Card key={w.id} interactive className="py-0">
+                  <div className="flex items-center gap-4 px-4 py-3">
+                    {/* 左侧：主信息 */}
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
+                        {imageName}
                       </div>
-
-                      {/* 中间：OSS + 时间 */}
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
-                        <span>{providerLabel} · {w.region}</span>
-                        <span>·</span>
-                        <HardDrive className="h-3.5 w-3.5" />
-                        <span>{formatBytes(w.state?.ossUsageBytes)}</span>
-                        <span>·</span>
-                        <span>{w.state?.lastActiveAt ? `Last used ${formatRelativeTime(w.state.lastActiveAt)}` : "从未启动"}</span>
+                      <div className="mb-1 flex items-center gap-2">
+                        <Link
+                          href={`/workspaces/${w.id}`}
+                          className="truncate text-[15px] font-semibold leading-6 tracking-[-0.01em] hover:underline"
+                        >
+                          {w.name}
+                        </Link>
+                        <Badge tone={meta.tone} dot>
+                          {meta.label}
+                        </Badge>
                       </div>
-
-                      {/* 右侧：按钮组 */}
-                      <div className="flex items-center shrink-0">
-                        <ButtonGroup>
-                          {isRunning ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 w-8 p-0"
-                                disabled={busyId !== null}
-                                onClick={() => openWorkbench(w.state?.instanceId)}
-                              >
-                                <Play className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 w-8 p-0"
-                                disabled={busyId !== null}
-                                onClick={() => handleAction(`/api/workspaces/${w.id}/stop`, "POST")}
-                              >
-                                <Square className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 w-8 p-0"
-                              disabled={busyId !== null || isBusy}
-                              onClick={() => router.push(`/workspaces/${w.id}?tab=specs`)}
-                            >
-                              {isBusy ? (
-                                <Spinner className="h-3.5 w-3.5" />
-                              ) : (
-                                <Play className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
-                          )}
-
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="outline" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {isRunning ? (
-                                <DropdownMenuItem onClick={() => handleAction(`/api/workspaces/${w.id}/stop`, "POST")}>
-                                  <Square className="mr-2 h-4 w-4" />
-                                  停止
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem disabled={isBusy} onClick={() => handleAction(`/api/workspaces/${w.id}/start`, "POST")}>
-                                  <Play className="mr-2 h-4 w-4" />
-                                  启动
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem>
-                                <Share2 className="mr-2 h-4 w-4" />
-                                分享
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                重命名
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onClick={() => handleAction(`/api/workspaces/${w.id}`, "DELETE")}>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                删除
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </ButtonGroup>
+                      <div className="truncate text-xs leading-5 text-muted-foreground">
+                        {featureNames || "未安装开发环境"}
                       </div>
                     </div>
-                  </CardContent>
+
+                    {/* 中间：元信息。中文环境用竖线分隔比圆点更清晰 */}
+                    <div className="hidden shrink-0 items-center gap-3 text-xs text-muted-foreground tnum lg:flex">
+                      <span>
+                        {providerLabel(w.provider)} · {w.region}
+                      </span>
+                      <span className="h-3 w-px bg-border" aria-hidden />
+                      <span className="inline-flex items-center gap-1">
+                        <HardDrive className="size-3.5" />
+                        {formatBytes(w.state?.ossUsageBytes)}
+                      </span>
+                      <span className="h-3 w-px bg-border" aria-hidden />
+                      <span>
+                        {w.state?.lastActiveAt
+                          ? `上次使用 ${formatRelativeTime(w.state.lastActiveAt)}`
+                          : "从未启动"}
+                      </span>
+                    </div>
+
+                    {/* 右侧：操作 */}
+                    <div className="flex shrink-0 items-center">
+                      <ButtonGroup>
+                        {isRunning ? (
+                          <>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              disabled={actionsBusy}
+                              title="进入工作台"
+                              onClick={() => openWorkbench(w.state?.instanceId)}
+                            >
+                              <Play className="size-3.5" />
+                            </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              disabled={rowBusy}
+                              title="停止并释放"
+                              onClick={() => stopMutation.mutate(w.id)}
+                            >
+                              {pendingId === w.id ? (
+                                <Spinner className="size-3.5" />
+                              ) : (
+                                <Square className="size-3.5" />
+                              )}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="icon-sm"
+                            variant="outline"
+                            disabled={rowBusy}
+                            title="选择规格并启动"
+                            onClick={() =>
+                              router.push(`/workspaces/${w.id}?tab=specs`)
+                            }
+                          >
+                            {rowBusy ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <Play className="size-3.5" />
+                            )}
+                          </Button>
+                        )}
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              title="更多操作"
+                            >
+                              <MoreHorizontal className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {isRunning ? (
+                              <DropdownMenuItem
+                                disabled={rowBusy}
+                                onClick={() => stopMutation.mutate(w.id)}
+                              >
+                                <Square className="size-4" />
+                                停止
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                disabled={rowBusy}
+                                onClick={() =>
+                                  router.push(`/workspaces/${w.id}?tab=specs`)
+                                }
+                              >
+                                <Play className="size-4" />
+                                启动
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              onClick={() =>
+                                router.push(`/workspaces/${w.id}?tab=settings`)
+                              }
+                            >
+                              <Share2 className="size-4" />
+                              分享与设置
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                router.push(`/workspaces/${w.id}?tab=settings`)
+                              }
+                            >
+                              <Pencil className="size-4" />
+                              重命名
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={rowBusy}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `确定删除工作区「${w.name}」？所有实例数据将被清除，不可恢复。`,
+                                  )
+                                ) {
+                                  deleteMutation.mutate(w.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </ButtonGroup>
+                    </div>
+                  </div>
                 </Card>
               );
             })}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 列表骨架屏：与真实行同高，避免加载完成时的跳动。 */
+function WorkspaceListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <Card key={i} className="py-0">
+          <div className="flex items-center gap-4 px-4 py-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3 w-40" />
+              <Skeleton className="h-5 w-52" />
+              <Skeleton className="h-3 w-64" />
+            </div>
+            <Skeleton className="hidden h-3 w-64 lg:block" />
+            <Skeleton className="h-7 w-[68px]" />
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }

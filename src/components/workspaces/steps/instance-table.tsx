@@ -29,7 +29,18 @@ import { type InstanceTypeInfo } from "@/components/workspaces/instance-selector
 import { type InstanceAvailability } from "@/lib/aliyun/ecs";
 import { FAMILY_CATEGORIES, familyLabel, classifyArchitecture } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatCurrency } from "@/lib/utils";
+
+/** Radix Select 不接受空字符串，用哨兵值表示「全部」 */
+const ALL = "__all__";
 
 interface InstanceTableProps {
   region: string;
@@ -275,8 +286,17 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Spinner className="h-6 w-6" />
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-32 rounded-md" />
+          <Skeleton className="h-8 w-24 rounded-md" />
+          <Skeleton className="h-8 w-24 rounded-md" />
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full rounded-md" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -304,43 +324,46 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
           </Button>
         </div>
 
-        <select
-          className="h-8 rounded-md border border-input bg-background px-3 text-sm"
-          value={familyCategory}
-          onChange={(e) => setFamilyCategory(e.target.value)}
-        >
-          {FAMILY_CATEGORIES.map((cat) => (
-            <option key={cat.id} value={cat.id}>
-              {cat.label}
-            </option>
-          ))}
-        </select>
+        <Select value={familyCategory} onValueChange={setFamilyCategory}>
+          <SelectTrigger size="sm" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FAMILY_CATEGORIES.map((cat) => (
+              <SelectItem key={cat.id} value={cat.id}>
+                {cat.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select
-          className="h-8 rounded-md border border-input bg-background px-3 text-sm"
-          value={cpuFilter}
-          onChange={(e) => setCpuFilter(e.target.value)}
-        >
-          <option value="">vCPU</option>
-          {[1, 2, 4, 8, 16, 32, 64].map((v) => (
-            <option key={v} value={v}>
-              {v} 核
-            </option>
-          ))}
-        </select>
+        <Select value={cpuFilter || ALL} onValueChange={(v) => setCpuFilter(v === ALL ? "" : v)}>
+          <SelectTrigger size="sm" className="w-24">
+            <SelectValue placeholder="vCPU" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>全部 vCPU</SelectItem>
+            {[1, 2, 4, 8, 16, 32, 64].map((v) => (
+              <SelectItem key={v} value={String(v)}>
+                {v} 核
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select
-          className="h-8 rounded-md border border-input bg-background px-3 text-sm"
-          value={memFilter}
-          onChange={(e) => setMemFilter(e.target.value)}
-        >
-          <option value="">内存</option>
-          {[1, 2, 4, 8, 16, 32, 64, 128].map((v) => (
-            <option key={v} value={v}>
-              {v} GiB
-            </option>
-          ))}
-        </select>
+        <Select value={memFilter || ALL} onValueChange={(v) => setMemFilter(v === ALL ? "" : v)}>
+          <SelectTrigger size="sm" className="w-24">
+            <SelectValue placeholder="内存" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>全部内存</SelectItem>
+            {[1, 2, 4, 8, 16, 32, 64, 128].map((v) => (
+              <SelectItem key={v} value={String(v)}>
+                {v} GiB
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <RadioGroup
@@ -404,7 +427,7 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
                         {cell.column.id === "select" ? (
                           <RadioGroupItem value={row.original.instanceTypeId} disabled={rowDisabled} />
                         ) : cell.column.id === "instanceTypeId" ? (
-                          <div className="font-mono text-sm">
+                          <div className="font-mono text-[12px]">
                             {row.original.instanceTypeId}
                           </div>
                         ) : (
@@ -478,7 +501,7 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
                     </HoverCardTrigger>
                     <HoverCardContent className="w-64">
                       <div className="space-y-2">
-                        <h4 className="font-medium text-sm">可用区状态</h4>
+                        <h4 className="text-[13px] font-medium leading-6">可用区状态</h4>
                         <div className="space-y-1.5">
                           {selectedAvailability.zones.map((z) => {
                             const cfg = STATUS_CONFIG[z.statusCategory] ?? STATUS_CONFIG.WithoutStock;
@@ -503,7 +526,7 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
                     return (
                       <HoverCard>
                         <HoverCardTrigger asChild>
-                          <span className="cursor-pointer underline decoration-dotted text-green-600">
+                          <span className="cursor-pointer text-[#0d7a43] underline decoration-dotted dark:text-[#4cc38a]">
                             {cfg.label}
                           </span>
                         </HoverCardTrigger>

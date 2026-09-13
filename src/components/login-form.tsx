@@ -15,12 +15,13 @@ import {
 } from "@/components/ui/card";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldSeparator,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { APIError } from "@/components/ui/error";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -64,10 +65,8 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">欢迎回来</CardTitle>
-          <CardDescription>
-            使用 GitHub 或账号密码登录
-          </CardDescription>
+          <CardTitle className="text-[18px] leading-7">欢迎回来</CardTitle>
+          <CardDescription>使用 GitHub 或账号密码登录</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit}>
@@ -108,14 +107,11 @@ export function LoginForm({
                   required
                 />
               </Field>
-              {error && (
-                <FieldDescription className="text-red-500">
-                  {error}
-                </FieldDescription>
-              )}
+              {error && <APIError message={error} />}
               <Field>
                 <Button type="submit" disabled={loading}>
-                  {loading ? "登录中..." : "登录"}
+                  {loading && <Spinner data-icon="inline-start" />}
+                  {loading ? "登录中…" : "登录"}
                 </Button>
               </Field>
             </FieldGroup>
