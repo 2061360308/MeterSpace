@@ -15,6 +15,7 @@ import { buildUserData, buildStopHook, type EntrypointVars } from "@/lib/userdat
 import { resolveFeatures } from "@/lib/features";
 import { getGitTokenEnc } from "@/lib/git/service";
 import { encrypt } from "@/lib/crypto";
+import { buildAutoReleaseTime } from "@/lib/instances/auto-release";
 
 export const RAM_ROLE_NAME = "workspace-cloud-ecs-role";
 
@@ -102,9 +103,9 @@ async function launchInstance(
   };
   const userData = buildUserData(entrypointVars);
 
-  const autoReleaseTime = new Date(
-    Date.now() + releaseHours * 3600 * 1000,
-  ).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // 阿里云要求释放时间不早于「当前时间 + 30 分钟」；0.5 小时会踩边界，
+  // 由 buildAutoReleaseTime 统一抬到安全下限。
+  const autoReleaseTime = buildAutoReleaseTime(releaseHours);
 
   const instanceId = await provider.createInstance({
     region: workspace.region,
@@ -624,9 +625,8 @@ export async function renewWorkspace(
   if (!provider) {
     throw new WorkspaceError("Unknown provider", 500);
   }
-  const autoReleaseTime = new Date(
-    Date.now() + hours * 3600 * 1000,
-  ).toISOString();
+  // 续期同样走统一构造：hours 可能小于 0.5，且此处原先漏了毫秒裁剪
+  const autoReleaseTime = buildAutoReleaseTime(hours);
   await provider.setAutoReleaseTime(instance.ecsInstanceId, workspace.region, autoReleaseTime);
 
   await db.insert(auditLogs).values({

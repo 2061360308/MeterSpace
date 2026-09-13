@@ -9,6 +9,7 @@ import {
   invalidateRegionResources,
 } from "@/lib/ecs/provisioning";
 import { buildStopHook, buildUserData } from "@/lib/userdata";
+import { buildAutoReleaseTime } from "@/lib/instances/auto-release";
 import { getAppBaseUrl, RAM_ROLE_NAME, releaseIdleWorkspace } from "@/lib/workspaces/service";
 
 const BOOT_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
@@ -728,9 +729,9 @@ export async function provisionInstanceCloud(instanceId: string): Promise<void> 
       })
     )?.releaseHours ?? settings.defaultReleaseHours;
 
-  const autoReleaseTime = new Date(Date.now() + releaseHours * 3600 * 1000)
-    .toISOString()
-    .replace(/\.\d{3}Z$/, "Z");
+  // 阿里云要求释放时间不早于「当前时间 + 30 分钟」；0.5 小时会踩边界，
+  // 由 buildAutoReleaseTime 统一抬到安全下限。
+  const autoReleaseTime = buildAutoReleaseTime(releaseHours);
 
   const userData = buildUserData({
     instanceId: row.id,
