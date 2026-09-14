@@ -549,7 +549,7 @@ export async function authorizeIngress(
 export interface Instance {
   instanceId: string;
   status: string;
-  publicIpAddress?: string;
+  publicIpAddress?: { ipAddress?: string[] };
   eipAddress?: { ipAddress?: string };
   autoReleaseTime?: string;
   instanceType: string;

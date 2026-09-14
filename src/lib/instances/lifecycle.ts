@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, isNotNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, isNotNull, like, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { instances, instanceLogs, workspaces } from "@/lib/db/schema";
 import { getProvider } from "@/lib/providers";
@@ -485,7 +485,7 @@ export async function backfillInstanceIps(
       and(
         inArray(instances.workspaceId, workspaceIds),
         inArray(instances.status, ["RUNNING", "BOOTING"]),
-        isNull(instances.publicIp),
+        or(isNull(instances.publicIp), like(instances.publicIp, "{%")),
         isNotNull(instances.ecsInstanceId),
       ),
     );

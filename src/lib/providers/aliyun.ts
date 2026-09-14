@@ -162,7 +162,7 @@ export class AliyunProvider implements CloudProvider {
     return {
       id: inst.instanceId,
       status: inst.status,
-      publicIp: inst.publicIpAddress ?? inst.eipAddress?.ipAddress,
+      publicIp: inst.publicIpAddress?.ipAddress?.[0] ?? inst.eipAddress?.ipAddress,
       instanceType: inst.instanceType,
       autoReleaseTime: inst.autoReleaseTime,
       spotStrategy: inst.spotStrategy,
@@ -406,7 +406,7 @@ export class AliyunProvider implements CloudProvider {
       const creds = await this.getCreds();
       const inst = await ecs.describeInstances(creds, region, ecsInstanceId);
       if (!inst) return null;
-      return inst.publicIpAddress ?? inst.eipAddress?.ipAddress ?? null;
+      return inst.publicIpAddress?.ipAddress?.[0] ?? inst.eipAddress?.ipAddress ?? null;
     } catch (e) {
       console.warn("[aliyun] getInstancePublicIp failed:", (e as Error).message);
       return null;
