@@ -75,7 +75,9 @@ export const cloudInstances = pgTable("cloud_instances", {
   instanceType: text("instance_type").notNull(),
   // 创建时落库的规格元数据（旧行可能为 null）
   cpuCoreCount: integer("cpu_core_count"),
-  memorySize: integer("memory_size"),
+  // real 而非 integer：阿里云内存普遍带小数（1.5 / 2.5 GiB），
+  // 与 instance_cache.memory_size 对齐，避免回填时静默取整。
+  memorySize: real("memory_size"),
   instanceTypeFamily: text("instance_type_family"),
   cpuArchitecture: text("cpu_architecture"),
   gpuCount: integer("gpu_count"),

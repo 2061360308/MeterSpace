@@ -87,8 +87,18 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const CPU_OPTIONS = ["全部", "2核", "4核", "8核", "16核", "32核"]
 const CPU_VALUES = [0, 2, 4, 8, 16, 32]
+/**
+ * 内存筛选按「下限」语义：选中 8G 表示 8 GiB 及以上。
+ * 不能精确相等匹配 —— 阿里云内存普遍带小数（如 ecs.t6-c1m1.large 是 1.5 GiB），
+ * 精确匹配会把它们全部漏掉。
+ */
 const MEMORY_OPTIONS = ["全部", "4G", "8G", "16G", "32G", "64G"]
 const MEMORY_VALUES = [0, 4, 8, 16, 32, 64]
+
+/** 内存是 real，整数时不显示多余的 ".0"（1.5 → "1.5"，8 → "8"） */
+function formatMemory(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)))
+}
 
 export default function CloudInstancesPage() {
   const searchParams = useSearchParams()
@@ -115,10 +125,25 @@ export default function CloudInstancesPage() {
   const filtered = React.useMemo(() => {
     return instances.filter((i) => {
       if (provider !== "all" && i.provider !== provider) return false
+
+      // ⚠️ 必须按 cpuCoreCount / memorySize 这两个真实数值筛选。
+      // 历史上这里是 `i.instanceType.includes(String(cpuVal))` —— 用实例规格名做子串匹配，
+      // 有两个硬伤：
+      //   1) 名字里的数字和核数无关：ecs.g7.2xlarge 是 8 核，却会被「2核」筛出来；
+      //      且 "2" 是 "32" 的子串，选 2 核会把 32 核的实例一并带出（反向也漏）
+      //   2) 内存带小数（1.5 / 2.5 GiB）和 「4G」「8G」这种整数标签对不上，选中即全部漏掉
+      // 现在改用规格元数据做数值比较，且「无数据」的行在启用筛选后一律排除，
+      // 避免出现「筛了 8 核却混进一堆 vCPU 显示「—」」的错觉。
       const cpuVal = CPU_VALUES[cpuIndex]
+      if (cpuVal > 0) {
+        if (i.cpuCoreCount == null || i.cpuCoreCount < cpuVal) return false
+      }
+
       const memVal = MEMORY_VALUES[memoryIndex]
-      if (cpuVal > 0 && !i.instanceType.includes(String(cpuVal))) return false
-      if (memVal > 0 && !i.instanceType.includes(String(memVal))) return false
+      if (memVal > 0) {
+        if (i.memorySize == null || i.memorySize < memVal) return false
+      }
+
       return true
     })
   }, [instances, provider, cpuIndex, memoryIndex])
@@ -310,7 +335,7 @@ export default function CloudInstancesPage() {
                       {inst.cpuCoreCount != null ? `${inst.cpuCoreCount} 核` : "—"}
                     </TableCell>
                     <TableCell className="tnum text-[12px]">
-                      {inst.memorySize != null ? `${inst.memorySize} GiB` : "—"}
+                      {inst.memorySize != null ? `${formatMemory(inst.memorySize)} GiB` : "—"}
                     </TableCell>
                     <TableCell className="tnum text-[12px] text-muted-foreground">
                       {new Date(inst.createdAt).toLocaleString("zh-CN")}
