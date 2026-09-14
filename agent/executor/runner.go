@@ -62,6 +62,15 @@ type LogEntry struct {
 	Message   string    `json:"message"`
 }
 
+// 日志通道限制（docs/AGENT-LIFECYCLE.md §6 D16）：
+// 内存环形限量 maxLogBuffer 条，前端丢弃；磁盘滚动文件 ~20MB 轮转一次。
+const (
+	maxLogBuffer = 5000
+
+	diskLogPath     = "/var/log/meterspace-agent/entry.log"
+	maxDiskLogBytes = 20 * 1024 * 1024
+)
+
 // Options configures RunEntry.
 type Options struct {
 	// EntryPath is the absolute path of the entry file.
@@ -83,6 +92,10 @@ type Executor struct {
 	status         ScriptStatus
 	error          string
 	logs           []LogEntry
+	// streamed 是「已交给日志通道」的水位（条数）。通道满被丢弃的条目不会前移，
+	// 之后的 UnstreamedLogs() 会原样补发（docs/AGENT-LIFECYCLE.md §6）。
+	streamed       int
+	diskLog        *os.File
 	logsMu         sync.RWMutex
 	onLog          func(LogEntry)
 	onStatusChange func(ScriptStatus, string)
@@ -148,11 +161,27 @@ func (e *Executor) GetLogsSince(index int) []LogEntry {
 	return logs
 }
 
-// GetLogCount returns the number of logs
+// GetLogCount returns the number of logs kept in the ring
 func (e *Executor) GetLogCount() int {
 	e.logsMu.RLock()
 	defer e.logsMu.RUnlock()
 	return len(e.logs)
+}
+
+// UnstreamedLogs returns the logs that have not yet been handed to the log
+// stream channel since the last successful handover (i.e. past the watermark),
+// and advances the watermark past them. Used by the failure path to re-send
+// anything that was dropped when the channel was full (docs/AGENT-LIFECYCLE.md §6).
+func (e *Executor) UnstreamedLogs() []LogEntry {
+	e.logsMu.Lock()
+	defer e.logsMu.Unlock()
+	if e.streamed >= len(e.logs) {
+		return nil
+	}
+	logs := make([]LogEntry, len(e.logs)-e.streamed)
+	copy(logs, e.logs[e.streamed:])
+	e.streamed = len(e.logs)
+	return logs
 }
 
 // Configure switches the executor into template mode: subsequent RunEntry()
@@ -442,6 +471,16 @@ func (e *Executor) readOutput(r io.Reader, level string) {
 func (e *Executor) addLog(entry LogEntry) {
 	e.logsMu.Lock()
 	e.logs = append(e.logs, entry)
+	if len(e.logs) > maxLogBuffer {
+		// 环形：前端裁剪；被裁剪掉的条目视作已处理，水位随滑窗前移
+		dropped := len(e.logs) - maxLogBuffer
+		e.logs = e.logs[dropped:]
+		e.streamed -= dropped
+		if e.streamed < 0 {
+			e.streamed = 0
+		}
+	}
+	e.writeDiskLog(entry)
 	e.logsMu.Unlock()
 
 	if e.onLog != nil {
@@ -451,10 +490,40 @@ func (e *Executor) addLog(entry LogEntry) {
 	if e.logCh != nil {
 		select {
 		case e.logCh <- entry:
+			e.logsMu.Lock()
+			e.streamed++
+			e.logsMu.Unlock()
 		default:
-			// Channel full, drop to avoid blocking
+			// Channel full, drop to avoid blocking; watermark stays put so
+			// the failure path can re-send it via UnstreamedLogs.
 		}
 	}
+}
+
+// writeDiskLog appends the entry to the rolling disk log, rotating at ~20MB.
+// Best-effort: any failure is silently ignored (memory ring remains authoritative).
+func (e *Executor) writeDiskLog(entry LogEntry) {
+	if e.diskLog == nil {
+		if err := os.MkdirAll(filepath.Dir(diskLogPath), 0o755); err != nil {
+			return
+		}
+		f, err := os.OpenFile(diskLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return
+		}
+		e.diskLog = f
+	}
+	line := fmt.Sprintf("%s [%s] %s\n", entry.Timestamp.Format(time.RFC3339), entry.Level, entry.Message)
+	if fi, err := e.diskLog.Stat(); err == nil && fi.Size() > maxDiskLogBytes {
+		_ = e.diskLog.Close()
+		_ = os.Rename(diskLogPath, diskLogPath+".1")
+		if f, err := os.OpenFile(diskLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			e.diskLog = f
+		} else {
+			e.diskLog = nil
+		}
+	}
+	_, _ = e.diskLog.WriteString(line)
 }
 
 func (e *Executor) logf(level, msg string) {
@@ -475,6 +544,7 @@ func (e *Executor) setStatus(status ScriptStatus, errMsg string) {
 func (e *Executor) Reset() {
 	e.logsMu.Lock()
 	e.logs = make([]LogEntry, 0)
+	e.streamed = 0
 	e.logsMu.Unlock()
 	e.status = StatusPending
 	e.error = ""

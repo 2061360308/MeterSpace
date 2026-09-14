@@ -20,6 +20,8 @@ export interface LaunchTemplateSummary {
   params: never[];
   activity: ActivityConfig | null;
   timeout: number | null;
+  /** 入口执行超时（秒），未声明时取默认 600（docs/AGENT-LIFECYCLE.md §11.2） */
+  entryTimeout: number;
   version: string;
   fileCount: number;
   /** 审计来源 */
@@ -38,6 +40,8 @@ export interface LaunchTemplateDetail {
   params: never[];
   activity: ActivityConfig | null;
   timeout: number | null;
+  /** 入口执行超时（秒），未声明时取默认 600（docs/AGENT-LIFECYCLE.md §11.2） */
+  entryTimeout: number;
   version: string;
   payload: { path: string; content: string; mode: string; size: number }[];
   originKind: string;

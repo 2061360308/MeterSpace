@@ -25,6 +25,7 @@ import {
   confirmLaunchTemplateCreate,
   type LaunchTemplateUploadPreview,
 } from "@/lib/launch-templates/client";
+import { resolveEntryTimeout } from "@/lib/templates/validate";
 
 type Step = "select" | "preview";
 
@@ -314,6 +315,20 @@ export default function LaunchTemplateUploadPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[13px] font-medium">参数</span>
                   <Badge tone="gray">无</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] font-medium">入口超时</span>
+                  <span className="text-[13px] leading-6 text-muted-foreground">
+                    {Math.round(resolveEntryTimeout(preview.definition) / 60)}{" "}
+                    分钟
+                    {preview.definition.timeout == null && "（未声明，默认 10 分钟）"}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] font-medium">闲置阈值</span>
+                  <span className="text-[13px] leading-6 text-muted-foreground">
+                    {preview.definition.activity?.idleMinutes ?? 30} 分钟
+                  </span>
                 </div>
               </Card>
 

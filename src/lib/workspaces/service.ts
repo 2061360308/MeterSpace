@@ -53,7 +53,7 @@ export interface CreateWorkspaceInput {
   gitBranch?: string;
   gitTokenEnc?: string | null;
   autoClone?: boolean;
-  releaseHours?: number | null;
+  autoRenewalMinutes?: number | null;
   idleMinutes?: number | null;
   proxyMode?: string | null;
   proxyClashSubscription?: string | null;
@@ -74,7 +74,7 @@ async function launchInstance(
   workspace: typeof workspaces.$inferSelect,
   cloudInstance: typeof cloudInstances.$inferSelect,
   identity: LaunchIdentity,
-): Promise<string> {
+): Promise<{ ecsInstanceId: string; autoReleaseTime: string }> {
   const provider = getProvider(workspace.provider);
   if (!provider) {
     throw new Error(`Unknown provider: ${workspace.provider}`);
@@ -85,8 +85,8 @@ async function launchInstance(
     provider: workspace.provider,
   });
   const s = await getUserSettings(workspace.userId);
-  const releaseHours =
-    workspace.releaseHours ?? s.defaultReleaseHours;
+  const autoRenewalMinutes =
+    workspace.autoRenewalMinutes ?? s.defaultAutoRenewalMinutes;
 
   // agent 用 instanceRowId 作为回调路径；token 与库中该行一致
   const entrypointVars: EntrypointVars = {
@@ -96,16 +96,14 @@ async function launchInstance(
     workspaceId: workspace.id,
     region: workspace.region,
     entry: workspace.entry ?? "",
-    entryTimeoutSec: workspace.entryTimeout ?? 1800,
+    entryTimeoutSec: workspace.entryTimeout ?? 600,
     idleMinutes: workspace.activityConfig?.idleMinutes ?? workspace.idleMinutes ?? 30,
     sampleIntervalSec: workspace.activityConfig?.sampleIntervalSec ?? 30,
     activityPorts: workspace.activityConfig?.ports ?? [],
   };
   const userData = buildUserData(entrypointVars);
 
-  // 阿里云要求释放时间不早于「当前时间 + 30 分钟」；0.5 小时会踩边界，
-  // 由 buildAutoReleaseTime 统一抬到安全下限。
-  const autoReleaseTime = buildAutoReleaseTime(releaseHours);
+  const autoReleaseTime = buildAutoReleaseTime(autoRenewalMinutes);
 
   const instanceId = await provider.createInstance({
     region: workspace.region,
@@ -127,14 +125,14 @@ async function launchInstance(
     tags: { "workspace-id": workspace.id, "managed-by": "workspace-cloud" },
   });
 
-  return instanceId;
+  return { ecsInstanceId: instanceId, autoReleaseTime };
 }
 
 /** Pre-launch validation: spot availability + balance sufficiency. */
 async function preflightCheck(
   workspace: typeof workspaces.$inferSelect,
   cloudInstance: typeof cloudInstances.$inferSelect,
-  releaseHours: number,
+  autoRenewalMinutes: number,
 ): Promise<void> {
   const provider = getProvider(workspace.provider);
   if (!provider) {
@@ -156,7 +154,7 @@ async function preflightCheck(
       bandwidth: workspace.defaultBandwidth ?? 10,
     });
     const hourlyTotal = details.reduce((s, d) => s + (d.tradePrice ?? 0), 0);
-    const estimated = hourlyTotal * releaseHours;
+    const estimated = hourlyTotal * (autoRenewalMinutes / 60);
     if (balance.availableAmount < estimated) {
       throw new WorkspaceError(
         `余额不足：预计需 ¥${estimated.toFixed(2)}，当前可用 ¥${balance.availableAmount.toFixed(2)}`,
@@ -232,8 +230,7 @@ export async function createWorkspace(
       gitBranch: input.gitBranch ?? "main",
       gitTokenEnc,
       autoClone: input.autoClone ?? true,
-      // release_hours 是 real，可存 0.5（半小时）等小数；两张表类型已对齐。
-      releaseHours: input.releaseHours ?? s.defaultReleaseHours,
+      autoRenewalMinutes: input.autoRenewalMinutes ?? s.defaultAutoRenewalMinutes,
       idleMinutes: input.idleMinutes ?? s.defaultIdleMinutes,
       ossWorkspacePath: null,
       proxyMode:
@@ -360,7 +357,7 @@ export async function startWorkspace(
   });
 
   const s = await getUserSettings(userId);
-  const releaseHours = workspace.releaseHours ?? s.defaultReleaseHours;
+  const autoRenewalMinutes = workspace.autoRenewalMinutes ?? s.defaultAutoRenewalMinutes;
 
   // ① 先建行：拿到 instance row id 与 accessToken
   const [instanceRow] = await db
@@ -378,10 +375,10 @@ export async function startWorkspace(
     .returning();
 
   try {
-    await preflightCheck(workspace, cloudInstance, releaseHours);
+    await preflightCheck(workspace, cloudInstance, autoRenewalMinutes);
 
     // ② 用该行渲染 entrypoint 并创建 ECS 实例
-    const ecsInstanceId = await launchInstance(workspace, cloudInstance, {
+    const { ecsInstanceId, autoReleaseTime } = await launchInstance(workspace, cloudInstance, {
       callbackUrl: getAppBaseUrl(),
       accessToken: instanceRow.accessToken ?? "",
       instanceRowId: instanceRow.id,
@@ -389,7 +386,7 @@ export async function startWorkspace(
 
     await db
       .update(instances)
-      .set({ ecsInstanceId, updatedAt: new Date() })
+      .set({ ecsInstanceId, autoReleaseAt: new Date(autoReleaseTime), updatedAt: new Date() })
       .where(eq(instances.id, instanceRow.id));
 
     return { workspaceId, instanceId: ecsInstanceId, instanceRowId: instanceRow.id };
@@ -529,6 +526,7 @@ export async function releaseIdleWorkspace(userId: string, workspaceId: string) 
       publicIp: null,
       port: null,
       accessToken: null,
+      autoReleaseAt: null,
       stoppedAt: new Date(),
       stopReason: "idle_release",
       updatedAt: new Date(),
@@ -603,7 +601,7 @@ export async function deleteWorkspace(userId: string, workspaceId: string) {
 export async function renewWorkspace(
   userId: string,
   workspaceId: string,
-  hours: number,
+  autoRenewalMinutes: number,
 ) {
   const workspace = await db.query.workspaces.findFirst({
     where: and(eq(workspaces.id, workspaceId), eq(workspaces.userId, userId)),
@@ -625,18 +623,35 @@ export async function renewWorkspace(
   if (!provider) {
     throw new WorkspaceError("Unknown provider", 500);
   }
-  // 续期同样走统一构造：hours 可能小于 0.5，且此处原先漏了毫秒裁剪
-  const autoReleaseTime = buildAutoReleaseTime(hours);
+  const autoReleaseTime = buildAutoReleaseTime(autoRenewalMinutes);
   await provider.setAutoReleaseTime(instance.ecsInstanceId, workspace.region, autoReleaseTime);
+
+  // 云侧成功后回写 DB 租约（docs/AGENT-LIFECYCLE.md §7.3）
+  await db
+    .update(instances)
+    .set({
+      autoReleaseAt: new Date(autoReleaseTime),
+      updatedAt: new Date(),
+    })
+    .where(eq(instances.id, instance.id));
+
+  // 续期周期落在工作区（workspaces.auto_renewal_minutes），租约在实例
+  await db
+    .update(workspaces)
+    .set({
+      autoRenewalMinutes,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspaceId));
 
   await db.insert(auditLogs).values({
     userId,
     workspaceId,
     action: "RENEW",
-    details: { hours, instanceId: instance.ecsInstanceId },
+    details: { autoRenewalMinutes, instanceId: instance.ecsInstanceId },
   });
 
-  return { workspaceId, autoReleaseTime };
+  return { workspaceId, autoReleaseTime, autoRenewalMinutes };
 }
 
 export class WorkspaceError extends Error {

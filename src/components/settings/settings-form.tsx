@@ -20,7 +20,7 @@ export function SettingsForm() {
   const router = useRouter();
   const [diskSize, setDiskSize] = useState(40);
   const [bandwidth, setBandwidth] = useState(10);
-  const [releaseHours, setReleaseHours] = useState(4);
+  const [autoRenewalMinutes, setAutoRenewalMinutes] = useState(35);
   const [idleMinutes, setIdleMinutes] = useState(30);
   const [spotDuration, setSpotDuration] = useState(1);
   const [logRetentionDays, setLogRetentionDays] = useState(7);
@@ -37,7 +37,7 @@ export function SettingsForm() {
         if (s.settings) {
           setDiskSize(s.settings.defaultDiskSize ?? 40);
           setBandwidth(s.settings.defaultBandwidth ?? 10);
-          setReleaseHours(s.settings.defaultReleaseHours ?? 4);
+          setAutoRenewalMinutes(s.settings.defaultAutoRenewalMinutes ?? 35);
           setIdleMinutes(s.settings.defaultIdleMinutes ?? 30);
           setSpotDuration(s.settings.defaultSpotDuration ?? 1);
           setLogRetentionDays(s.settings.logRetentionDays ?? 7);
@@ -54,7 +54,7 @@ export function SettingsForm() {
       const body: Record<string, unknown> = {
         defaultDiskSize: diskSize,
         defaultBandwidth: bandwidth,
-        defaultReleaseHours: releaseHours,
+        defaultAutoRenewalMinutes: autoRenewalMinutes,
         defaultIdleMinutes: idleMinutes,
         defaultSpotDuration: spotDuration,
         logRetentionDays,
@@ -126,16 +126,16 @@ export function SettingsForm() {
         description="控制工作区的自动释放、空闲回收，以及抢占式实例的保障时长"
       >
         <SettingItem
-          label="自动释放 (小时)"
-          description="创建后达到该时长自动释放，最小 0.5 小时（30 分钟）"
+          label="自动续期 (分钟)"
+          description="创建后按该周期自动续期租约；云侧到点未续期即自动释放，范围 35-7200"
         >
           <Input
             type="number"
-            min={0.5}
-            max={720}
-            step={0.5}
-            value={releaseHours}
-            onChange={(e) => setReleaseHours(Number(e.target.value))}
+            min={35}
+            max={7200}
+            step={5}
+            value={autoRenewalMinutes}
+            onChange={(e) => setAutoRenewalMinutes(Number(e.target.value))}
           />
         </SettingItem>
         <SettingItem label="空闲阈值 (分钟)" description="超过该时长的空闲时间触发回收">

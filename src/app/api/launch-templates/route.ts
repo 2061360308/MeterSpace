@@ -12,7 +12,7 @@ import {
   listLaunchTemplates,
   createLaunchTemplate,
 } from "@/lib/launch-templates/service";
-import { parseTemplateDefinition } from "@/lib/templates/validate";
+import { parseTemplateDefinition, resolveEntryTimeout } from "@/lib/templates/validate";
 import { validatePayloadFiles } from "@/lib/templates/zip";
 import type { PayloadFile } from "@/lib/templates/types";
 
@@ -45,6 +45,7 @@ export async function GET() {
         params: [] as never[],
         activity: t.definition.activity ?? null,
         timeout: t.definition.timeout ?? null,
+        entryTimeout: resolveEntryTimeout(t.definition),
         version: t.version,
         fileCount: t.payload.length,
         originKind: (t.originKind ?? "upload") as "recipe" | "upload" | "migration",

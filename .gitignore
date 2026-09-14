@@ -56,3 +56,5 @@ next-env.d.ts
 
 # local data exports / dumps (may contain user data)
 /.backup/
+
+local_template/

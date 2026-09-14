@@ -43,6 +43,7 @@ function notImplemented(): never {
 export class AWSProvider implements CloudProvider {
   readonly name = "aws";
   readonly label = "AWS";
+  readonly supportsAutoRelease = false;
 
   async getRegions(): Promise<CloudRegion[]> {
     return AWS_REGIONS;

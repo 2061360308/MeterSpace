@@ -22,7 +22,7 @@ export async function GET() {
         accessKeySecret: "",
         defaultDiskSize: row.defaultDiskSize,
         defaultBandwidth: row.defaultBandwidth,
-        defaultReleaseHours: row.defaultReleaseHours,
+        defaultAutoRenewalMinutes: row.defaultAutoRenewalMinutes,
         defaultIdleMinutes: row.defaultIdleMinutes,
         defaultSpotDuration: row.defaultSpotDuration,
         acrInstanceId: row.acrInstanceId,
@@ -51,8 +51,8 @@ const bodySchema = z.object({
   accessKeySecret: z.string().min(1).optional(),
   defaultDiskSize: z.number().int().optional(),
   defaultBandwidth: z.number().int().optional(),
-  // 允许小数：DB 列是 real，最小 0.5 小时（30 分钟）
-  defaultReleaseHours: z.number().min(0.5).max(720).optional(),
+  // 整数分钟 [35,7200]
+  defaultAutoRenewalMinutes: z.number().int().min(35).max(7200).optional(),
   defaultIdleMinutes: z.number().int().optional(),
   // 阿里云只接受 0（无保障）/ 1（保障 1 小时）
   defaultSpotDuration: z.number().int().min(0).max(1).optional(),
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     if (body.accessKeySecret) values.aliAccessSecret = encrypt(body.accessKeySecret);
     if (body.defaultDiskSize !== undefined) values.defaultDiskSize = body.defaultDiskSize;
     if (body.defaultBandwidth !== undefined) values.defaultBandwidth = body.defaultBandwidth;
-    if (body.defaultReleaseHours !== undefined) values.defaultReleaseHours = body.defaultReleaseHours;
+    if (body.defaultAutoRenewalMinutes !== undefined) values.defaultAutoRenewalMinutes = body.defaultAutoRenewalMinutes;
     if (body.defaultIdleMinutes !== undefined) values.defaultIdleMinutes = body.defaultIdleMinutes;
     if (body.defaultSpotDuration !== undefined) values.defaultSpotDuration = body.defaultSpotDuration;
     if (body.logRetentionDays !== undefined) values.logRetentionDays = body.logRetentionDays;

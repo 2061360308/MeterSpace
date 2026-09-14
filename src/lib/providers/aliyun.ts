@@ -37,6 +37,7 @@ import type {
 export class AliyunProvider implements CloudProvider {
   readonly name = "aliyun";
   readonly label = "阿里云";
+  readonly supportsAutoRelease = true;
 
   private async getCreds(): Promise<AliCredentials> {
     const userId = await this.getFirstUserId();

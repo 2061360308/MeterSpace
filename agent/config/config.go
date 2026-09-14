@@ -53,7 +53,7 @@ type Config struct {
 	WorkspaceDir string `json:"workspace_dir"`
 	// Entry 载荷内入口文件相对路径（由后端 /payload 返回，可被配置覆盖）
 	Entry string `json:"entry,omitempty"`
-	// EntryTimeout 入口执行超时（秒），默认 1800，上限 3600
+	// EntryTimeout 入口执行超时（秒），默认 600，上限 1800（docs/AGENT-LIFECYCLE.md §3）
 	EntryTimeout time.Duration `json:"entry_timeout"`
 	// Activity 探活 + 端口声明
 	Activity ActivityConfig `json:"activity,omitempty"`
@@ -85,7 +85,7 @@ func DefaultConfig() *Config {
 		WorkspaceRoot:         "/opt/ws",
 		WorkspaceDir:          "/workspace",
 		Entry:                 "",
-		EntryTimeout:          1800 * time.Second,
+		EntryTimeout:          600 * time.Second,
 		ExposedPortsFile:      "/opt/agent/ports.json",
 		Port:                  9527,
 		LogPath:               "/var/log/agent",

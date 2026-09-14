@@ -173,6 +173,9 @@ export interface CloudProvider {
   readonly name: string;
   readonly label: string;
 
+  /** 是否支持云侧 AutoReleaseTime 兜底（仅阿里云 true；tencent/aws 为 no-op，见 docs/AGENT-LIFECYCLE.md §10） */
+  readonly supportsAutoRelease: boolean;
+
   getRegions(): Promise<CloudRegion[]>;
   hasCredentials(userId: string): Promise<boolean>;
   getCredentials(userId: string): Promise<CloudCredentials>;

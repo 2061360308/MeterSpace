@@ -58,7 +58,7 @@ export function buildEntrypoint(vars: EntrypointVars): string {
     .replace(/\{\{REGION\}\}/g, vars.region ?? "")
     .replace(/\{\{WORKSPACE_ROOT\}\}/g, vars.workspaceRoot ?? "/opt/ws")
     .replace(/\{\{ENTRY\}\}/g, vars.entry ?? "")
-    .replace(/\{\{ENTRY_TIMEOUT\}\}/g, String(vars.entryTimeoutSec ?? 1800))
+    .replace(/\{\{ENTRY_TIMEOUT\}\}/g, String(vars.entryTimeoutSec ?? 600))
     .replace(/\{\{IDLE_MINUTES\}\}/g, String(vars.idleMinutes ?? 30))
     .replace(/\{\{ACTIVITY_CONFIG_JSON\}\}/g, JSON.stringify(activity));
 }

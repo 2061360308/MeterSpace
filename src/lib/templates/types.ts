@@ -67,7 +67,7 @@ export interface Template {
   params?: Param[];
   entry: string;
   activity?: ActivityConfig;
-  /** 入口执行超时（秒），默认 1800，上限 3600 */
+  /** 入口执行超时（秒），默认 600，上限 1800（docs/AGENT-LIFECYCLE.md §11） */
   timeout?: number;
 }
 
@@ -93,8 +93,8 @@ export interface PayloadResponse {
 /** 默认值（分散在多处使用，集中定义避免漂移）。 */
 export const DEFAULT_IDLE_MINUTES = 30;
 export const DEFAULT_SAMPLE_INTERVAL_SEC = 30;
-export const DEFAULT_ENTRY_TIMEOUT = 1800;
-export const MAX_ENTRY_TIMEOUT = 3600;
+export const DEFAULT_ENTRY_TIMEOUT = 600;
+export const MAX_ENTRY_TIMEOUT = 1800;
 
 /** 载荷限制（§3.3）。 */
 export const MAX_FILE_SIZE = 128 * 1024; // 128 KB

@@ -30,7 +30,12 @@ export const settings = pgTable("settings", {
   // 已从代码层移除（无任何消费方），DB 列保留未 DROP。见 docs/DB-MIGRATION.md
   defaultDiskSize: integer("default_disk_size").default(40),
   defaultBandwidth: integer("default_bandwidth").default(10),
-  defaultReleaseHours: real("default_release_hours").default(0.5),
+  /**
+   * 每次启动的默认自动释放周期（分钟），取值 [35, 7200]。
+   * 由云侧 AutoReleaseTime 强制兜底（到期未续期即由云厂商释放），
+   * 服务端租约仅负责「到期前续期」。（见 docs/AGENT-LIFECYCLE.md §7.3）
+   */
+  defaultAutoRenewalMinutes: integer("default_auto_renewal_minutes").default(35),
   defaultIdleMinutes: integer("default_idle_minutes").default(30),
   /**
    * 抢占式实例的保障时长（小时）。阿里云只接受 0 / 1：
@@ -92,9 +97,9 @@ export const workspaces = pgTable("workspaces", {
   gitBranch: text("git_branch").default("main"),
   gitTokenEnc: text("git_token_enc"),
   autoClone: boolean("auto_clone").default(true),
-  // real：与 settings.default_release_hours 对齐，支持 0.5（半小时）等小数。
-  // ⚠️ 不要改回 integer —— 会把用户级默认值 0.5 写崩（见 drizzle/0001）。
-  releaseHours: real("release_hours"),
+  // integer：快照 settings.default_auto_renewal_minutes（分钟）。
+  // ⚠️ 不要改回 real —— 语义是「分钟」，见 docs/AGENT-LIFECYCLE.md §7.3（drizzle/0002 已迁移）。
+  autoRenewalMinutes: integer("auto_renewal_minutes"),
   idleMinutes: integer("idle_minutes"),
   ossWorkspacePath: text("oss_workspace_path"),
   // === 模板实例化（见 docs/FINAL-PLAN.md §8.1） ===
@@ -107,7 +112,7 @@ export const workspaces = pgTable("workspaces", {
     idleMinutes?: number;
     sampleIntervalSec?: number;
   }>(),
-  entryTimeout: integer("entry_timeout").default(1800),
+  entryTimeout: integer("entry_timeout").default(600),
   proxyMode: text("proxy_mode").default("inherit"),
   proxyClashSubscription: text("proxy_clash_subscription"),
   proxyClashYaml: text("proxy_clash_yaml"),
@@ -165,6 +170,11 @@ export const instances = pgTable("instances", {
   currentEntry: text("current_entry"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  /**
+   * 云厂商 AutoReleaseTime（UTC）。租约到期点：NULL 或剩余 ≤10min 时心跳续期，
+   * 续期必须同步回写云侧（见 docs/AGENT-LIFECYCLE.md §7.5 W3）。
+   */
+  autoReleaseAt: timestamp("auto_release_at", { withTimezone: true }),
   idleTriggered: boolean("idle_triggered").default(false),
   cpuPercent: real("cpu_percent"),
   memoryMb: integer("memory_mb"),

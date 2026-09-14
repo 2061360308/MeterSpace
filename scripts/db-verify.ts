@@ -51,13 +51,13 @@ async function main() {
   )) as unknown[];
   for (const r of sample) console.log("  ", r);
 
-  console.log("\n=== settings 关键列类型（default_release_hours 必须是 real 才能存 0.5）===");
+  console.log("\n=== settings 关键列类型（default_auto_renewal_minutes 应为 integer，默认 35）===");
   const cols = (await sql.query(
     `SELECT column_name, data_type, column_default
      FROM information_schema.columns
      WHERE table_name = 'settings'
        AND column_name IN (
-         'default_release_hours', 'default_idle_minutes',
+         'default_auto_renewal_minutes', 'default_idle_minutes',
          'default_spot_duration',
          'default_region', 'default_spec', 'default_disk_category'
        )

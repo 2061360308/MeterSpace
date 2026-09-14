@@ -176,6 +176,26 @@ export default function LaunchTemplateDetailPage() {
         </Card>
 
         <div className="space-y-4">
+          <SectionHeader title="契约与超时" />
+          <Card className="space-y-2 px-5 py-4">
+            <p className="flex items-baseline gap-2">
+              <span className="text-muted-foreground">入口超时：</span>
+              <span>{Math.round(detail.entryTimeout / 60)} 分钟</span>
+            </p>
+            <p className="flex items-baseline gap-2">
+              <span className="text-muted-foreground">闲置阈值：</span>
+              <span>{detail.activity?.idleMinutes ?? 30} 分钟</span>
+            </p>
+            <p className="text-[12px] leading-5 text-muted-foreground">
+              入口是{detail.entry.endsWith(".sh") ? (
+                <span className="font-mono"> Shell 脚本</span>
+              ) : (
+                " 命令型模板，按容器方式认同态"
+              )}
+              ；部署慢的集成请自行后台化（nohup / docker compose up -d）。
+            </p>
+          </Card>
+
           <SectionHeader title="端口" />
           {ports.length === 0 ? (
             <Card className="px-5 py-4 text-center text-[13px] text-muted-foreground">

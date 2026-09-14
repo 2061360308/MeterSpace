@@ -149,7 +149,7 @@ export function NewWorkspaceForm() {
             gitRepoUrl: state.gitRepoUrl || null,
             gitBranch: state.gitBranch,
             autoClone: state.autoClone,
-            releaseHours: null,
+            autoRenewalMinutes: null,
             proxyMode: state.proxyMode,
             proxyClashSubscription:
               state.proxyMode === "clash" ? state.proxyClashSubscription || null : undefined,

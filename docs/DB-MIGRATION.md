@@ -223,7 +223,7 @@ baseline 是单一文件、描述的正是线上现状，不存在需要重放�
 | 6.2 | 账本口径已重置 | idx 从 0 重新计数；新迁移从 **idx=1** 开始（见 §4）。旧 idx 19/20/21 已不再对应任何文件 |
 | 6.3 | ✅ **已完成（2026-09-13）**：`DROP SCHEMA "drizzle" CASCADE` | 陈旧的 `drizzle.__drizzle_migrations`（19 行）已随 schema 一起删除，**两套账的陷阱已彻底消除**。库内非默认 schema 现为 0 个。快照见 `.backup/baseline-switch-2026-09-13/ledger-drizzle-native.json` |
 | 6.4 | 迁移无自动化钩子 | 每次部署前**人工**跑一次 `npm run db:migrate`，或在 CI 的 build 步骤插入 |
-| 6.5 | `0000_baseline.sql` 是**只读基线，永不修改** | 新变更一律新增 `0001_xxx.sql`。若日后需要再次「重开基线」，生成/验证工具在 `.workbuddy/baseline-tools/`（`gen-baseline.cjs` → `verify.cjs`），流程与本次相同：备份 → 导出 → 临时 schema 验证 0 diff → 重置 journal 与账本 |
+| 6.5 | `0000_baseline.sql` 是**只读基线，永不修改** | 新变更一律新增 `000n_xxx.sql`（按序递增，当前到 `0002_auto_renewal_minutes.sql`）。若日后需要再次「重开基线」，生成/验证工具在 `.workbuddy/baseline-tools/`（`gen-baseline.cjs` → `verify.cjs`），流程与本次相同：备份 → 导出 → 临时 schema 验证 0 diff → 重置 journal 与账本 |
 | 6.6 | `settings` 表的 `default_region` / `default_spec` / `default_disk_category` / `default_spot_strategy` 四列**已从代码层移除但 DB 未 DROP** | 四列都有 DEFAULT 值（见 `drizzle/0000_baseline.sql` 的 `settings` 定义），删了 schema 定义也不影响 INSERT。确认无碍后可清：
 
 ```sql
@@ -235,7 +235,7 @@ ALTER TABLE "settings"
 ```
 
 ⚠️ `default_spot_duration` **不要用**——它已恢复使用（见 6.8） |
-| 6.7 | `settings.default_release_hours` 是 `real`（由 `0005_add_missing_settings_columns.sql` 从 integer 改来），默认值 `0.5` | **不要再改回 integer**，否则 0.5 小时会被截断。`workspaces.release_hours` 仍是 `integer`，只能填整数小时——这是有意的（工作区级覆盖走整数，全局默认允许半小时粒度） |
+| 6.7 | 续期化改造（`0002_auto_renewal_minutes.sql`，2026-09-14）<br>① `settings.default_release_hours` 仍是 `real`（默认 0.5）→ **不要再改回 integer**，否则 0.5 小时会被截断；② `workspaces.release_hours`（integer）已改名为 `workspaces.auto_renewal_minutes integer`，取值范围 **[35, 7200]** 分钟，迁移时旧值换算后 clamp 到区间，NULL → 取 settings 默认；③ `settings.default_auto_renewal_minutes integer 默认 35`（[35,7200]，旧 0.5h=30 被 clamp 到下限 35）；④ `workspaces.entry_timeout` 默认 1800 → **600**（允许范围 [600,1800]）；⑤ `instances.auto_release_at timestamp with time zone` **新增列**，NULL 视为「需续期」，云侧续期成功后才回写 | 含义见 `docs/AGENT-LIFECYCLE.md`；部署顺序仍遵守 6.8：先 `npm run db:migrate` 再发代码 |
 | 6.8 | ⚠️ **先迁 DB 再发代码** | 新环境/新库：先 `npm run db:migrate`（一把建出 baseline 全结构），确认 `nothing to apply` 或 `done`，再发代码。反过来就是 2026-09-12 那次事故的成因 |
 | 6.9 | `region_resources` 有 6 小时 TTL（`REGION_RESOURCE_TTL_MS`） | 超期会重新探测基础资源。用户在云控制台手删 VPC/VSwitch/安全组后，RunInstances 会报错并触发 `invalidateRegionResources()` 主动作废，下一次自动重建 |
 

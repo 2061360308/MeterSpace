@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { instances } from "@/lib/db/schema";
 import { verifyAccessToken } from "@/lib/instances/auth";
+import { renewInstanceLease, releaseIdleInstance } from "@/lib/instances/lifecycle";
 import { ok, fail } from "@/lib/api";
 
 type Params = { params: Promise<{ id: string }> };
@@ -25,7 +26,10 @@ const portDeclSchema = z.object({
 
 const bodySchema = z.object({
   token: z.string(),
-  status: z.string().optional(),
+  /** 心跳状态枚举（docs/AGENT-LIFECYCLE.md §5）：starting → running → ready / error */
+  status: z.enum(["starting", "running", "ready", "error"]).optional(),
+  /** 空闲标记：仅 RUNNING 生效（BOOTING / PROVISIONING 忽略该字段） */
+  is_idle: z.boolean().optional(),
   active: z.boolean().optional(),
   uptime: z.number().optional(),
   script_status: z.string().optional(),
@@ -38,7 +42,12 @@ const bodySchema = z.object({
 });
 
 /**
- * agent 心跳（FINAL-PLAN §9.3）。
+ * agent 心跳（docs/AGENT-LIFECYCLE.md §5）。
+ *
+ * 处理顺序（重要）：
+ *   1. 首心跳：PROVISIONING → BOOTING（写库）
+ *   2. `is_idle=true` 且 RUNNING：即时快速释放（不跑 stop-hook），随后跳过续期
+ *   3. 租约续期：`auto_release_at` 为 NULL 或剩余 ≤10min → 后推
  *
  * 两个时间戳语义必须分开：
  *   - lastHeartbeatAt = 存活（liveness）—— 进程还活着，用来做超时兜底关停
@@ -57,9 +66,36 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     const now = new Date();
+
+    // 载入实例行：判断状态迁移 / is_idle 生效范围都需要
+    const row = (
+      await db
+        .select({
+          id: instances.id,
+          status: instances.status,
+        })
+        .from(instances)
+        .where(eq(instances.id, id))
+        .limit(1)
+    )[0];
+    if (!row) {
+      return fail({ message: "Instance not found", status: 404 });
+    }
+
     const updateData: Record<string, unknown> = {
       lastHeartbeatAt: now,
     };
+
+    // ① 首心跳：PROVISIONING → BOOTING（§2）
+    if (row.status === "PROVISIONING") {
+      updateData.status = "BOOTING";
+    }
+
+    // ② is_idle 即时释放（仅 RUNNING；BOOTING/PROVISIONING 忽略）
+    const idleReleased = body.is_idle === true && row.status === "RUNNING";
+    if (idleReleased) {
+      await releaseIdleInstance(id);
+    }
 
     // agent 显式上报「有活跃流量」→ 推进活跃时间并清除空闲标记
     if (body.active === true) {
@@ -94,6 +130,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     await db.update(instances).set(updateData).where(eq(instances.id, id));
+
+    // ③ 租约续期：is_idle 刚释放的实例跳过（云资源已删，续期无意义）
+    if (!idleReleased) {
+      await renewInstanceLease(id);
+    }
 
     return ok({ ok: true });
   } catch (e) {

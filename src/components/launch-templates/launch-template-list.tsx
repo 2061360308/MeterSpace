@@ -204,6 +204,7 @@ function LaunchTemplateCard({
 
       <div className="flex flex-wrap gap-1.5">
         <Badge tone="gray">{entryKindLabel(template.entry)}</Badge>
+        <Badge tone="gray">超时 {Math.round(template.entryTimeout / 60)} 分钟</Badge>
         {template.category && (
           <Badge tone="gray">
             {CATEGORY_LABEL[template.category] ?? template.category}

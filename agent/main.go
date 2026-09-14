@@ -106,6 +106,16 @@ func main() {
 			if status == executor.StatusTimeout {
 				phase = "timeout"
 			}
+			// 失败/超时顺序（docs/AGENT-LIFECYCLE.md §6）：水位后补 SendLog → Flush → /agent-error
+			for _, entry := range exec.UnstreamedLogs() {
+				r.SendLog(reporter.LogEntry{
+					Timestamp: entry.Timestamp,
+					Level:     entry.Level,
+					Phase:     entry.Phase,
+					Message:   entry.Message,
+				})
+			}
+			r.Flush()
 			if err := r.ReportError(errMsg, phase); err != nil {
 				fmt.Printf("[agent] Failed to report error: %v\n", err)
 			}
@@ -118,7 +128,7 @@ func main() {
 	// Bootstrap the workspace in the background: fetch payload → materialise →
 	// run entry → report ready.
 	go func() {
-		if err := bootstrap(cfg, exec, hb, detector, reportReady); err != nil {
+		if err := bootstrap(cfg, exec, hb, detector, r, reportReady); err != nil {
 			fmt.Printf("[agent] Bootstrap failed: %v\n", err)
 		}
 	}()
@@ -154,13 +164,15 @@ func main() {
 // bootstrap pulls the payload, writes it to disk, and runs the entry.
 //
 // Order matters (docs/FINAL-PLAN.md §5.1): fetch → materialise → run → ready.
-// If the payload cannot be fetched we fall back to the legacy script path so an
-// instance launched from an older workspace record still boots.
+// If the payload cannot be fetched the boot fails: report the error so the
+// backend can mark the instance FAILED and release it — there is no legacy
+// script fallback anymore (docs/AGENT-LIFECYCLE.md §7.4).
 func bootstrap(
 	cfg *config.Config,
 	exec *executor.Executor,
 	hb *heartbeat.Manager,
 	detector *activity.Detector,
+	r *reporter.Reporter,
 	reportReady func(reason string),
 ) error {
 	fmt.Printf("[agent] Fetching payload from %s\n", cfg.BackendURL)
@@ -168,13 +180,11 @@ func bootstrap(
 	f := fetcher.NewFetcher(cfg.BackendURL, cfg.BackendToken, cfg.InstanceID, cfg.WorkspaceRoot)
 	payload, err := f.Fetch()
 	if err != nil {
-		fmt.Printf("[agent] Payload fetch failed, falling back to legacy script mode: %v\n", err)
-		detector.MarkActive()
-		if err := exec.Execute(); err != nil {
-			fmt.Printf("[agent] Legacy script execution failed: %v\n", err)
+		fmt.Printf("[agent] Payload fetch failed: %v\n", err)
+		if rerr := r.ReportError(err.Error(), "payload"); rerr != nil {
+			fmt.Printf("[agent] Failed to report error: %v\n", rerr)
 		}
-		reportReady("legacy fallback")
-		return nil
+		return err
 	}
 
 	entryPath, written, err := f.Materialize(payload)
@@ -235,18 +245,20 @@ func idleWatchdog(cfg *config.Config, hb *heartbeat.Manager, exec *executor.Exec
 		// long-running build is not "idle" even without traffic.
 		if exec.GetStatus() == executor.StatusRunning {
 			notified = false
+			hb.SetIdle(false)
 			continue
 		}
 
 		if hb.IsIdleNow(idleMinutes) {
+			// 观察结果交给心跳携带（is_idle=true）；后端对 RUNNING 实例即时释放。
+			hb.SetIdle(true)
 			if !notified {
-				fmt.Printf("[agent] Workspace idle for over %d min; notifying backend\n", idleMinutes)
+				fmt.Printf("[agent] Workspace idle for over %d min; backend will release\n", idleMinutes)
 				notified = true
 			}
-			// The heartbeat loop already carries `active:false`; the backend's
-			// frontend-triggered maintenance path performs the actual release.
 			continue
 		}
+		hb.SetIdle(false)
 		notified = false
 	}
 }

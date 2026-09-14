@@ -12,6 +12,8 @@ type Params = { params: Promise<{ id: string }> };
 const bodySchema = z.object({
   token: z.string(),
   error: z.string(),
+  // phase 枚举（docs/AGENT-LIFECYCLE.md §11.2）：entry / timeout / payload / runtime。
+  // 后端的 FAILED→立即销毁路径对所有 phase 一视同仁。
   phase: z.string().optional(),
 });
 
@@ -60,6 +62,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           .update(instances)
           .set({
             status: "STOPPED",
+            autoReleaseAt: null,
             stoppedAt: new Date(),
             stopReason: "boot_failed",
             updatedAt: new Date(),

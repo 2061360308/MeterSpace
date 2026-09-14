@@ -42,6 +42,7 @@ function notImplemented(): never {
 export class TencentProvider implements CloudProvider {
   readonly name = "tencent";
   readonly label = "腾讯云";
+  readonly supportsAutoRelease = false;
 
   async getRegions(): Promise<CloudRegion[]> {
     return TENCENT_REGIONS;

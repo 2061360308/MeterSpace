@@ -9,7 +9,7 @@ export interface UserSettings {
   accessKeySecret: string;
   defaultDiskSize: number;
   defaultBandwidth: number;
-  defaultReleaseHours: number;
+  defaultAutoRenewalMinutes: number;
   defaultIdleMinutes: number;
   /** 抢占式实例保障时长（小时），0 或 1；仅该实例启用抢占时生效 */
   defaultSpotDuration: number;
@@ -50,7 +50,7 @@ export async function getUserSettings(
     accessKeySecret: decrypt(row.aliAccessSecret),
     defaultDiskSize: row.defaultDiskSize ?? 40,
     defaultBandwidth: row.defaultBandwidth ?? 10,
-    defaultReleaseHours: row.defaultReleaseHours ?? 0.5,
+    defaultAutoRenewalMinutes: row.defaultAutoRenewalMinutes ?? 35,
     defaultIdleMinutes: row.defaultIdleMinutes ?? 30,
     defaultSpotDuration: row.defaultSpotDuration ?? 1,
     logRetentionDays: row.logRetentionDays ?? 7,
@@ -59,13 +59,13 @@ export async function getUserSettings(
   };
 }
 
-/** Resolve a workspace's effective release hours / idle minutes with global defaults. */
+/** Resolve a workspace's effective auto-renewal minutes / idle minutes with global defaults. */
 export function resolveLifecycle(
-  workspace: { releaseHours: number | null; idleMinutes: number | null },
+  workspace: { autoRenewalMinutes: number | null; idleMinutes: number | null },
   s: UserSettings,
-): { releaseHours: number; idleMinutes: number } {
+): { autoRenewalMinutes: number; idleMinutes: number } {
   return {
-    releaseHours: workspace.releaseHours ?? s.defaultReleaseHours,
+    autoRenewalMinutes: workspace.autoRenewalMinutes ?? s.defaultAutoRenewalMinutes,
     idleMinutes: workspace.idleMinutes ?? s.defaultIdleMinutes,
   };
 }

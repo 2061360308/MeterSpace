@@ -58,8 +58,10 @@ async function getTimeoutInstances(
   userId: string,
   workspaceId?: string,
 ): Promise<Instance[]> {
+  // W1 只收 PROVISIONING：BOOTING 的时长兜底在 agent 侧（entry_timeout 上报）
+  // 与云侧 AutoReleaseTime（docs/AGENT-LIFECYCLE.md §3 W1/W2）。
   const conditions = [
-    inArray(instances.status, ["PROVISIONING", "BOOTING"]),
+    eq(instances.status, "PROVISIONING"),
   ];
 
   if (workspaceId) {
@@ -90,7 +92,7 @@ async function getTimeoutInstances(
 }
 
 function isExpired(instance: Instance): boolean {
-  if (!["PROVISIONING", "BOOTING"].includes(instance.status)) return false;
+  if (instance.status !== "PROVISIONING") return false;
 
   const bootStartedAt = instance.bootStartedAt ?? instance.createdAt;
   if (!bootStartedAt) return false;
@@ -258,6 +260,141 @@ export async function releaseIdle(
 }
 
 /**
+ * 心跳租约续期（docs/AGENT-LIFECYCLE.md §5 W3）。
+ *
+ * 触发条件：`auto_release_at` 为 NULL 或剩余 ≤10min。
+ * 取值链 `workspace.autoRenewalMinutes ?? settings.defaultAutoRenewalMinutes`；
+ * NULL 视为需续期，兜底存量行。
+ *
+ * 仅当云侧调用成功（或该 provider 不支持自动释放，视为无需云调用）时才回写 DB；
+ * 云侧失败保持旧值，等待下次心跳重试（云侧 AutoReleaseTime 是最终兜底）。
+ */
+export async function renewInstanceLease(
+  instanceId: string,
+): Promise<{ renewed: boolean; autoReleaseAt?: Date }> {
+  const row = (
+    await db
+      .select({
+        id: instances.id,
+        userId: workspaces.userId,
+        ecsInstanceId: instances.ecsInstanceId,
+        autoReleaseAt: instances.autoReleaseAt,
+        autoRenewalMinutes: workspaces.autoRenewalMinutes,
+        provider: workspaces.provider,
+        region: workspaces.region,
+      })
+      .from(instances)
+      .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
+      .where(eq(instances.id, instanceId))
+      .limit(1)
+  )[0];
+
+  if (!row || !row.ecsInstanceId) return { renewed: false };
+
+  const nowMs = Date.now();
+  const remainingMs = row.autoReleaseAt
+    ? new Date(row.autoReleaseAt).getTime() - nowMs
+    : -1;
+  if (row.autoReleaseAt && remainingMs > 10 * 60 * 1000) {
+    return { renewed: false };
+  }
+
+  let autoRenewalMinutes = row.autoRenewalMinutes;
+  if (!autoRenewalMinutes) {
+    try {
+      const s = await getUserSettings(row.userId);
+      autoRenewalMinutes = s.defaultAutoRenewalMinutes;
+    } catch {
+      autoRenewalMinutes = 35;
+    }
+  }
+
+  const nextIso = buildAutoReleaseTime(autoRenewalMinutes);
+  const provider = getProvider(row.provider);
+  if (provider && provider.supportsAutoRelease) {
+    try {
+      await provider.setAutoReleaseTime(row.ecsInstanceId, row.region, nextIso);
+    } catch (e) {
+      console.warn("[lifecycle] renewInstanceLease cloud call failed:", e);
+      return { renewed: false };
+    }
+  }
+
+  await db
+    .update(instances)
+    .set({ autoReleaseAt: new Date(nextIso), updatedAt: new Date() })
+    .where(eq(instances.id, row.id));
+
+  return { renewed: true, autoReleaseAt: new Date(nextIso) };
+}
+
+/**
+ * 单实例空闲即时释放（心跳 `is_idle=true` 专用，docs/AGENT-LIFECYCLE.md §5）。
+ *
+ * 与 `releaseIdle`（扫描式）共用「快速路径」语义：不跑 stop-hook，直接删 ECS。
+ * 仅 RUNNING 生效；BOOTING / PROVISIONING 忽略（心跳路由已按此过滤）。
+ */
+export async function releaseIdleInstance(
+  instanceId: string,
+): Promise<"released" | "skipped"> {
+  const row = (
+    await db
+      .select({
+        id: instances.id,
+        status: instances.status,
+        ecsInstanceId: instances.ecsInstanceId,
+        provider: workspaces.provider,
+        region: workspaces.region,
+      })
+      .from(instances)
+      .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
+      .where(eq(instances.id, instanceId))
+      .limit(1)
+  )[0];
+
+  if (!row) throw new Error(`实例不存在：${instanceId}`);
+  if (row.status !== "RUNNING" || !row.ecsInstanceId) return "skipped";
+
+  await db
+    .update(instances)
+    .set({ status: "TERMINATING", updatedAt: new Date() })
+    .where(eq(instances.id, row.id));
+
+  const provider = getProvider(row.provider);
+  if (!provider) throw new Error(`Unknown provider: ${row.provider}`);
+
+  try {
+    await provider.deleteInstance(row.ecsInstanceId, row.region);
+  } catch (e) {
+    await db
+      .update(instances)
+      .set({
+        status: "FAILED",
+        bootError: "空闲释放失败：云资源删除失败",
+        updatedAt: new Date(),
+      })
+      .where(eq(instances.id, row.id));
+    throw e;
+  }
+
+  await db
+    .update(instances)
+    .set({
+      status: "STOPPED",
+      publicIp: null,
+      port: null,
+      accessToken: null,
+      autoReleaseAt: null,
+      stoppedAt: new Date(),
+      stopReason: "idle_release",
+      updatedAt: new Date(),
+    })
+    .where(eq(instances.id, row.id));
+
+  return "released";
+}
+
+/**
  * 心跳缺失回收：RUNNING/BOOTING 且 `lastHeartbeatAt` 超时的实例标记为 FAILED。
  *
  * 由前端触发。心跳由 agent 侧推送（见 §9.4 agent-heartbeat）。
@@ -293,16 +430,9 @@ export async function reapStale(
       ),
     );
 
-  const now = Date.now();
   let reaped = 0;
 
   for (const row of rows) {
-    // BOOTING 交给启动超时逻辑；这里只处理已过启动窗口的
-    const bootBase = row.bootStartedAt ?? row.createdAt;
-    if (row.status === "BOOTING" && bootBase && now - new Date(bootBase).getTime() < BOOT_TIMEOUT_MS) {
-      continue;
-    }
-
     // 心跳缺失且 ECS 还在跑 → 先释放云资源，再标记失败，避免空烧钱
     await db
       .update(instances)
@@ -316,7 +446,9 @@ export async function reapStale(
       .set({
         status: "FAILED",
         bootError: released ? "心跳缺失：agent 失联，云资源已释放" : "心跳缺失：agent 失联，释放资源失败",
-        ...(released ? { publicIp: null, port: null, accessToken: null, stoppedAt: new Date() } : {}),
+        ...(released
+          ? { publicIp: null, port: null, accessToken: null, autoReleaseAt: null, stoppedAt: new Date() }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(instances.id, row.id));
@@ -604,6 +736,7 @@ async function finalizeRelease(
       publicIp: null,
       port: null,
       accessToken: null,
+      autoReleaseAt: null,
       stopInvokeId: null,
       releaseRequestedAt: null,
       ossUsageBytes,
@@ -722,16 +855,14 @@ export async function provisionInstanceCloud(instanceId: string): Promise<void> 
   );
 
   const settings = await getUserSettings(row.userId);
-  const releaseHours =
+  const autoRenewalMinutes =
     (
       await db.query.workspaces.findFirst({
         where: (t, { eq: e }) => e(t.id, row.workspaceId),
       })
-    )?.releaseHours ?? settings.defaultReleaseHours;
+    )?.autoRenewalMinutes ?? settings.defaultAutoRenewalMinutes;
 
-  // 阿里云要求释放时间不早于「当前时间 + 30 分钟」；0.5 小时会踩边界，
-  // 由 buildAutoReleaseTime 统一抬到安全下限。
-  const autoReleaseTime = buildAutoReleaseTime(releaseHours);
+  const autoReleaseTime = buildAutoReleaseTime(autoRenewalMinutes);
 
   const userData = buildUserData({
     instanceId: row.id,
@@ -761,7 +892,12 @@ export async function provisionInstanceCloud(instanceId: string): Promise<void> 
 
   await db
     .update(instances)
-    .set({ ecsInstanceId, securityGroupId: instanceSgId, updatedAt: new Date() })
+    .set({
+      ecsInstanceId,
+      securityGroupId: instanceSgId,
+      autoReleaseAt: new Date(autoReleaseTime),
+      updatedAt: new Date(),
+    })
     .where(eq(instances.id, row.id));
 }
 

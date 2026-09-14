@@ -152,6 +152,23 @@ export function StepEnvironment({ state, setState }: StepProps) {
               <span className="text-muted-foreground">文件数：</span>
               {selectedTemplate.fileCount} 个
             </p>
+            <p>
+              <span className="text-muted-foreground">入口超时：</span>
+              {Math.round(selectedTemplate.entryTimeout / 60)} 分钟
+            </p>
+            <p>
+              <span className="text-muted-foreground">闲置阈值：</span>
+              {selectedTemplate.activity?.idleMinutes ?? 30} 分钟
+            </p>
+            <p className="pt-1 text-[12px] leading-5 text-muted-foreground">
+              契约：入口是{" "}
+              {selectedTemplate.entry.endsWith(".sh") ? (
+                <span className="font-mono">Shell 脚本</span>
+              ) : (
+                "命令型模板，按容器方式认同态"
+              )}
+              ；部署慢的集成请自行后台化（nohup / docker compose up -d）。
+            </p>
           </CardContent>
         </Card>
       )}

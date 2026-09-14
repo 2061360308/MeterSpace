@@ -26,6 +26,7 @@ type Manager struct {
 	startTime     time.Time
 	lastActiveAt  time.Time
 	active        bool
+	isIdle        bool
 	status        string
 	currentEntry  string
 	exposedPorts  []reporter.PortDecl
@@ -99,7 +100,16 @@ func (m *Manager) SetActive(active bool) {
 	m.active = active
 	if active {
 		m.lastActiveAt = time.Now()
+		m.isIdle = false
 	}
+}
+
+// SetIdle records the idle watchdog's observation so the next heartbeat can
+// carry `is_idle` to the backend for immediate release (docs/AGENT-LIFECYCLE.md §5 W3).
+func (m *Manager) SetIdle(idle bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.isIdle = idle
 }
 
 // UpdateActivity records user activity
@@ -171,6 +181,7 @@ func (m *Manager) sendHeartbeat() {
 	m.mu.RLock()
 	status := m.status
 	active := m.active
+	isIdle := m.isIdle
 	lastActiveAt := m.lastActiveAt
 	currentEntry := m.currentEntry
 	exposedPorts := m.exposedPorts
@@ -214,6 +225,7 @@ func (m *Manager) sendHeartbeat() {
 		Token:         m.reporter.GetToken(),
 		Status:        status,
 		Active:        active,
+		IsIdle:        isIdle,
 		Uptime:        int64(time.Since(m.startTime).Seconds()),
 		LastActiveAt:  lastActiveAt,
 		ScriptStatus:  scriptStatus,

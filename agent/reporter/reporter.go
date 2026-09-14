@@ -47,6 +47,9 @@ type HeartbeatPayload struct {
 	Token         string                `json:"token"`
 	Status        string                `json:"status"`
 	Active        bool                  `json:"active"`
+	// IsIdle reports the idle watchdog's observation; the backend releases the
+	// RUNNING instance immediately when true (docs/AGENT-LIFECYCLE.md §5 W3).
+	IsIdle        bool                  `json:"is_idle"`
 	Uptime        int64                 `json:"uptime"`
 	LastActiveAt  time.Time             `json:"last_active_at"`
 	ScriptStatus  string                `json:"script_status"`
@@ -170,6 +173,25 @@ func (r *Reporter) flushLogs() {
 // Stop stops the log stream
 func (r *Reporter) Stop() {
 	close(r.doneCh)
+}
+
+// Flush synchronously uploads all pending log entries. Used by the failure
+// path so logs hit the backend before /agent-error (docs/AGENT-LIFECYCLE.md §6):
+// drain the channel into the buffer, then send the buffer to the backend.
+func (r *Reporter) Flush() {
+	for {
+		select {
+		case entry := <-r.logCh:
+			r.logMu.Lock()
+			r.logBuffer = append(r.logBuffer, entry)
+			r.logMu.Unlock()
+		default:
+			r.logMu.Lock()
+			r.flushLogs()
+			r.logMu.Unlock()
+			return
+		}
+	}
 }
 
 // GetToken returns the backend token

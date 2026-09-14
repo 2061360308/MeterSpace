@@ -5,10 +5,8 @@
 import { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api";
 import { requireUserId } from "@/lib/session";
-import {
-  getLaunchTemplate,
-  deleteLaunchTemplate,
-} from "@/lib/launch-templates/service";
+import { getLaunchTemplate, deleteLaunchTemplate } from "@/lib/launch-templates/service";
+import { resolveEntryTimeout } from "@/lib/templates/validate";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -35,6 +33,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       params: [] as never[],
       activity: t.definition.activity ?? null,
       timeout: t.definition.timeout ?? null,
+      entryTimeout: resolveEntryTimeout(t.definition),
       version: t.version,
       payload: t.payload.map((f) => ({
         path: f.path,

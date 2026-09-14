@@ -17,7 +17,7 @@ export function SetupForm() {
   const [accessKeySecret, setAccessKeySecret] = useState("");
   const [diskSize, setDiskSize] = useState(40);
   const [bandwidth, setBandwidth] = useState(10);
-  const [releaseHours, setReleaseHours] = useState(4);
+  const [autoRenewalMinutes, setAutoRenewalMinutes] = useState(35);
   const [idleMinutes, setIdleMinutes] = useState(30);
 
   const [balance, setBalance] = useState<number | null>(null);
@@ -57,7 +57,7 @@ export function SetupForm() {
           accessKeySecret,
           defaultDiskSize: diskSize,
           defaultBandwidth: bandwidth,
-          defaultReleaseHours: releaseHours,
+          defaultAutoRenewalMinutes: autoRenewalMinutes,
           defaultIdleMinutes: idleMinutes,
         }),
       });
@@ -146,15 +146,15 @@ export function SetupForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="setup-release">自动释放时长 (小时)</Label>
+            <Label htmlFor="setup-release">自动续期 (分钟)</Label>
             <Input
               id="setup-release"
               type="number"
-              min={0.5}
-              max={720}
-              step={0.5}
-              value={releaseHours}
-              onChange={(e) => setReleaseHours(Number(e.target.value))}
+              min={35}
+              max={7200}
+              step={5}
+              value={autoRenewalMinutes}
+              onChange={(e) => setAutoRenewalMinutes(Number(e.target.value))}
             />
           </div>
           <div className="space-y-2">
