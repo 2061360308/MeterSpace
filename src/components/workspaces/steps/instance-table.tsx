@@ -106,7 +106,7 @@ export function InstanceTable({ region, types, loading, value, onChange, availab
   }, [types, architecture, familyCategory, cpuFilter, memFilter]);
 
   const fetchPrices = useCallback(async (typesToFetch: string[]) => {
-    const unfetched = typesToFetch.filter((t) => !fetchedTypesRef.current.has(t));
+    const unfetched = typesToFetch.filter((t) => t && !fetchedTypesRef.current.has(t));
     if (unfetched.length === 0) return;
 
     unfetched.forEach((t) => fetchedTypesRef.current.add(t));

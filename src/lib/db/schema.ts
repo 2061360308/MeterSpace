@@ -73,6 +73,13 @@ export const cloudInstances = pgTable("cloud_instances", {
   provider: text("provider").notNull().default("aliyun"),
   region: text("region").notNull(),
   instanceType: text("instance_type").notNull(),
+  // 创建时落库的规格元数据（旧行可能为 null）
+  cpuCoreCount: integer("cpu_core_count"),
+  memorySize: integer("memory_size"),
+  instanceTypeFamily: text("instance_type_family"),
+  cpuArchitecture: text("cpu_architecture"),
+  gpuCount: integer("gpu_count"),
+  gpuSpec: text("gpu_spec"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

@@ -45,6 +45,12 @@ type CloudInstance = {
   provider: string
   region: string
   instanceType: string
+  cpuCoreCount?: number | null
+  memorySize?: number | null
+  instanceTypeFamily?: string | null
+  cpuArchitecture?: string | null
+  gpuCount?: number | null
+  gpuSpec?: string | null
   createdAt: string
 }
 
@@ -234,6 +240,8 @@ export default function CloudInstancesPage() {
                 <Skeleton className="h-4 w-[72px]" />
                 <Skeleton className="h-4 w-[88px]" />
                 <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-4 w-[48px]" />
+                <Skeleton className="h-4 w-[56px]" />
                 <Skeleton className="h-4 w-[120px]" />
                 <Skeleton className="h-7 w-7 rounded-md" />
               </div>
@@ -285,6 +293,8 @@ export default function CloudInstancesPage() {
                   <TableHead className="w-[100px]">提供商</TableHead>
                   <TableHead className="w-[120px]">地域</TableHead>
                   <TableHead>实例规格</TableHead>
+                  <TableHead className="w-[72px]">vCPU</TableHead>
+                  <TableHead className="w-[88px]">内存</TableHead>
                   <TableHead className="w-[160px]">创建时间</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
@@ -296,6 +306,12 @@ export default function CloudInstancesPage() {
                     <TableCell>{PROVIDER_LABELS[inst.provider] ?? inst.provider}</TableCell>
                     <TableCell>{REGION_LABELS[inst.region] ?? inst.region}</TableCell>
                     <TableCell className="font-mono text-[12px]">{inst.instanceType}</TableCell>
+                    <TableCell className="tnum text-[12px]">
+                      {inst.cpuCoreCount != null ? `${inst.cpuCoreCount} 核` : "—"}
+                    </TableCell>
+                    <TableCell className="tnum text-[12px]">
+                      {inst.memorySize != null ? `${inst.memorySize} GiB` : "—"}
+                    </TableCell>
                     <TableCell className="tnum text-[12px] text-muted-foreground">
                       {new Date(inst.createdAt).toLocaleString("zh-CN")}
                     </TableCell>

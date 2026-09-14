@@ -32,11 +32,25 @@ interface RegionInfo {
   label: string
 }
 
+interface InstancePayload {
+  instanceTypeId: string
+  status?: string
+  availableZones?: number
+  totalZones?: number
+  zones?: Array<{ zoneId: string; status: string }>
+  spec: {
+    id: string
+    cpu: number
+    memory: number
+    family?: string
+    architecture?: string
+    gpuAmount?: number
+    gpuSpec?: string
+  } | null
+}
+
 interface InstanceData {
-  instances: Array<{
-    instanceTypeId: string
-    spec: InstanceTypeInfo | null
-  }>
+  instances: InstancePayload[]
 }
 
 export default function NewCloudInstancePage() {
@@ -105,11 +119,32 @@ export default function NewCloudInstancePage() {
         const d: InstanceData = await res.json()
         if (!cancelled) {
           const instances = d.instances ?? []
-          const types = instances.map((i) => i.spec).filter(Boolean) as InstanceTypeInfo[]
+          const types: InstanceTypeInfo[] = instances
+            .map((i) => i.spec)
+            .filter((s): s is NonNullable<InstancePayload["spec"]> => Boolean(s))
+            .map((s) => ({
+              instanceTypeId: s.id,
+              cpuCoreCount: s.cpu,
+              memorySize: s.memory,
+              instanceTypeFamily: s.family,
+              cpuArchitecture: s.architecture,
+              gpuAmount: s.gpuAmount,
+              gpuSpec: s.gpuSpec,
+            }))
           const avail: Record<string, InstanceAvailability> = {}
           for (const i of instances) {
             if (i.spec) {
-              avail[i.instanceTypeId] = i as unknown as InstanceAvailability
+              avail[i.instanceTypeId] = {
+                instanceTypeId: i.instanceTypeId,
+                status: i.status as InstanceAvailability["status"],
+                availableZones: i.availableZones ?? 0,
+                totalZones: i.totalZones ?? 0,
+                statusCategory: i.zones?.[0]?.status as InstanceAvailability["statusCategory"],
+                zones: (i.zones ?? []).map((z) => ({
+                  zoneId: z.zoneId,
+                  statusCategory: z.status as Exclude<InstanceAvailability["statusCategory"], undefined>,
+                })),
+              }
             }
           }
           setInstanceTypes(types)
@@ -145,6 +180,7 @@ export default function NewCloudInstancePage() {
     setSaving(true)
     setError("")
     try {
+      const spec = instanceTypes.find((t) => t.instanceTypeId === instanceType)
       const res = await fetch("/api/cloud-instances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -153,6 +189,12 @@ export default function NewCloudInstancePage() {
           provider,
           region,
           instanceType,
+          cpuCoreCount: spec?.cpuCoreCount ?? null,
+          memorySize: spec?.memorySize ?? null,
+          instanceTypeFamily: spec?.instanceTypeFamily ?? null,
+          cpuArchitecture: spec?.cpuArchitecture ?? null,
+          gpuCount: spec?.gpuAmount ?? null,
+          gpuSpec: spec?.gpuSpec ?? null,
         }),
       })
       if (!res.ok) {

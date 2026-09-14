@@ -29,6 +29,13 @@
       "when": 1789376670048,
       "tag": "0003_pre_stop",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789384244738,
+      "tag": "0004_cloud_instances_spec",
+      "breakpoints": true
     }
   ]
 }
