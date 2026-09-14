@@ -186,8 +186,12 @@ export const instances = pgTable("instances", {
   stoppedAt: timestamp("stopped_at", { withTimezone: true }),
   stopReason: text("stop_reason"),
   logsExpireAt: timestamp("logs_expire_at", { withTimezone: true }),
-  /** 异步停止：待收尾的 stop-hook 调用 id（见 docs/UI-PERFORMANCE.md U1） */
+  /** 异步停止：待收尾的云助手调用 id（已弃用，保留列字段兼容；新协议走 pre_stop_*，见 AGENT-PRESTOP.md） */
   stopInvokeId: text("stop_invoke_id"),
+  /** 停止 hook（pre-stop）下发给 agent 的时刻（新协议，见 docs/AGENT-PRESTOP.md） */
+  preStopDispatchedAt: timestamp("pre_stop_dispatched_at", { withTimezone: true }),
+  /** 停止 hook（pre-stop）由 agent 执行完成并上报 ready-stop 的时刻 */
+  preStopAckedAt: timestamp("pre_stop_acked_at", { withTimezone: true }),
   /** 异步停止：释放发起时刻，作为 hook 总时限的判定基准 */
   releaseRequestedAt: timestamp("release_requested_at", { withTimezone: true }),
   /** 异步创建：云资源创建的原子认领时间戳（见 docs/UI-PERFORMANCE.md U9） */

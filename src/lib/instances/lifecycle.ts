@@ -9,6 +9,7 @@ import {
   invalidateRegionResources,
 } from "@/lib/ecs/provisioning";
 import { buildStopHook, buildUserData } from "@/lib/userdata";
+import { dispatchPreStop } from "@/lib/agent/command";
 import { buildAutoReleaseTime } from "@/lib/instances/auto-release";
 import { getAppBaseUrl, RAM_ROLE_NAME, releaseIdleWorkspace } from "@/lib/workspaces/service";
 
@@ -25,20 +26,16 @@ const DEFAULT_IDLE_MINUTES = 30;
  */
 const RELEASE_HOOK_DEADLINE_MS = 10 * 60 * 1000;
 
-/** 投递失败后的重试宽限：这段时间内允许重新投递 hook */
-const RELEASE_REDISPATCH_GRACE_MS = 60 * 1000;
+/** pre-stop 未 ack 的重发间隔（避免每 tick 都重发刷 agent） */
+const RELEASE_PRESTOP_REDISPATCH_GAP_MS = 60 * 1000;
 
 /** 单次 tick 内最多收尾几个实例，避免请求总时长失控 */
 const RELEASE_MAX_PER_TICK = 4;
 
-/** 单个实例在一个 tick 内最多轮询几次命令结果 */
-const RELEASE_POLL_ATTEMPTS = 2;
-const RELEASE_POLL_GAP_MS = 1500;
-
 /**
  * TERMINATING 的静默期。
  *
- * `reapStale` / `releaseIdleWorkspace` 会在一次请求内写完 TERMINATING → 删云 → 落库，
+ * `reapStale` 会在一次请求内写完 TERMINATING → 删云 → 落库，
  * 这几百毫秒内若另一个请求的 resumeReleasing 也抓到同一行，会与前者抢收尾
  * （一方写 STOPPED、一方写 FAILED）。静默期把这种在途行让出去。
  * 真正卡死的 TERMINATING 只是晚 30s 被回收，代价可以接受。
@@ -247,7 +244,7 @@ export async function releaseIdle(
     if (now - new Date(base).getTime() < idleMinutes * 60 * 1000) continue;
 
     try {
-      // 空闲释放不走完整的 stop-hook（可能耗时 120s），直接快速删 ECS
+      // 闲置释放与手动停止统一链路：置 RELEASING 并下发 pre-stop（docs/AGENT-PRESTOP.md）
       await releaseIdleWorkspace(row.userId, row.workspaceId);
       released.push(row.workspaceId);
     } catch (e) {
@@ -343,8 +340,9 @@ export async function releaseIdleInstance(
         id: instances.id,
         status: instances.status,
         ecsInstanceId: instances.ecsInstanceId,
-        provider: workspaces.provider,
-        region: workspaces.region,
+        publicIp: instances.publicIp,
+        accessToken: instances.accessToken,
+        workspaceId: instances.workspaceId,
       })
       .from(instances)
       .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
@@ -357,39 +355,34 @@ export async function releaseIdleInstance(
 
   await db
     .update(instances)
-    .set({ status: "TERMINATING", updatedAt: new Date() })
-    .where(eq(instances.id, row.id));
-
-  const provider = getProvider(row.provider);
-  if (!provider) throw new Error(`Unknown provider: ${row.provider}`);
-
-  try {
-    await provider.deleteInstance(row.ecsInstanceId, row.region);
-  } catch (e) {
-    await db
-      .update(instances)
-      .set({
-        status: "FAILED",
-        bootError: "空闲释放失败：云资源删除失败",
-        updatedAt: new Date(),
-      })
-      .where(eq(instances.id, row.id));
-    throw e;
-  }
-
-  await db
-    .update(instances)
     .set({
-      status: "STOPPED",
-      publicIp: null,
-      port: null,
-      accessToken: null,
-      autoReleaseAt: null,
-      stoppedAt: new Date(),
+      status: "RELEASING",
+      releaseRequestedAt: new Date(),
       stopReason: "idle_release",
       updatedAt: new Date(),
     })
     .where(eq(instances.id, row.id));
+
+  try {
+    if (!row.publicIp) {
+      throw new Error("instance.publicIp is empty");
+    }
+    await dispatchPreStop({
+      instanceId: row.id,
+      workspaceId: row.workspaceId,
+      publicIp: row.publicIp,
+      accessToken: row.accessToken ?? "",
+      script: buildStopHook(),
+      reason: "idle_release",
+    });
+    await db
+      .update(instances)
+      .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
+      .where(eq(instances.id, row.id));
+  } catch (e) {
+    // 下发失败不抛异常，resumeReleasing 会在宽限期内重试
+    console.error("[releaseIdleInstance] pre-stop dispatch failed:", e);
+  }
 
   return "released";
 }
@@ -525,34 +518,24 @@ async function releaseInstanceForRow(instanceId: string): Promise<boolean> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 异步停止收尾（docs/UI-PERFORMANCE.md U1）
+// 异步停止收尾（docs/AGENT-PRESTOP.md §5）
 // ─────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function parseOssUsage(output: string | null | undefined): number | null {
-  if (!output) return null;
-  const match = output.match(/OSS_USAGE=(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
-}
 
 /**
  * 停止流程的收尾器。
  *
- * 为什么需要它：`stopInstance` / `stopWorkspace` 只在请求里把状态置为 `RELEASING`
- * 并投递 stop-hook，然后立即返回（否则 120s 同步等待必然触发 Vercel 504）。
- * 真正「等 hook 跑完 → 删 ECS → 落库」的动作放在这里，由 `/api/maintenance`
+ * 为什么需要它：`stopInstance` / `stopWorkspace` / 闲置释放只在请求里把状态置为
+ * `RELEASING` 并下发 pre-stop，然后立即返回（否则同步等 agent 执行必然触发 Vercel 504）。
+ * 真正「等 pre-stop ack → 删 ECS → 落库」的动作放在这里，由 `/api/maintenance`
  * 的每次 tick 驱动（serverless 无后台进程，一切时序挂在请求上）。
  *
- * **绝不能在 hook 完成前删 ECS**：stop-hook 是数据持久化的唯一入口
+ * **绝不能在 pre-stop 完成前删 ECS**：回收脚本是数据持久化的唯一入口
  * （`lib/userdata.ts:70-94`，打包未提交改动到 `.snapshots/`、导出 code-server 配置），
  * 提前删除会丢用户代码。
  *
- * `TERMINATING` 与 `RELEASING` 的差异：前者来自空闲/失联的快速释放路径
- * （`releaseIdleWorkspace`、`reapStale`），本来就不跑 hook，直接删即可；
- * 后者是用户主动停止，必须等 hook。
+ * `TERMINATING` 与 `RELEASING` 的差异：前者来自心跳缺失的快速释放路径
+ * （`reapStale`，agent 已失联，pre-stop 不可能执行），直接删即可；
+ * 后者是主动停止 / 闲置，必须等 agent 上报 ready-stop（`preStopAckedAt`）。
  */
 export async function resumeReleasing(
   userId: string,
@@ -563,8 +546,12 @@ export async function resumeReleasing(
       status: instances.status,
       workspaceId: instances.workspaceId,
       ecsInstanceId: instances.ecsInstanceId,
-      stopInvokeId: instances.stopInvokeId,
       releaseRequestedAt: instances.releaseRequestedAt,
+      preStopDispatchedAt: instances.preStopDispatchedAt,
+      preStopAckedAt: instances.preStopAckedAt,
+      publicIp: instances.publicIp,
+      accessToken: instances.accessToken,
+      ossUsageBytes: instances.ossUsageBytes,
       stopReason: instances.stopReason,
       createdAt: instances.createdAt,
       updatedAt: instances.updatedAt,
@@ -618,39 +605,31 @@ export async function resumeReleasing(
     let hookSettled = row.status === "TERMINATING"; // 快速路径无 hook，视为已结束
 
     if (row.status === "RELEASING") {
-      if (row.stopInvokeId) {
-        for (let i = 0; i < RELEASE_POLL_ATTEMPTS; i++) {
-          try {
-            const result = await provider.getCommandResult(row.stopInvokeId, row.region);
-            // 关键：必须判状态，原实现在这里只看 output，hook 失败就空等满 120s
-            if (result.status === "Finished" || result.status === "Failed" || result.status === "Stopped") {
-              ossUsage = parseOssUsage(result.output);
-              hookSettled = true;
-              break;
-            }
-          } catch (e) {
-            console.warn("[lifecycle] getCommandResult failed:", (e as Error).message);
-            break;
-          }
-          if (i < RELEASE_POLL_ATTEMPTS - 1) await sleep(RELEASE_POLL_GAP_MS);
-        }
+      if (row.preStopAckedAt) {
+        ossUsage = row.ossUsageBytes;
+        hookSettled = true;
       } else {
-        // 请求路径投递失败过。宽限期内重新投递一次，之后交给超时兜底。
-        const withinGrace =
-          !!base && Date.now() - new Date(base).getTime() < RELEASE_REDISPATCH_GRACE_MS;
-        if (withinGrace) {
+        // pre-stop 未 ack：间隔足够时重发一次；否则留在 pending 等下一个 tick
+        const lastDispatch = row.preStopDispatchedAt;
+        const dueRedispatch =
+          !lastDispatch ||
+          Date.now() - new Date(lastDispatch).getTime() >= RELEASE_PRESTOP_REDISPATCH_GAP_MS;
+        if (dueRedispatch && row.publicIp) {
           try {
-            const { invokeId } = await provider.runCommand(
-              row.ecsInstanceId,
-              row.region,
-              buildStopHook(),
-            );
+            await dispatchPreStop({
+              instanceId: row.id,
+              workspaceId: row.workspaceId,
+              publicIp: row.publicIp,
+              accessToken: row.accessToken ?? "",
+              script: buildStopHook(),
+              reason: row.stopReason ?? undefined,
+            });
             await db
               .update(instances)
-              .set({ stopInvokeId: invokeId, updatedAt: new Date() })
+              .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
               .where(eq(instances.id, row.id));
           } catch (e) {
-            console.warn("[lifecycle] stop-hook redispatch failed:", (e as Error).message);
+            console.warn("[lifecycle] pre-stop (re)dispatch failed:", (e as Error).message);
           }
         }
       }
@@ -661,7 +640,7 @@ export async function resumeReleasing(
       continue;
     }
 
-    // hook 已结束，或已超时（强制收尾）→ 释放云资源
+    // pre-stop 已 ack，或已超时（强制收尾）→ 释放云资源
     try {
       await provider.deleteInstance(row.ecsInstanceId, row.region);
     } catch (e) {
@@ -674,11 +653,7 @@ export async function resumeReleasing(
     await finalizeRelease(
       row.id,
       ossUsage,
-      forced
-        ? row.status === "TERMINATING"
-          ? (row.stopReason ?? "idle_release")
-          : "manual_timeout"
-        : (row.stopReason ?? "manual"),
+      forced ? (row.stopReason ?? "manual_timeout") : (row.stopReason ?? "manual"),
       forced ? "停止脚本超时，已强制释放云资源（快照可能不完整）" : null,
     );
     await cleanupExpiredLogs(row.workspaceId);

@@ -12,6 +12,7 @@ import { getUserSettings } from "@/lib/aliyun/auth";
 import { getProvider } from "@/lib/providers";
 import { ensureRegionResources } from "@/lib/ecs/provisioning";
 import { buildUserData, buildStopHook, type EntrypointVars } from "@/lib/userdata";
+import { dispatchPreStop } from "@/lib/agent/command";
 import { resolveFeatures } from "@/lib/features";
 import { getGitTokenEnc } from "@/lib/git/service";
 import { encrypt } from "@/lib/crypto";
@@ -447,28 +448,29 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
     details: { instanceId: instance.ecsInstanceId },
   });
 
-  const provider = getProvider(workspace.provider);
-  if (!provider) {
-    throw new WorkspaceError("Unknown provider", 500);
-  }
-
   try {
-    const { invokeId } = await provider.runCommand(
-      instance.ecsInstanceId,
-      workspace.region,
-      buildStopHook(),
-    );
+    if (!instance.publicIp) {
+      throw new Error("instance.publicIp is empty");
+    }
+    await dispatchPreStop({
+      instanceId: instance.id,
+      workspaceId,
+      publicIp: instance.publicIp,
+      accessToken: instance.accessToken ?? "",
+      script: buildStopHook(),
+      reason: "manual",
+    });
     await db
       .update(instances)
-      .set({ stopInvokeId: invokeId, updatedAt: new Date() })
+      .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, instance.id));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error("[stopWorkspace] stop-hook dispatch failed:", message);
+    console.error("[stopWorkspace] pre-stop dispatch failed:", message);
     await db
       .update(instances)
       .set({
-        bootError: `停止脚本投递失败，将自动重试：${message}`,
+        bootError: `pre-stop 下发失败，将自动重试：${message}`,
         updatedAt: new Date(),
       })
       .where(eq(instances.id, instance.id));
@@ -479,8 +481,9 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
 }
 
 /**
- * 空闲释放的「快速路径」：不跑 stop-hook，直接删 ECS。
- * 用于 maintenance 的 idle 任务，避免 serverless 函数超时（stop-hook 最长 120s）。
+ * 空闲释放：置 RELEASING 并下发 pre-stop（回收脚本仍由 agent 执行，
+ * 与手动停止统一链路，见 docs/AGENT-PRESTOP.md）。
+ * 收尾（删 ECS、落 STOPPED）交给 maintenance 的 resumeReleasing。
  */
 export async function releaseIdleWorkspace(userId: string, workspaceId: string) {
   const workspace = await db.query.workspaces.findFirst({
@@ -500,38 +503,34 @@ export async function releaseIdleWorkspace(userId: string, workspaceId: string) 
 
   await db
     .update(instances)
-    .set({ status: "TERMINATING", updatedAt: new Date() })
-    .where(eq(instances.id, instance.id));
-
-  const provider = getProvider(workspace.provider);
-  if (!provider) {
-    throw new WorkspaceError("Unknown provider", 500);
-  }
-
-  try {
-    await provider.deleteInstance(instance.ecsInstanceId, workspace.region);
-  } catch (e) {
-    console.error("[releaseIdleWorkspace] delete instance failed:", e);
-    await db
-      .update(instances)
-      .set({ status: "FAILED", bootError: "空闲释放失败：云资源删除失败", updatedAt: new Date() })
-      .where(eq(instances.id, instance.id));
-    throw e;
-  }
-
-  await db
-    .update(instances)
     .set({
-      status: "STOPPED",
-      publicIp: null,
-      port: null,
-      accessToken: null,
-      autoReleaseAt: null,
-      stoppedAt: new Date(),
+      status: "RELEASING",
+      releaseRequestedAt: new Date(),
       stopReason: "idle_release",
       updatedAt: new Date(),
     })
     .where(eq(instances.id, instance.id));
+
+  try {
+    if (!instance.publicIp) {
+      throw new Error("instance.publicIp is empty");
+    }
+    await dispatchPreStop({
+      instanceId: instance.id,
+      workspaceId,
+      publicIp: instance.publicIp,
+      accessToken: instance.accessToken ?? "",
+      script: buildStopHook(),
+      reason: "idle_release",
+    });
+    await db
+      .update(instances)
+      .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
+      .where(eq(instances.id, instance.id));
+  } catch (e) {
+    // 下发失败不标记行，交给 resumeReleasing 按宽限期重试
+    console.error("[releaseIdleWorkspace] pre-stop dispatch failed:", e);
+  }
 
   await db.insert(auditLogs).values({
     userId,

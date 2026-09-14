@@ -973,7 +973,7 @@ PROVISIONING → BOOTING ──[心跳超时]──→ FAILED → 销毁
                   │        │
                   │  前端 /api/maintenance → releaseIdle()
                   ▼        ▼
-              RELEASING → 备份 /workspace → 停 ECS → STOPPED
+              RELEASING → agent 执行 pre-stop（备份 /workspace）→ 删 ECS → STOPPED
 ```
 
 ---

@@ -32,7 +32,7 @@ BOOTING 状态此前已存在于 schema/前端/查询/cloud-status（utils.ts:30
 |---|---|---|
 | W1 | 创建 5 分钟内未收到首次心跳（仍 PROVISIONING） | `checkAndFixTimeouts`（收窄后仅 PROVISIONING；基准 `bootStartedAt`，与心跳字段无关）→ FAILED + 释放 |
 | W2 | entry 执行，默认 10 分钟，模板可调，上限 30 | 超时 → `/agent-error(timeout)` → FAILED + 立即销毁 |
-| W3 | 闲置 ≥ idleMinutes（默认 30） | 心跳 `is_idle=true` → 落库即时快速释放（不跑 stop-hook） |
+| W3 | 闲置 ≥ idleMinutes（默认 30） | 心跳 `is_idle=true` → 置 `RELEASING` 并下发 pre-stop（与手动停止统一链路，见 `docs/AGENT-PRESTOP.md`） |
 | W4 | 后端断联 ≥3 分钟判死；云侧 AutoReleaseTime 心跳续期兜底 | `reapStale` + 阿里云自动释放 |
 
 BOOTING 不设后端时长检查；兜底 = ① agent 侧 entry_timeout 超时上报（W2）② RunInstances 创建时指定的 AutoReleaseTime（agent 失联即不再续期、到点云侧释放）。
@@ -50,7 +50,7 @@ BOOTING 不设后端时长检查；兜底 = ① agent 侧 entry_timeout 超时�
 - `is_idle: boolean`（新增）
 - 后端处理：
   1. 首心跳：PROVISIONING → BOOTING（写库）
-  2. `is_idle=true`（仅 RUNNING 生效；BOOTING/PROVISIONING 忽略）：转 TERMINATING 并即时快速释放
+  2. `is_idle=true`（仅 RUNNING 生效；BOOTING/PROVISIONING 忽略）：置 `RELEASING` + 下发 pre-stop（统一链路，见 `docs/AGENT-PRESTOP.md`）
   3. 续期：`auto_release_at IS NULL` 或剩余 ≤10min → 后推 `now + autoRenewalMinutes`（取值链 `workspace.autoRenewalMinutes ?? settings.defaultAutoRenewalMinutes`；NULL 视为需续期，兜底存量行）
 
 ## 6. 日志通道（D16）
@@ -111,7 +111,7 @@ ALTER TABLE workspaces ALTER COLUMN entry_timeout SET DEFAULT 600;
 - `agent/main.go` onStatusChange 失败/超时分支：drain 日志 → `Flush()` → `/agent-error`。
 
 ### 7.5 后端路由
-- `src/app/api/instances/[id]/agent-heartbeat/route.ts`：PROVISIONING→BOOTING 写入、`is_idle` 即时释放（仅 RUNNING 生效；BOOTING/PROVISIONING 忽略该字段）、租约续期（≤10min 后推）。
+- `src/app/api/instances/[id]/agent-heartbeat/route.ts`：PROVISIONING→BOOTING 写入、`is_idle` 置 RELEASING + 下发 pre-stop（仅 RUNNING 生效；BOOTING/PROVISIONING 忽略该字段）、租约续期（≤10min 后推）。
 - `src/lib/instances/lifecycle.ts`：`checkAndFixTimeouts` 收窄仅 PROVISIONING（删除 BOOTING 判定）；`reapStale` 删除 BOOTING 前 5 分钟豁免（lifecycle.ts:300-304），BOOTING/RUNNING 统一以 `HEARTBEAT_TIMEOUT_MS=3min` 判心跳缺失；新增 `releaseIdleInstance`。
 - `src/lib/providers/aliyun.ts`：`supportsAutoRelease` 能力标记（仅阿里云启用云侧兜底）。
 

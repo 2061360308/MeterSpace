@@ -97,6 +97,14 @@ type StatusPayload struct {
 	Message string `json:"message,omitempty"`
 }
 
+// ReadyStopPayload is the pre-stop 完成回报（docs/AGENT-PRESTOP.md §3）。
+type ReadyStopPayload struct {
+	Token         string `json:"token"`
+	Ok            bool   `json:"ok"`
+	OSSUsageBytes int64  `json:"oss_usage_bytes,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
 // LogEntry represents a single log entry
 type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
@@ -249,6 +257,17 @@ func (r *Reporter) ReportError(errorMsg, phase string) error {
 		Phase: phase,
 	}
 	return r.post("/agent-error", payload)
+}
+
+// ReportReadyStop reports the pre-stop execution result (docs/AGENT-PRESTOP.md §3).
+func (r *Reporter) ReportReadyStop(ok bool, ossUsageBytes int64, errMsg string) error {
+	payload := ReadyStopPayload{
+		Token:         r.backendToken,
+		Ok:            ok,
+		OSSUsageBytes: ossUsageBytes,
+		Error:         errMsg,
+	}
+	return r.post("/agent-ready-stop", payload)
 }
 
 // post sends a POST request to the backend

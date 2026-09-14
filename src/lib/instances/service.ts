@@ -9,8 +9,8 @@ import {
   auditLogs,
   cloudInstances,
 } from "@/lib/db/schema";
-import { getProvider } from "@/lib/providers";
 import { buildStopHook } from "@/lib/userdata";
+import { dispatchPreStop } from "@/lib/agent/command";
 import { ALL_PORTS } from "@/lib/constants";
 import {
   checkAndFixTimeouts,
@@ -293,32 +293,36 @@ export async function stopInstance(userId: string, instanceId: string) {
     return { instanceId, status: "STOPPED", phase: "done" as const };
   }
 
-  // ③ 投递 stop-hook 后立即返回。
-  //    ⚠️ 绝不等 hook 跑完（原实现 24 × 5s = 120s，Vercel 免费版必然 504）。
+  // ③ 下发 pre-stop（停止 hook）后立即返回。
+  //    ⚠️ 绝不等脚本跑完（agent 执行回收脚本可能耗时，Vercel 免费版必然超时）。
   //    收尾由 /api/maintenance tick 里的 resumeReleasing 负责，
-  //    且必须 gate 在 hook 完成之后才删 ECS —— 否则会丢用户未提交的代码。
+  //    且必须 gate 在 agent 上报 ready-stop 之后才删 ECS —— 否则会丢用户未提交的代码。
   let hookDispatch: "ok" | "failed" = "ok";
   try {
-    const provider = getProvider(workspace.provider);
-    if (!provider) throw new InstanceError("Unknown provider", 500);
-    const { invokeId } = await provider.runCommand(
-      instance.ecsInstanceId,
-      workspace.region,
-      buildStopHook(),
-    );
+    if (!instance.publicIp) {
+      throw new Error("instance.publicIp is empty");
+    }
+    await dispatchPreStop({
+      instanceId,
+      workspaceId: instance.workspaceId,
+      publicIp: instance.publicIp,
+      accessToken: instance.accessToken ?? "",
+      script: buildStopHook(),
+      reason: "manual",
+    });
     await db
       .update(instances)
-      .set({ stopInvokeId: invokeId, updatedAt: new Date() })
+      .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, instanceId));
   } catch (e) {
-    // 投递失败不阻塞请求：resumeReleasing 会在宽限期内重投，超时后强制释放
+    // 投递失败不阻塞请求：resumeReleasing 会在宽限期内重发，超时后强制释放
     hookDispatch = "failed";
     const message = e instanceof Error ? e.message : String(e);
-    console.error("[stopInstance] stop-hook dispatch failed:", message);
+    console.error("[stopInstance] pre-stop dispatch failed:", message);
     await db
       .update(instances)
       .set({
-        bootError: `停止脚本投递失败，将自动重试：${message}`,
+        bootError: `pre-stop 下发失败，将自动重试：${message}`,
         updatedAt: new Date(),
       })
       .where(eq(instances.id, instanceId));

@@ -46,6 +46,10 @@ type Config struct {
 	ScriptPath    string        `json:"script_path"`
 	ScriptTimeout time.Duration `json:"script_timeout"`
 
+	// PreStopTimeout pre-stop（回收脚本）执行超时（docs/AGENT-PRESTOP.md §7.1），
+	// 默认 120s，范围 clamp [30s, 300s]。
+	PreStopTimeout time.Duration `json:"pre_stop_timeout"`
+
 	// === 模板协议（docs/FINAL-PLAN.md §5 / §6）===
 	// WorkspaceRoot 载荷落盘根目录，默认 /opt/ws
 	WorkspaceRoot string `json:"workspace_root"`
@@ -82,6 +86,7 @@ func DefaultConfig() *Config {
 		IdleMinutes:           30,
 		ScriptPath:            "/opt/agent/scripts/startup.sh",
 		ScriptTimeout:         300 * time.Second,
+		PreStopTimeout:        120 * time.Second,
 		WorkspaceRoot:         "/opt/ws",
 		WorkspaceDir:          "/workspace",
 		Entry:                 "",
@@ -134,6 +139,7 @@ func loadFromFile(cfg *Config, path string) error {
 		IdleMinutes           int             `json:"idle_minutes"`
 		ScriptPath            string          `json:"script_path"`
 		ScriptTimeout         int             `json:"script_timeout"`
+		PreStopTimeout        int             `json:"pre_stop_timeout"`
 		WorkspaceRoot         string          `json:"workspace_root"`
 		WorkspaceDir          string          `json:"workspace_dir"`
 		Entry                 string          `json:"entry"`
@@ -181,6 +187,9 @@ func loadFromFile(cfg *Config, path string) error {
 	}
 	if fileCfg.ScriptTimeout > 0 {
 		cfg.ScriptTimeout = time.Duration(fileCfg.ScriptTimeout) * time.Second
+	}
+	if fileCfg.PreStopTimeout > 0 {
+		cfg.PreStopTimeout = clampPreStopTimeout(time.Duration(fileCfg.PreStopTimeout) * time.Second)
 	}
 	if fileCfg.WorkspaceRoot != "" {
 		cfg.WorkspaceRoot = fileCfg.WorkspaceRoot
@@ -251,6 +260,11 @@ func loadFromEnv(cfg *Config) {
 			cfg.ScriptTimeout = time.Duration(n) * time.Second
 		}
 	}
+	if v := os.Getenv("AGENT_PRE_STOP_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.PreStopTimeout = clampPreStopTimeout(time.Duration(n) * time.Second)
+		}
+	}
 	if v := os.Getenv("AGENT_WORKSPACE_ROOT"); v != "" {
 		cfg.WorkspaceRoot = v
 	}
@@ -307,6 +321,17 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("backend_token is required")
 	}
 	return nil
+}
+
+// clampPreStopTimeout 限制 pre-stop 执行超时范围 [30s, 300s]。
+func clampPreStopTimeout(d time.Duration) time.Duration {
+	if d < 30*time.Second {
+		d = 30 * time.Second
+	}
+	if d > 300*time.Second {
+		d = 300 * time.Second
+	}
+	return d
 }
 
 // EntryPath returns the absolute path of the entry file inside WorkspaceRoot.

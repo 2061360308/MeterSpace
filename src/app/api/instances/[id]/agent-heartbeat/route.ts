@@ -94,7 +94,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     // ② is_idle 即时释放（仅 RUNNING；BOOTING/PROVISIONING 忽略）
     const idleReleased = body.is_idle === true && row.status === "RUNNING";
     if (idleReleased) {
-      await releaseIdleInstance(id);
+      try {
+        await releaseIdleInstance(id);
+      } catch (e) {
+        // 释放（含 pre-stop 下发）失败不阻塞心跳其它分支，留给 resumeReleasing 重试
+        console.error("[heartbeat] releaseIdleInstance failed:", e);
+      }
     }
 
     // agent 显式上报「有活跃流量」→ 推进活跃时间并清除空闲标记

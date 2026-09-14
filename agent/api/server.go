@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -15,7 +16,11 @@ import (
 	"github.com/workspace-cloud/agent/executor"
 	"github.com/workspace-cloud/agent/heartbeat"
 	"github.com/workspace-cloud/agent/reporter"
+	"github.com/workspace-cloud/agent/stop"
 )
+
+// preStopScriptPath 是 pre_stop 指令脚本落盘位置（临时文件 + rename 原子写）。
+const preStopScriptPath = "/opt/agent/pre-stop.sh"
 
 // Server is the HTTP API server
 type Server struct {
@@ -27,6 +32,11 @@ type Server struct {
 	detector  *activity.Detector
 	server    *http.Server
 	mu        sync.RWMutex
+
+	// pre-stop：并发防重 + 回收脚本执行器（docs/AGENT-PRESTOP.md §7.4）
+	stopRunner  *stop.Runner
+	stopMu      sync.Mutex
+	stopRunning bool
 }
 
 // NewServer creates a new API server
@@ -45,6 +55,16 @@ func NewServer(
 		tracker:   tracker,
 		reporter:  r,
 		detector:  detector,
+		stopRunner: stop.NewRunner(cfg.WorkspaceDir, func(level, msg string) {
+			full := fmt.Sprintf("[pre-stop] %s: %s", level, msg)
+			fmt.Println(full)
+			r.SendLog(reporter.LogEntry{
+				Timestamp: time.Now(),
+				Level:     level,
+				Phase:     "pre_stop",
+				Message:   full,
+			})
+		}),
 	}
 }
 
@@ -119,7 +139,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"status":        status,
-		"agent_version": "1.0.0",
+		"agent_version": "1.1.0",
 		"uptime":        int64(time.Since(time.Now()).Seconds()),
 		"script_status": scriptStatus,
 	}
@@ -237,6 +257,9 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		Action    string `json:"action"`
 		Timestamp string `json:"timestamp"`
 		Signature string `json:"signature"`
+		Script    string `json:"script"`
+		Timeout   int    `json:"timeout"`
+		Reason    string `json:"reason"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -250,8 +273,9 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify signature using instance_id
-	if !crypto.VerifySignature(s.cfg.BackendToken, s.cfg.InstanceID, request.Action, request.Timestamp, request.Signature) {
+	// Verify signature: message = `<workspace_id>:<action>:<timestamp>`（docs/AGENT-PRESTOP.md 协议）。
+	// HMAC key = backend token = 后端 `instances.accessToken`。
+	if !crypto.VerifySignature(s.cfg.BackendToken, s.cfg.WorkspaceID, request.Action, request.Timestamp, request.Signature) {
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
@@ -281,17 +305,15 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 			"action":  request.Action,
 			"message": "Script execution started",
 		}
-	case "prepare_reclaim":
-		response = map[string]interface{}{
-			"status":  "accepted",
-			"action":  request.Action,
-			"message": "Prepare for reclaim",
+	case "pre_stop":
+		if err := s.startPreStop(request); err != nil {
+			http.Error(w, err.Error(), err.Status)
+			return
 		}
-	case "force_stop":
 		response = map[string]interface{}{
 			"status":  "accepted",
 			"action":  request.Action,
-			"message": "Force stop initiated",
+			"message": "Pre-stop started",
 		}
 	default:
 		http.Error(w, "Unknown action", http.StatusBadRequest)
@@ -300,6 +322,81 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+type httpError struct {
+	Status  int
+	Message string
+}
+
+func (e *httpError) Error() string { return e.Message }
+
+// startPreStop 校验并启动一次 pre-stop 执行（docs/AGENT-PRESTOP.md §7.4）。
+// 落盘脚本 → 防重检查 → 后台执行 → 立即 200；执行完由 goroutine 上报 ready-stop。
+func (s *Server) startPreStop(request struct {
+	Action    string `json:"action"`
+	Timestamp string `json:"timestamp"`
+	Signature string `json:"signature"`
+	Script    string `json:"script"`
+	Timeout   int    `json:"timeout"`
+	Reason    string `json:"reason"`
+}) *httpError {
+	if request.Script == "" {
+		return &httpError{http.StatusBadRequest, "script is required"}
+	}
+
+	timeout := request.Timeout
+	if timeout <= 0 {
+		timeout = 120
+	}
+	if timeout > 300 {
+		timeout = 300
+	}
+
+	s.stopMu.Lock()
+	if s.stopRunning {
+		s.stopMu.Unlock()
+		return &httpError{http.StatusConflict, "pre_stop already in progress"}
+	}
+	s.stopRunning = true
+	s.stopMu.Unlock()
+
+	if err := writeStopScript(request.Script); err != nil {
+		s.stopMu.Lock()
+		s.stopRunning = false
+		s.stopMu.Unlock()
+		return &httpError{http.StatusInternalServerError, "failed to write pre-stop script: " + err.Error()}
+	}
+
+	go func() {
+		defer func() {
+			s.stopMu.Lock()
+			s.stopRunning = false
+			s.stopMu.Unlock()
+		}()
+
+		ossUsage, err := s.stopRunner.RunPreStop(preStopScriptPath, time.Duration(timeout)*time.Second)
+		// 水位后补：确保 pre-stop 日志在上报结果前到达后端（与失败路径一致，见 AGENT-LIFECYCLE §6）
+		s.reporter.Flush()
+		if err != nil {
+			fmt.Printf("[pre-stop] script failed: %v\n", err)
+			_ = s.reporter.ReportReadyStop(false, 0, err.Error())
+			return
+		}
+		fmt.Printf("[pre-stop] completed; oss_usage=%d bytes\n", ossUsage)
+		_ = s.reporter.ReportReadyStop(true, ossUsage, "")
+	}()
+
+	return nil
+}
+
+// writeStopScript 原子写入 pre-stop 脚本（tmp + rename，0700）。
+func writeStopScript(content string) error {
+	tmp := preStopScriptPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o700); err != nil {
+		return err
+	}
+	return os.Rename(tmp, preStopScriptPath)
 }
 
 // authenticateRequest verifies the request authentication

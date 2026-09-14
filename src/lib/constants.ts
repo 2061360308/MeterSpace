@@ -7,6 +7,14 @@ export const PROVIDERS = [
 /** 哨兵值：allowedPorts 中 0 表示开通该实例所有端口。 */
 export const ALL_PORTS = 0;
 
+/**
+ * agent 控制端口（下游指令通道）。
+ * 与 `agent/api/server.go` 的默认监听端口（9527）保持一致：
+ * `src/lib/agent/command.ts` 下发 pre-stop 与 `ensureInstanceSecurityGroup`
+ * 的放行规则都依赖本常量，任一改动须同步另外两处。
+ */
+export const AGENT_CONTROL_PORT = 9527;
+
 export const REGIONS = [
   { id: "cn-hangzhou", label: "杭州 (cn-hangzhou)" },
   { id: "cn-shanghai", label: "上海 (cn-shanghai)" },

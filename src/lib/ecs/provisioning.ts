@@ -13,6 +13,7 @@ import {
 import type { AliCredentials } from "@/lib/aliyun/client";
 import { db } from "@/lib/db";
 import { regionResources } from "@/lib/db/schema";
+import { AGENT_CONTROL_PORT } from "@/lib/constants";
 
 export interface RegionResources {
   imageId: string;
@@ -271,7 +272,21 @@ export async function ensureInstanceSecurityGroup(
   const found = find(existing) ?? (prefetched ? find(prefetched) : undefined);
   if (found) return found;
 
-  return createSecurityGroup(creds, region, vpcId, name, `workspace-cloud per-instance sg ${instanceId}`);
+  const sgId = await createSecurityGroup(creds, region, vpcId, name, `workspace-cloud per-instance sg ${instanceId}`);
+
+  // 开放 agent 控制端口（pre-stop 指令通道，docs/AGENT-PRESTOP.md §6）。
+  // 仅在「新建 SG」分支放行：prefetched/existing 命中的 SG 规则已在
+  // （per-instance 名称唯一，重试命中已创建 SG 时规则已带）。
+  await authorizeIngress(
+    creds,
+    region,
+    sgId,
+    `${AGENT_CONTROL_PORT}/${AGENT_CONTROL_PORT}`,
+    "0.0.0.0/0",
+    "agent-control",
+  );
+
+  return sgId;
 }
 
 /**
