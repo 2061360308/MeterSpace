@@ -20,7 +20,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PageHeader } from "@/components/ui/page-header";
+import { RegisterHeaderActions } from "@/components/header-actions";
 import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
@@ -196,18 +196,14 @@ export function WorkspaceList() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader
-        title="工作区"
-        description="每个工作区对应一套云端开发环境，按需启动、用完释放。"
-        actions={
-          <Link href="/workspaces/new">
-            <Button>
-              <FolderCode className="size-4" />
-              新建工作区
-            </Button>
-          </Link>
-        }
-      />
+      <RegisterHeaderActions>
+        <Link href="/workspaces/new">
+          <Button size="sm">
+            <FolderCode className="size-4" />
+            新建工作区
+          </Button>
+        </Link>
+      </RegisterHeaderActions>
 
       <div className="flex-1 overflow-y-auto">
         {error && (

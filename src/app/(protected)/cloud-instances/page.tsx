@@ -5,8 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { ListFilterIcon, Plus, Cloud, Trash2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ButtonGroup } from "@/components/ui/button-group"
-import { PageHeader } from "@/components/ui/page-header"
+import { RegisterHeaderActions } from "@/components/header-actions"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -148,15 +147,17 @@ export default function CloudInstancesPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="px-6 pt-6">
-        <PageHeader
-          title="弹性规格"
-          description="把常用的云主机规格存下来，创建工作区时可以直接套用。"
-        />
-      </div>
+      <RegisterHeaderActions>
+        <Button size="sm" asChild>
+          <Link href={`/cloud-instances/new?provider=${provider}`}>
+            添加
+            <Plus data-icon="inline-end" />
+          </Link>
+        </Button>
+      </RegisterHeaderActions>
 
-      {/* 操作栏 */}
-      <div className="flex items-center justify-between px-6 pb-3">
+      {/* 筛选栏 */}
+      <div className="flex items-center gap-2 px-6 pb-3">
         <Select value={provider} onValueChange={handleProviderChange}>
           <SelectTrigger className="w-32 h-8">
             <SelectValue placeholder="选择提供商" />
@@ -169,66 +170,58 @@ export default function CloudInstancesPage() {
           </SelectContent>
         </Select>
 
-        <ButtonGroup>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="icon-sm">
-                <ListFilterIcon data-icon="inline-start" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-0">
-              <div className="px-4 py-2.5 text-[13px] font-medium">规格参数</div>
-              <Separator />
-              <div className="p-4 space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-muted-foreground">CPU</div>
-                    <div className="text-xs font-medium">{CPU_OPTIONS[cpuIndex]}</div>
-                  </div>
-                  <Slider
-                    value={[cpuIndex]}
-                    onValueChange={([v]) => setCpuIndex(v)}
-                    min={0}
-                    max={CPU_OPTIONS.length - 1}
-                    step={1}
-                  />
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="icon-sm">
+              <ListFilterIcon data-icon="inline-start" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-0">
+            <div className="px-4 py-2.5 text-[13px] font-medium">规格参数</div>
+            <Separator />
+            <div className="p-4 space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-muted-foreground">CPU</div>
+                  <div className="text-xs font-medium">{CPU_OPTIONS[cpuIndex]}</div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-muted-foreground">内存</div>
-                    <div className="text-xs font-medium">{MEMORY_OPTIONS[memoryIndex]}</div>
-                  </div>
-                  <Slider
-                    value={[memoryIndex]}
-                    onValueChange={([v]) => setMemoryIndex(v)}
-                    min={0}
-                    max={MEMORY_OPTIONS.length - 1}
-                    step={1}
-                  />
-                </div>
-                {hasFilter && (
-                  <>
-                    <Separator />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full h-7 text-xs text-muted-foreground"
-                      onClick={clearFilter}
-                    >
-                      清除筛选
-                    </Button>
-                  </>
-                )}
+                <Slider
+                  value={[cpuIndex]}
+                  onValueChange={([v]) => setCpuIndex(v)}
+                  min={0}
+                  max={CPU_OPTIONS.length - 1}
+                  step={1}
+                />
               </div>
-            </PopoverContent>
-          </Popover>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/cloud-instances/new?provider=${provider}`}>
-              添加
-              <Plus data-icon="inline-end" />
-            </Link>
-          </Button>
-        </ButtonGroup>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-muted-foreground">内存</div>
+                  <div className="text-xs font-medium">{MEMORY_OPTIONS[memoryIndex]}</div>
+                </div>
+                <Slider
+                  value={[memoryIndex]}
+                  onValueChange={([v]) => setMemoryIndex(v)}
+                  min={0}
+                  max={MEMORY_OPTIONS.length - 1}
+                  step={1}
+                />
+              </div>
+              {hasFilter && (
+                <>
+                  <Separator />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full h-7 text-xs text-muted-foreground"
+                    onClick={clearFilter}
+                  >
+                    清除筛选
+                  </Button>
+                </>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* 实例列表 */}

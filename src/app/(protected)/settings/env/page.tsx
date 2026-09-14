@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { PageHeader } from "@/components/ui/page-header"
+import { RegisterHeaderActions } from "@/components/header-actions"
 import { SettingGroup, SettingItemRow } from "@/components/settings/setting-item"
 import { toast } from "sonner"
 import { Plus, Trash2, Eye, EyeOff } from "lucide-react"
@@ -90,63 +90,59 @@ export default function EnvSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="全局环境变量"
-        description="这里定义的变量会注入到所有工作区，适合放公共的镜像源、代理地址等。"
-        actions={
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus data-icon="inline-start" />
-                添加变量
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>添加环境变量</DialogTitle>
-                <DialogDescription>
-                  变量名建议使用大写加下划线，例如 API_KEY。
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="key">变量名</Label>
-                  <Input
-                    id="key"
-                    placeholder="例如：API_KEY"
-                    value={newEnv.key}
-                    onChange={(e) => setNewEnv({ ...newEnv, key: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="value">值</Label>
-                  <Input
-                    id="value"
-                    placeholder="变量值"
-                    value={newEnv.value}
-                    onChange={(e) => setNewEnv({ ...newEnv, value: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">描述（可选）</Label>
-                  <Input
-                    id="description"
-                    placeholder="这个变量是做什么的？"
-                    value={newEnv.description}
-                    onChange={(e) => setNewEnv({ ...newEnv, description: e.target.value })}
-                  />
-                </div>
+      <RegisterHeaderActions>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm">
+              <Plus data-icon="inline-start" />
+              添加变量
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>添加环境变量</DialogTitle>
+              <DialogDescription>
+                变量名建议使用大写加下划线，例如 API_KEY。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="key">变量名</Label>
+                <Input
+                  id="key"
+                  placeholder="例如：API_KEY"
+                  value={newEnv.key}
+                  onChange={(e) => setNewEnv({ ...newEnv, key: e.target.value })}
+                />
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                  取消
-                </Button>
-                <Button onClick={handleAddEnv}>添加</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        }
-      />
+              <div className="space-y-2">
+                <Label htmlFor="value">值</Label>
+                <Input
+                  id="value"
+                  placeholder="变量值"
+                  value={newEnv.value}
+                  onChange={(e) => setNewEnv({ ...newEnv, value: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">描述（可选）</Label>
+                <Input
+                  id="description"
+                  placeholder="这个变量是做什么的？"
+                  value={newEnv.description}
+                  onChange={(e) => setNewEnv({ ...newEnv, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                取消
+              </Button>
+              <Button onClick={handleAddEnv}>添加</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </RegisterHeaderActions>
 
       <SettingGroup title="已定义的变量">
         {loading ? (

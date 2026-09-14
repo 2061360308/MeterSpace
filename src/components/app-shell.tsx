@@ -16,6 +16,10 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import {
+  HeaderActions,
+  HeaderActionsProvider,
+} from "@/components/header-actions"
 
 const routes: Record<string, string> = {
   "/": "概览",
@@ -74,47 +78,51 @@ export function AppShell({
   const current = crumbs.pop()
 
   return (
-    <SidebarProvider>
-      <AppSidebar user={user} />
-      <SidebarInset className="bg-background">
-        {/* 顶栏保持轻薄：只用一条极淡分隔线，不用阴影抢内容焦点 */}
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-          <div className="flex min-w-0 items-center gap-2 px-5">
-            <SidebarTrigger className="-ml-1" />
-            <Separator
-              orientation="vertical"
-              className="mr-1 data-[orientation=vertical]:h-4"
-            />
-            <Breadcrumb className="min-w-0">
-              <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:flex">
-                  <BreadcrumbLink href="/">Workspace Cloud</BreadcrumbLink>
-                </BreadcrumbItem>
-                {crumbs.map((crumb) => (
-                  <BreadcrumbItem key={crumb.href} className="hidden md:flex">
-                    <BreadcrumbSeparator />
-                    <BreadcrumbLink href={crumb.href}>
-                      {crumb.label}
-                    </BreadcrumbLink>
+    <HeaderActionsProvider>
+      <SidebarProvider>
+        <AppSidebar user={user} />
+        <SidebarInset className="bg-background">
+          {/* 顶栏保持轻薄：只用一条极淡分隔线，不用阴影抢内容焦点 */}
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+            <div className="flex min-w-0 items-center gap-2 px-5">
+              <SidebarTrigger className="-ml-1" />
+              <Separator
+                orientation="vertical"
+                className="mr-1 data-[orientation=vertical]:h-4"
+              />
+              <Breadcrumb className="min-w-0">
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:flex">
+                    <BreadcrumbLink href="/">Workspace Cloud</BreadcrumbLink>
                   </BreadcrumbItem>
-                ))}
-                {current && (
-                  <BreadcrumbItem className="md:flex">
-                    <BreadcrumbSeparator />
-                    <BreadcrumbPage>{current.label}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                )}
-              </BreadcrumbList>
-            </Breadcrumb>
+                  {crumbs.map((crumb) => (
+                    <BreadcrumbItem key={crumb.href} className="hidden md:flex">
+                      <BreadcrumbSeparator />
+                      <BreadcrumbLink href={crumb.href}>
+                        {crumb.label}
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                  ))}
+                  {current && (
+                    <BreadcrumbItem className="md:flex">
+                      <BreadcrumbSeparator />
+                      <BreadcrumbPage>{current.label}</BreadcrumbPage>
+                    </BreadcrumbItem>
+                  )}
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+            {/* 右侧：当前页操作按钮（由页面经 RegisterHeaderActions 注册） */}
+            <HeaderActions />
+          </header>
+          {/* 内容区：限宽 + 大留白。中文长行更难扫读，1200px 是舒适上限 */}
+          <div className="flex flex-1 flex-col overflow-auto">
+            <div className="mx-auto w-full max-w-[1200px] flex-1 p-6">
+              {children}
+            </div>
           </div>
-        </header>
-        {/* 内容区：限宽 + 大留白。中文长行更难扫读，1200px 是舒适上限 */}
-        <div className="flex flex-1 flex-col overflow-auto">
-          <div className="mx-auto w-full max-w-[1200px] flex-1 p-6">
-            {children}
-          </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+    </HeaderActionsProvider>
   )
 }

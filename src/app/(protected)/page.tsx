@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { BalanceCard } from "@/components/balance-card";
-import { PageHeader } from "@/components/ui/page-header";
+import { RegisterHeaderActions } from "@/components/header-actions";
 import { Button } from "@/components/ui/button";
 import { FolderCode } from "lucide-react";
 
@@ -21,18 +21,14 @@ export default async function OverviewPage() {
 
   return (
     <div>
-      <PageHeader
-        title="概览"
-        description="账户与工作区状态一览。"
-        actions={
-          <Link href="/workspaces/new">
-            <Button>
-              <FolderCode className="size-4" />
-              新建工作区
-            </Button>
-          </Link>
-        }
-      />
+      <RegisterHeaderActions>
+        <Link href="/workspaces/new">
+          <Button size="sm">
+            <FolderCode className="size-4" />
+            新建工作区
+          </Button>
+        </Link>
+      </RegisterHeaderActions>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <BalanceCard />
       </div>
