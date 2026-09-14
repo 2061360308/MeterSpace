@@ -15,6 +15,7 @@ export function fail(e: unknown): NextResponse {
   const anyErr = e as { status?: number; message?: string; code?: string };
   const status = typeof anyErr?.status === "number" ? anyErr.status : 500;
   const message = anyErr?.message ?? "Internal Server Error";
+  if (status >= 500) console.error("[api:5xx]", e);
   return NextResponse.json({ error: message, code: anyErr?.code }, { status });
 }
 
