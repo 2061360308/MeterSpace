@@ -47,7 +47,6 @@ import {
 import {
   apiGet,
   apiSend,
-  pingMaintenance,
   queryKeys,
   POLL_SETTLING_MS,
 } from "@/lib/api-client";
@@ -75,6 +74,7 @@ interface WorkspaceRow {
     ossUsageBytes?: number | null;
     lastActiveAt?: string | null;
     releasedAt?: string | null;
+    lastCloudStatus?: string | null;
   } | null;
 }
 
@@ -89,11 +89,7 @@ export function WorkspaceList() {
 
   const { data, isPending, error } = useQuery({
     queryKey: queryKeys.workspaces,
-    queryFn: () => {
-      // 懒处理打点：不 await，只借这次加载触发超时 / 空闲 / 异步停止收尾
-      pingMaintenance();
-      return apiGet<WorkspaceListResponse>("/api/workspaces");
-    },
+    queryFn: () => apiGet<WorkspaceListResponse>("/api/workspaces"),
     // 只在有实例处于进行中状态时轮询；全部稳定则完全停轮询
     refetchInterval: (query) =>
       (query.state.data?.workspaces ?? []).some((w) =>

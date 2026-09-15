@@ -17,6 +17,7 @@ import { resolveFeatures } from "@/lib/features";
 import { getGitTokenEnc } from "@/lib/git/service";
 import { encrypt } from "@/lib/crypto";
 import { buildAutoReleaseTime } from "@/lib/instances/auto-release";
+import { enqueueTracking } from "@/lib/instances/enqueue";
 
 export const RAM_ROLE_NAME = "workspace-cloud-ecs-role";
 
@@ -390,6 +391,9 @@ export async function startWorkspace(
       .set({ ecsInstanceId, autoReleaseAt: new Date(autoReleaseTime), updatedAt: new Date() })
       .where(eq(instances.id, instanceRow.id));
 
+    // 触发云函数轮询跟踪（fire-and-forget）
+    await enqueueTracking("create", instanceRow.id, workspace.provider);
+
     return { workspaceId, instanceId: ecsInstanceId, instanceRowId: instanceRow.id };
   } catch (e) {
     // 启动失败：把刚建的行标记为 FAILED，避免留下悬挂的 PROVISIONING
@@ -410,7 +414,7 @@ export async function startWorkspace(
  *
  * 与 `stopInstance` 一样走**异步停止**（docs/UI-PERFORMANCE.md U1）：
  * 请求内只置 `RELEASING` 并投递 stop-hook，立即返回；
- * 「等 hook 跑完 → 删 ECS」由 `/api/maintenance` 的 `resumeReleasing` 收尾。
+ * 「等 hook 跑完 → 删 ECS」由云函数 poll 的 `advanceReleaseRow` 收尾。
  *
  * ⚠️ 不要在这里同步等待 hook：原实现是 24 × 5s = 120s 同步阻塞，Vercel 必然 504。
  * ⚠️ 更不要在 hook 完成前删 ECS：hook 是数据持久化入口，提前删会丢用户代码。
@@ -474,16 +478,19 @@ export async function stopWorkspace(userId: string, workspaceId: string) {
         updatedAt: new Date(),
       })
       .where(eq(instances.id, instance.id));
+    // 即便预下发失败也入队：poll 的 advanceReleaseRow 会按宽限期重发 pre-stop
+    await enqueueTracking("release", instance.id, workspace.provider);
     return { workspaceId, status: "RELEASING" as const, hookDispatch: "failed" as const };
   }
 
+  await enqueueTracking("release", instance.id, workspace.provider);
   return { workspaceId, status: "RELEASING" as const, hookDispatch: "ok" as const };
 }
 
 /**
  * 空闲释放：置 RELEASING 并下发 pre-stop（回收脚本仍由 agent 执行，
  * 与手动停止统一链路，见 docs/AGENT-PRESTOP.md）。
- * 收尾（删 ECS、落 STOPPED）交给 maintenance 的 resumeReleasing。
+ * 收尾（删 ECS、落 STOPPED）交给云函数 poll 的 advanceReleaseRow。
  */
 export async function releaseIdleWorkspace(userId: string, workspaceId: string) {
   const workspace = await db.query.workspaces.findFirst({
@@ -528,7 +535,7 @@ export async function releaseIdleWorkspace(userId: string, workspaceId: string) 
       .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, instance.id));
   } catch (e) {
-    // 下发失败不标记行，交给 resumeReleasing 按宽限期重试
+    // 下发失败不标记行，交给 poll 的 advanceReleaseRow 按宽限期重试
     console.error("[releaseIdleWorkspace] pre-stop dispatch failed:", e);
   }
 
@@ -538,6 +545,8 @@ export async function releaseIdleWorkspace(userId: string, workspaceId: string) 
     action: "IDLE_RELEASE",
     details: { instanceId: instance.ecsInstanceId },
   });
+
+  await enqueueTracking("release", instance.id, workspace.provider);
 
   return { workspaceId };
 }

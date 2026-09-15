@@ -20,6 +20,19 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+/**
+ * 云函数部署登记项（settings.cloud_functions 的元素）。
+ * 与 docs/CLOUD-FUNCTION-WORKERS.md §4.2 保持一致。
+ */
+export interface CloudFunctionDeployment {
+  provider: string;
+  platform: string;
+  functionId: string;
+  region: string;
+  qualifier?: string;
+  namespace?: string;
+}
+
 export const settings = pgTable("settings", {
   userId: uuid("user_id")
     .primaryKey()
@@ -61,6 +74,10 @@ export const settings = pgTable("settings", {
   proxyProbeUrls: jsonb("proxy_probe_urls").$type<string[]>().default([]),
   proxyBypass: jsonb("proxy_bypass").$type<string[]>().default([]),
   clashBinUrl: text("clash_bin_url"),
+  /** 云函数部署登记（见 docs/CLOUD-FUNCTION-WORKERS.md §4.2）；单行列表，非 key-value */
+  cloudFunctions: jsonb("cloud_functions")
+    .$type<CloudFunctionDeployment[]>()
+    .default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -179,6 +196,10 @@ export const instances = pgTable("instances", {
   currentEntry: text("current_entry"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  /** poll 最近一次查到的云侧状态（Running / Stopped / Released …），前端纯 DB 读快照列 */
+  lastCloudStatus: text("last_cloud_status"),
+  /** poll 最近一次检查时间（前端纯 DB 读快照列，兼作轮询心跳基准） */
+  lastCloudCheckedAt: timestamp("last_cloud_checked_at", { withTimezone: true }),
   /**
    * 云厂商 AutoReleaseTime（UTC）。租约到期点：NULL 或剩余 ≤10min 时心跳续期，
    * 续期必须同步回写云侧（见 docs/AGENT-LIFECYCLE.md §7.5 W3）。

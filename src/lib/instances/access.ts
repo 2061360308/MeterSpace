@@ -271,13 +271,12 @@ function collectPorts(
 }
 
 /** 组装公开访问页所需的实例快照（轮询用，不要求登录）。
- * 默认不查询 ECS 实时状态以保证首屏秒开；includeCloud 为 true 时补充云状态。
+ * 云进度直接读 instances.last_cloud_status 快照列（由 poll 写入），不调云 API。
  */
 export async function buildAccessSnapshot(
   instanceId: string,
   code: string,
   since?: string,
-  includeCloud = false,
 ): Promise<AccessSnapshot> {
   const accessCode = await validateAccessCode(instanceId, code);
 
@@ -297,20 +296,8 @@ export async function buildAccessSnapshot(
       })
     : null;
 
-  let cloudStatus: string | null = null;
-  if (
-    includeCloud &&
-    ["PROVISIONING", "BOOTING"].includes(instance.status) &&
-    instance.ecsInstanceId
-  ) {
-    const provider = getProvider(workspace.provider);
-    if (provider) {
-      cloudStatus = await provider.getInstanceCloudStatus(
-        instance.ecsInstanceId,
-        workspace.region,
-      );
-    }
-  }
+  // 云进度直接读快照列，不调云 API（poll 写入 instances.last_cloud_status）
+  const cloudStatus: string | null = instance.lastCloudStatus ?? null;
 
   let spec: CloudInstanceType | null = null;
   if (cloudInstance?.instanceType) {

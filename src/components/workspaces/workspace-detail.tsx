@@ -47,10 +47,8 @@ import {
   apiGet,
   apiSend,
   isNotFound,
-  pingMaintenance,
   queryKeys,
   POLL_ACTIVE_MS,
-  POLL_SETTLING_MS,
 } from "@/lib/api-client";
 
 interface Instance {
@@ -68,6 +66,7 @@ interface Instance {
   cloudInstanceName: string | null;
   cloudInstanceType: string | null;
   ecsInstanceId: string | null;
+  lastCloudStatus: string | null;
 }
 
 interface Detail {
@@ -147,10 +146,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
   // ─── 数据查询 ───────────────────────────────────────────────
   const detailQuery = useQuery({
     queryKey: queryKeys.workspace(id),
-    queryFn: () => {
-      pingMaintenance();
-      return apiGet<{ workspace: Detail }>(`/api/workspaces/${id}`);
-    },
+    queryFn: () => apiGet<{ workspace: Detail }>(`/api/workspaces/${id}`),
   });
 
   const instancesQuery = useQuery({
@@ -196,23 +192,13 @@ export function WorkspaceDetail({ id }: { id: string }) {
     if (tab) setActiveTab(tab);
   }, [searchParams]);
 
-  // 启动中的实例 → 单独查云侧状态（仅 BOOTING/PROVISIONING 时才开）
+  // 启动中的实例 → 云侧状态直接读 last_cloud_status 快照列（poll 写入，纯 DB 读）
   const bootingInstance = instances.find(
     (i) =>
       (i.status === "PROVISIONING" || i.status === "BOOTING") &&
       i.ecsInstanceId,
   );
-
-  const cloudStatusQuery = useQuery({
-    queryKey: queryKeys.cloudStatus(id, bootingInstance?.id ?? ""),
-    enabled: Boolean(bootingInstance),
-    queryFn: () =>
-      apiGet<{ cloudStatus: string | null }>(
-        `/api/workspaces/${id}/instances/${bootingInstance!.id}/cloud-status`,
-      ),
-    refetchInterval: POLL_SETTLING_MS,
-  });
-  const cloudStatus = cloudStatusQuery.data?.cloudStatus ?? null;
+  const cloudStatus = bootingInstance?.lastCloudStatus ?? null;
 
   // 规格与价格（进入 specs tab 才查，避免无谓请求）
   const specsEnabled = activeTab === "specs" && !!detail?.provider;

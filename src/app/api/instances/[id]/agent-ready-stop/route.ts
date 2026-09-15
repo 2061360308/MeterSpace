@@ -19,7 +19,7 @@ const bodySchema = z.object({
  * agent pre-stop 执行完成后的回报端点（docs/AGENT-PRESTOP.md §3）。
  *
  * 只落 ack 标记与结果字段，不推进状态（RELEASING 保持），
- * 由 `resumeReleasing` 依据 `preStopAckedAt` 收尾删 ECS。
+ * 由云函数 poll 的 `advanceReleaseRow` 依据 `preStopAckedAt` 收尾删 ECS。
  */
 export async function POST(req: NextRequest, { params }: Params) {
   try {

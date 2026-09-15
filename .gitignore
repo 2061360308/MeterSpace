@@ -48,6 +48,9 @@ next-env.d.ts
 # Agent build output
 /agent/dist/
 
+# Cloud function bundle
+/functions/poller/poller.zip
+
 # local verification logs (tsc/build/npm outputs)
 *.log
 

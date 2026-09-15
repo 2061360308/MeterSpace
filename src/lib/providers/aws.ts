@@ -267,4 +267,16 @@ export class AWSProvider implements CloudProvider {
     void _region;
     notImplemented();
   }
+
+  async invokeCloudFunction(params: {
+    task: string;
+    instanceId: string;
+    intervalSec?: number;
+    timeoutSec?: number;
+  }): Promise<void> {
+    void params;
+    console.warn(
+      `[aws:lambda] no deployed Lambda configured; skip invoke (task=${params.task}, instance=${params.instanceId})`,
+    );
+  }
 }

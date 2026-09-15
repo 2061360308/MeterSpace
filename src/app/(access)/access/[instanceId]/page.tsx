@@ -58,7 +58,6 @@ export default function AccessPage() {
   const [now, setNow] = useState(() => Date.now());
 
   const sinceRef = useRef<string | undefined>(undefined);
-  const cloudRequestedRef = useRef(false);
 
   // IP 白名单授权：后台并行执行，不阻塞视图；5xx/网络错误后台重试，4xx 停止
   useEffect(() => {
@@ -97,19 +96,11 @@ export default function AccessPage() {
     if (!code) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // 实例进入终态后不再打维护接口（effect 作用域内的标志，跨 tick 保持）
-    let settled = false;
 
     const tick = async () => {
       try {
-        // 借这次轮询驱动服务端懒处理。
-        // 创建/停止都已异步化（resumeProvisioning / resumeReleasing 挂在
-        // /api/maintenance 上），而这个页面正是用户等待时唯一开着的页面 ——
-        // 不打这一枪，实例就会一直停在 PROVISIONING / RELEASING。
-        if (!settled) {
-          fetch("/api/maintenance", { method: "POST" }).catch(() => {});
-        }
-
+        // 创建/停止推进由云函数 poll 驱动（docs/CLOUD-FUNCTION-WORKERS.md §2），
+        // 这里纯 DB 读状态。
         const q = new URLSearchParams({ code });
         if (sinceRef.current) q.set("since", sinceRef.current);
         const res = await fetch(`/api/access/${instanceId}?${q.toString()}`);
@@ -118,9 +109,7 @@ export default function AccessPage() {
         if (cancelled) return;
 
         const snap: Snapshot = data.snapshot;
-        setSnapshot((prev) =>
-          prev && prev.cloudStatus ? { ...snap, cloudStatus: prev.cloudStatus } : snap,
-        );
+        setSnapshot(() => snap);
 
         const incoming = snap.logs ?? [];
         setLogs((prev) => {
@@ -137,7 +126,6 @@ export default function AccessPage() {
         });
 
         if (snap.status === "RUNNING") {
-          settled = true;
           setReady(true);
           return;
         }
@@ -147,7 +135,6 @@ export default function AccessPage() {
           snap.status === "TERMINATING" ||
           snap.status === "STOPPED"
         ) {
-          settled = true;
           setError(snap.bootError ?? "实例已停止");
           return;
         }
@@ -166,30 +153,6 @@ export default function AccessPage() {
       if (timer) clearTimeout(timer);
     };
   }, [instanceId, code]);
-
-  // 首屏后异步补充一次 ECS 实时状态（不阻塞首帧）
-  useEffect(() => {
-    if (!snapshot || cloudRequestedRef.current) return;
-    if (snapshot.status !== "PROVISIONING" && snapshot.status !== "BOOTING") return;
-
-    cloudRequestedRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        const q = new URLSearchParams({ code, cloud: "1" });
-        const res = await fetch(`/api/access/${instanceId}?${q.toString()}`);
-        const data = await res.json().catch(() => ({}));
-        if (cancelled || !res.ok) return;
-        const snap: Snapshot = data.snapshot;
-        setSnapshot((prev) => (prev ? { ...prev, cloudStatus: snap.cloudStatus } : prev));
-      } catch {
-        // 忽略，步骤 detail 不带实时 ECS 状态
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [snapshot, instanceId, code]);
 
   if (error) return <ErrorView message={error} />;
   if (!snapshot) return <LoadingView />;

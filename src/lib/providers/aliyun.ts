@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 import * as ecs from "@/lib/aliyun/ecs";
+import * as fc from "@/lib/aliyun/fc";
 import * as oss from "@/lib/aliyun/oss";
 import * as bss from "@/lib/aliyun/bss";
 import * as acr from "@/lib/aliyun/acr";
@@ -410,6 +411,57 @@ export class AliyunProvider implements CloudProvider {
     } catch (e) {
       console.warn("[aliyun] getInstancePublicIp failed:", (e as Error).message);
       return null;
+    }
+  }
+
+  /**
+   * 读 settings.cloud_functions 里 platform==="fc" 且配了 functionId 的部署。
+   * settings 是单行列表，取首行（单 admin 部署假设，见 docs/CLOUD-FUNCTION-WORKERS.md §4.2）。
+   */
+  private async getCloudFunctionEntry(): Promise<{
+    region: string;
+    functionId: string;
+    qualifier?: string;
+  } | null> {
+    const row = await db.query.settings.findFirst({
+      columns: { cloudFunctions: true },
+    });
+    const entry = row?.cloudFunctions?.find(
+      (d) => d.platform === "fc" && d.functionId.length > 0,
+    );
+    return entry
+      ? { region: entry.region, functionId: entry.functionId, qualifier: entry.qualifier }
+      : null;
+  }
+
+  async invokeCloudFunction(params: {
+    task: string;
+    instanceId: string;
+    intervalSec?: number;
+    timeoutSec?: number;
+  }): Promise<void> {
+    try {
+      const entry = await this.getCloudFunctionEntry();
+      if (!entry) {
+        console.warn(
+          `[aliyun:fc] no deployed FC configured; skip invoke (task=${params.task}, instance=${params.instanceId})`,
+        );
+        return;
+      }
+      const creds = await this.getCreds();
+      await fc.invokeEvent(creds, {
+        region: entry.region,
+        functionName: entry.functionId,
+        qualifier: entry.qualifier,
+        payload: {
+          task: params.task,
+          instanceId: params.instanceId,
+          intervalSec: params.intervalSec ?? 10,
+          timeoutSec: params.timeoutSec ?? 600,
+        },
+      });
+    } catch (e) {
+      console.error("[aliyun:fc] invokeCloudFunction failed:", (e as Error).message);
     }
   }
 }

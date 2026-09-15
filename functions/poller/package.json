@@ -1,0 +1,11 @@
+{
+  "name": "meterspace-poller",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "description": "Platform-neutral instance-tracking poller for MeterSpace (Aliyun FC / AWS Lambda)",
+  "engines": {
+    "node": ">=18"
+  }
+}

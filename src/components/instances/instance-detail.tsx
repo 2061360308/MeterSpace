@@ -23,7 +23,6 @@ import {
   apiGet,
   apiSend,
   isNotFound,
-  pingMaintenance,
   queryKeys,
   POLL_ACTIVE_MS,
 } from "@/lib/api-client";
@@ -116,10 +115,7 @@ export function InstanceDetail({ id }: { id: string }) {
     error,
   } = useQuery({
     queryKey: queryKeys.instance(id),
-    queryFn: () => {
-      pingMaintenance();
-      return apiGet<{ instance: Instance }>(`/api/instances/${id}`);
-    },
+    queryFn: () => apiGet<{ instance: Instance }>(`/api/instances/${id}`),
     // 只在进行中状态轮询；终态完全停轮询（U3）
     refetchInterval: (query) =>
       isTransientStatus(query.state.data?.instance?.status)

@@ -12,11 +12,8 @@ import {
 import { buildStopHook } from "@/lib/userdata";
 import { dispatchPreStop } from "@/lib/agent/command";
 import { ALL_PORTS } from "@/lib/constants";
-import {
-  checkAndFixTimeouts,
-  cleanupExpiredLogs,
-  provisionInstanceCloud,
-} from "./lifecycle";
+import { enqueueTracking } from "@/lib/instances/enqueue";
+import { cleanupExpiredLogs, provisionInstanceCloud } from "./lifecycle";
 
 export class InstanceError extends Error {
   constructor(message: string, public status: number = 500) {
@@ -61,9 +58,6 @@ export async function createInstance(
   if (runningInstance) {
     throw new InstanceError("Workspace already has a running instance", 409);
   }
-
-  // 检查并修复超时实例
-  await checkAndFixTimeouts(userId, workspaceId);
 
   // 检查是否有未超时的 PROVISIONING/BOOTING 实例
   const activeInstance = await db.query.instances.findFirst({
@@ -138,7 +132,7 @@ export async function createInstance(
   // ☞ 云资源创建（ECS）**在这里同步跑完**（U9 反转）。
   //
   //   原先为了不让按钮长时间转圈，只落一行 PROVISIONING 就返回，真正的创建
-  //   甩给 `/api/maintenance` tick。代价是：参数必须全部落库（漏一个就静默失效，
+  //   甩给 maintenance tick。代价是：参数必须全部落库（漏一个就静默失效，
   //   如 use_spot），而且用户一关页面实例就根本不会被创建。
   //
   //   现在基础网络资源已落库（region_resources），建 ECS 只剩 2 次云 API、1~3 秒，
@@ -147,15 +141,9 @@ export async function createInstance(
   //     - 失败立刻返回错误，用户当场看到原因，而不是后台静默标 FAILED
   //     - 不再依赖前端开着页面推进
   //
-  //   仍保留 `resumeProvisioning` 作为兜底：这里请求中断/超时留下的孤儿行
-  //   （PROVISIONING 且 ecs_instance_id 为空）由下一个 tick 接手。
+  //   原本由 maintenance tick 兜底的孤儿行改由这段同步创建 + 云函数 poll 驱动
+  //   （docs/CLOUD-FUNCTION-WORKERS.md §2）。
   try {
-    // 先打认领标记，避免 maintenance tick 在同一时间重复创建
-    await db
-      .update(instances)
-      .set({ provisionClaimedAt: new Date(), updatedAt: new Date() })
-      .where(eq(instances.id, instance.id));
-
     await provisionInstanceCloud(instance.id);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -179,9 +167,6 @@ export async function listInstances(userId: string, workspaceId: string) {
     where: and(eq(workspaces.id, workspaceId), eq(workspaces.userId, userId)),
   });
   if (!workspace) throw new InstanceError("Workspace not found", 404);
-
-  // 查询前检查超时实例
-  await checkAndFixTimeouts(userId, workspaceId);
 
   const instanceList = await db.query.instances.findMany({
     where: eq(instances.workspaceId, workspaceId),
@@ -222,9 +207,6 @@ export async function getInstance(userId: string, instanceId: string) {
   if (workspace.userId !== userId) {
     throw new InstanceError("Instance not found", 404);
   }
-
-  // 修正超时实例后再返回状态，确保展示准确
-  await checkAndFixTimeouts(userId, instance.workspaceId);
 
   const cloudInstance = instance.cloudInstanceId
     ? await db.query.cloudInstances.findFirst({
@@ -295,7 +277,7 @@ export async function stopInstance(userId: string, instanceId: string) {
 
   // ③ 下发 pre-stop（停止 hook）后立即返回。
   //    ⚠️ 绝不等脚本跑完（agent 执行回收脚本可能耗时，Vercel 免费版必然超时）。
-  //    收尾由 /api/maintenance tick 里的 resumeReleasing 负责，
+  //    收尾由云函数 poll 的 advanceReleaseRow 负责，
   //    且必须 gate 在 agent 上报 ready-stop 之后才删 ECS —— 否则会丢用户未提交的代码。
   let hookDispatch: "ok" | "failed" = "ok";
   try {
@@ -315,7 +297,7 @@ export async function stopInstance(userId: string, instanceId: string) {
       .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, instanceId));
   } catch (e) {
-    // 投递失败不阻塞请求：resumeReleasing 会在宽限期内重发，超时后强制释放
+    // 投递失败不阻塞请求：advanceReleaseRow 会在宽限期内重发，超时后强制释放
     hookDispatch = "failed";
     const message = e instanceof Error ? e.message : String(e);
     console.error("[stopInstance] pre-stop dispatch failed:", message);
@@ -327,6 +309,9 @@ export async function stopInstance(userId: string, instanceId: string) {
       })
       .where(eq(instances.id, instanceId));
   }
+
+  // 触发云函数轮询跟踪（fire-and-forget；no-ecs 短路已 STOPPED，不入队）
+  await enqueueTracking("release", instanceId, workspace.provider);
 
   return { instanceId, status: "RELEASING" as const, hookDispatch };
 }

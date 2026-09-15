@@ -228,4 +228,17 @@ export interface CloudProvider {
    * 拿不到时返回 null —— 调用方不应因云 API 抖动而失败。
    */
   getInstancePublicIp(ecsInstanceId: string, region: string): Promise<string | null>;
+
+  /**
+   * 触发云函数后台任务（fire-and-forget，见 docs/CLOUD-FUNCTION-WORKERS.md §5.1）。
+   * 云函数是系统必备组件（D2）：实现内部 log+skip 配置缺失的部署场景，
+   * 但失败只 console 不抛出 —— 不阻塞创建/停止主流程。
+   */
+  invokeCloudFunction?: (params: {
+    /** 事件名，云函数内部 handlers 路由；本版本固定 "instance-tracking" */
+    task: string;
+    instanceId: string;
+    intervalSec?: number;   // 默认 10
+    timeoutSec?: number;    // 默认 600
+  }) => Promise<void>;
 }

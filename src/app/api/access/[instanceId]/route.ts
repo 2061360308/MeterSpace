@@ -2,14 +2,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { instanceAccessCodes, instances, workspaces } from "@/lib/db/schema";
+import { instanceAccessCodes } from "@/lib/db/schema";
 import { ok, fail } from "@/lib/api";
 import {
   buildAccessSnapshot,
   extractVisitorIp,
   registerVisitorIp,
 } from "@/lib/instances/access";
-import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 
 type Params = { params: Promise<{ instanceId: string }> };
 
@@ -55,7 +54,6 @@ export async function POST(req: NextRequest, { params }: Params) {
 const getQuerySchema = z.object({
   code: z.string().min(1),
   since: z.string().optional(),
-  cloud: z.string().optional(),
 });
 
 export async function GET(req: NextRequest, { params }: Params) {
@@ -65,29 +63,11 @@ export async function GET(req: NextRequest, { params }: Params) {
     const parsed = getQuerySchema.safeParse({
       code: url.searchParams.get("code"),
       since: url.searchParams.get("since") ?? undefined,
-      cloud: url.searchParams.get("cloud") ?? undefined,
     });
     if (!parsed.success) return fail(parsed.error);
 
-    // 触发超时检测，确保超时实例能被及时标记为 FAILED
-    const instance = await db.query.instances.findFirst({
-      where: eq(instances.id, instanceId),
-    });
-    if (instance && ["PROVISIONING", "BOOTING"].includes(instance.status)) {
-      const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.id, instance.workspaceId),
-      });
-      if (workspace) {
-        await checkAndFixTimeouts(workspace.userId, instance.workspaceId);
-      }
-    }
-
-    const snapshot = await buildAccessSnapshot(
-      instanceId,
-      parsed.data.code,
-      parsed.data.since,
-      parsed.data.cloud === "1",
-    );
+    // 超时推进由云函数 poll 负责（docs/CLOUD-FUNCTION-WORKERS.md §2），这里纯 DB 读
+    const snapshot = await buildAccessSnapshot(instanceId, parsed.data.code, parsed.data.since);
     return ok({ snapshot });
   } catch (e) {
     return fail(e);

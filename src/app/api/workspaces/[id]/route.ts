@@ -6,7 +6,6 @@ import { workspaces, instances, auditLogs } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { deleteWorkspace } from "@/lib/workspaces/service";
 import { getProvider } from "@/lib/providers";
-import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 import type { CloudInstance } from "@/lib/providers";
 import { encrypt } from "@/lib/crypto";
 import { ok, fail } from "@/lib/api";
@@ -59,10 +58,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     });
     if (!workspace) return fail(Object.assign(new Error("Not found"), { status: 404 }));
 
-    // 修正超时实例后再读取工作区状态，确保状态展示准确
-    await checkAndFixTimeouts(userId, id);
-
-    // 查询最新实例获取状态
+    // 查询最新实例获取状态（纯 DB 读，云进度走 lastCloudStatus 快照列）
     const latestInstance = await db.query.instances.findFirst({
       where: eq(instances.workspaceId, id),
       orderBy: desc(instances.createdAt),
@@ -77,6 +73,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
           lastActiveAt: latestInstance.lastActiveAt,
           ossUsageBytes: latestInstance.ossUsageBytes,
           releasedAt: latestInstance.stoppedAt,
+          lastCloudStatus: latestInstance.lastCloudStatus,
         }
       : null;
 

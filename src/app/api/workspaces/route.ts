@@ -5,7 +5,6 @@ import { db } from "@/lib/db";
 import { workspaces, instances } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/session";
 import { createWorkspace } from "@/lib/workspaces/service";
-import { checkAndFixTimeouts } from "@/lib/instances/lifecycle";
 import { ok, fail } from "@/lib/api";
 
 const featureSchema = z.object({
@@ -51,9 +50,6 @@ export async function GET() {
   try {
     const userId = await requireUserId();
 
-    // 修正超时实例后再读取工作区状态，确保状态展示准确
-    await checkAndFixTimeouts(userId);
-
     const list = await db
       .select()
       .from(workspaces)
@@ -76,6 +72,7 @@ export async function GET() {
         lastActiveAt: instances.lastActiveAt,
         ossUsageBytes: instances.ossUsageBytes,
         stoppedAt: instances.stoppedAt,
+        lastCloudStatus: instances.lastCloudStatus,
         createdAt: instances.createdAt,
       })
       .from(instances)
@@ -108,6 +105,7 @@ export async function GET() {
                 lastActiveAt: inst.lastActiveAt,
                 ossUsageBytes: inst.ossUsageBytes,
                 releasedAt: inst.stoppedAt,
+                lastCloudStatus: inst.lastCloudStatus,
               }
             : null,
         };

@@ -97,7 +97,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       try {
         await releaseIdleInstance(id);
       } catch (e) {
-        // 释放（含 pre-stop 下发）失败不阻塞心跳其它分支，留给 resumeReleasing 重试
+        // 释放（含 pre-stop 下发）失败不阻塞心跳其它分支，留给 poll 的 advanceReleaseRow 重试
         console.error("[heartbeat] releaseIdleInstance failed:", e);
       }
     }

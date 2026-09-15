@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, isNotNull, like, lt, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { instances, instanceLogs, workspaces } from "@/lib/db/schema";
 import { getProvider } from "@/lib/providers";
@@ -6,16 +6,14 @@ import { getUserSettings } from "@/lib/aliyun/auth";
 import {
   ensureRegionResources,
   ensureInstanceSecurityGroup,
-  invalidateRegionResources,
 } from "@/lib/ecs/provisioning";
 import { buildStopHook, buildUserData } from "@/lib/userdata";
 import { dispatchPreStop } from "@/lib/agent/command";
 import { buildAutoReleaseTime } from "@/lib/instances/auto-release";
-import { getAppBaseUrl, RAM_ROLE_NAME, releaseIdleWorkspace } from "@/lib/workspaces/service";
+import { enqueueTracking } from "@/lib/instances/enqueue";
+import { getAppBaseUrl, RAM_ROLE_NAME } from "@/lib/workspaces/service";
 
-const BOOT_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
-const HEARTBEAT_TIMEOUT_MS = 3 * 60 * 1000; // 心跳缺失判定：3 分钟
-const DEFAULT_IDLE_MINUTES = 30;
+const BOOT_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟（仅 PROVISIONING，BOOTING 由 agent+云兜底）
 
 /**
  * stop-hook 总时限。
@@ -29,14 +27,11 @@ const RELEASE_HOOK_DEADLINE_MS = 10 * 60 * 1000;
 /** pre-stop 未 ack 的重发间隔（避免每 tick 都重发刷 agent） */
 const RELEASE_PRESTOP_REDISPATCH_GAP_MS = 60 * 1000;
 
-/** 单次 tick 内最多收尾几个实例，避免请求总时长失控 */
-const RELEASE_MAX_PER_TICK = 4;
-
 /**
  * TERMINATING 的静默期。
  *
- * `reapStale` 会在一次请求内写完 TERMINATING → 删云 → 落库，
- * 这几百毫秒内若另一个请求的 resumeReleasing 也抓到同一行，会与前者抢收尾
+ * 释放收尾 `advanceReleaseRow` 在一次请求内写完 TERMINATING → 删云 → 落库，
+ * 这几百毫秒内若另一个请求的 poll 也抓到同一行，会与前者抢收尾
  * （一方写 STOPPED、一方写 FAILED）。静默期把这种在途行让出去。
  * 真正卡死的 TERMINATING 只是晚 30s 被回收，代价可以接受。
  */
@@ -49,43 +44,6 @@ interface Instance {
   ecsInstanceId: string | null;
   bootStartedAt: Date | null;
   createdAt: Date | null;
-}
-
-async function getTimeoutInstances(
-  userId: string,
-  workspaceId?: string,
-): Promise<Instance[]> {
-  // W1 只收 PROVISIONING：BOOTING 的时长兜底在 agent 侧（entry_timeout 上报）
-  // 与云侧 AutoReleaseTime（docs/AGENT-LIFECYCLE.md §3 W1/W2）。
-  const conditions = [
-    eq(instances.status, "PROVISIONING"),
-  ];
-
-  if (workspaceId) {
-    conditions.push(eq(instances.workspaceId, workspaceId));
-  } else {
-    const userWorkspaces = await db
-      .select({ id: workspaces.id })
-      .from(workspaces)
-      .where(eq(workspaces.userId, userId));
-    const workspaceIds = userWorkspaces.map((w) => w.id);
-    if (workspaceIds.length === 0) return [];
-    conditions.push(inArray(instances.workspaceId, workspaceIds));
-  }
-
-  const rows = await db
-    .select({
-      id: instances.id,
-      workspaceId: instances.workspaceId,
-      status: instances.status,
-      ecsInstanceId: instances.ecsInstanceId,
-      bootStartedAt: instances.bootStartedAt,
-      createdAt: instances.createdAt,
-    })
-    .from(instances)
-    .where(and(...conditions));
-
-  return rows;
 }
 
 function isExpired(instance: Instance): boolean {
@@ -188,72 +146,6 @@ async function handleExpiredInstance(instance: Instance): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(instances.id, instance.id));
-}
-
-export async function checkAndFixTimeouts(
-  userId: string,
-  workspaceId?: string,
-): Promise<{ checked: number; fixed: number }> {
-  const candidates = await getTimeoutInstances(userId, workspaceId);
-  let fixed = 0;
-
-  for (const instance of candidates) {
-    if (isExpired(instance)) {
-      await handleExpiredInstance(instance);
-      fixed++;
-    }
-  }
-
-  return { checked: candidates.length, fixed };
-}
-
-/**
- * 空闲释放：扫描该用户下满足空闲条件的 RUNNING 实例并释放。
- *
- * 由前端在打开页面 / 轮询时触发（serverless 无后台进程，不做定时）。
- * 纯数据库判据，不依赖 agent：`now - lastActiveAt >= idleMinutes`。
- */
-export async function releaseIdle(
-  userId: string,
-): Promise<{ released: string[]; failed: string[] }> {
-  const rows = await db
-    .select({
-      userId: workspaces.userId,
-      workspaceId: instances.workspaceId,
-      lastActiveAt: instances.lastActiveAt,
-      createdAt: instances.createdAt,
-      idleMinutes: workspaces.idleMinutes,
-    })
-    .from(instances)
-    .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
-    .where(
-      and(
-        eq(instances.status, "RUNNING"),
-        eq(workspaces.userId, userId),
-      ),
-    );
-
-  const now = Date.now();
-  const released: string[] = [];
-  const failed: string[] = [];
-
-  for (const row of rows) {
-    const idleMinutes = row.idleMinutes ?? DEFAULT_IDLE_MINUTES;
-    const base = row.lastActiveAt ?? row.createdAt;
-    if (!base) continue;
-    if (now - new Date(base).getTime() < idleMinutes * 60 * 1000) continue;
-
-    try {
-      // 闲置释放与手动停止统一链路：置 RELEASING 并下发 pre-stop（docs/AGENT-PRESTOP.md）
-      await releaseIdleWorkspace(row.userId, row.workspaceId);
-      released.push(row.workspaceId);
-    } catch (e) {
-      console.error("[lifecycle] releaseIdle failed:", e);
-      failed.push(row.workspaceId);
-    }
-  }
-
-  return { released, failed };
 }
 
 /**
@@ -380,287 +272,294 @@ export async function releaseIdleInstance(
       .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
       .where(eq(instances.id, row.id));
   } catch (e) {
-    // 下发失败不抛异常，resumeReleasing 会在宽限期内重试
+    // 下发失败不抛异常，poll 的 advanceReleaseRow 会在宽限期内重试
     console.error("[releaseIdleInstance] pre-stop dispatch failed:", e);
   }
 
   return "released";
 }
 
-/**
- * 心跳缺失回收：RUNNING/BOOTING 且 `lastHeartbeatAt` 超时的实例标记为 FAILED。
- *
- * 由前端触发。心跳由 agent 侧推送（见 §9.4 agent-heartbeat）。
- */
-export async function reapStale(
-  userId: string,
-): Promise<{ reaped: number }> {
-  const userWorkspaces = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.userId, userId));
-  const workspaceIds = userWorkspaces.map((w) => w.id);
-  if (workspaceIds.length === 0) return { reaped: 0 };
-
-  const deadline = new Date(Date.now() - HEARTBEAT_TIMEOUT_MS);
-  const rows = await db
-    .select({
-      id: instances.id,
-      status: instances.status,
-      bootStartedAt: instances.bootStartedAt,
-      createdAt: instances.createdAt,
-    })
-    .from(instances)
-    .where(
-      and(
-        inArray(instances.workspaceId, workspaceIds),
-        inArray(instances.status, ["BOOTING", "RUNNING"]),
-        or(
-          isNull(instances.lastHeartbeatAt),
-          lt(instances.lastHeartbeatAt, deadline),
-        ),
-        isNotNull(instances.ecsInstanceId),
-      ),
-    );
-
-  let reaped = 0;
-
-  for (const row of rows) {
-    // 心跳缺失且 ECS 还在跑 → 先释放云资源，再标记失败，避免空烧钱
-    await db
-      .update(instances)
-      .set({ status: "TERMINATING", updatedAt: new Date() })
-      .where(eq(instances.id, row.id));
-
-    const released = await releaseInstanceForRow(row.id);
-
-    await db
-      .update(instances)
-      .set({
-        status: "FAILED",
-        bootError: released ? "心跳缺失：agent 失联，云资源已释放" : "心跳缺失：agent 失联，释放资源失败",
-        ...(released
-          ? { publicIp: null, port: null, accessToken: null, autoReleaseAt: null, stoppedAt: new Date() }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(instances.id, row.id));
-    reaped++;
-  }
-
-  return { reaped };
-}
-
-/**
- * 为 RUNNING 但还没 publicIp 的实例补一次云 API 查询。
- * agent-ready 可能因云 API 抖动没拿到 IP，这里由前端懒维护兜底。
- */
-export async function backfillInstanceIps(
-  userId: string,
-): Promise<{ checked: number; filled: number; failed: number }> {
-  const userWorkspaces = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.userId, userId));
-  const workspaceIds = userWorkspaces.map((w) => w.id);
-  if (workspaceIds.length === 0) return { checked: 0, filled: 0, failed: 0 };
-
-  const rows = await db
-    .select({
-      id: instances.id,
-      ecsInstanceId: instances.ecsInstanceId,
-      provider: workspaces.provider,
-      region: workspaces.region,
-    })
-    .from(instances)
-    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
-    .where(
-      and(
-        inArray(instances.workspaceId, workspaceIds),
-        inArray(instances.status, ["RUNNING", "BOOTING"]),
-        or(isNull(instances.publicIp), like(instances.publicIp, "{%")),
-        isNotNull(instances.ecsInstanceId),
-      ),
-    );
-
-  let filled = 0;
-  let failed = 0;
-
-  for (const row of rows) {
-    try {
-      const provider = getProvider(row.provider);
-      const ip = await provider?.getInstancePublicIp(row.ecsInstanceId!, row.region);
-      if (ip) {
-        await db
-          .update(instances)
-          .set({ publicIp: ip, updatedAt: new Date() })
-          .where(eq(instances.id, row.id));
-        filled++;
-      }
-    } catch (e) {
-      console.warn("[lifecycle] backfill ip failed:", (e as Error).message);
-      failed++;
-    }
-  }
-
-  return { checked: rows.length, filled, failed };
-}
-
-async function releaseInstanceForRow(instanceId: string): Promise<boolean> {
-  const row = await db
-    .select({ ecsInstanceId: instances.ecsInstanceId, workspaceId: instances.workspaceId })
-    .from(instances)
-    .where(eq(instances.id, instanceId))
-    .limit(1);
-  const inst = row[0];
-  if (!inst?.ecsInstanceId) return true;
-  return releaseInstance(inst.ecsInstanceId, inst.workspaceId);
-}
-
 // ─────────────────────────────────────────────────────────────
-// 异步停止收尾（docs/AGENT-PRESTOP.md §5）
+// 释放收尾（docs/AGENT-PRESTOP.md §5；由云函数 poll 驱动）
 // ─────────────────────────────────────────────────────────────
 
+interface ReleaseRow {
+  id: string;
+  workspaceId: string;
+  status: string;
+  ecsInstanceId: string | null;
+  releaseRequestedAt: Date | null;
+  preStopDispatchedAt: Date | null;
+  preStopAckedAt: Date | null;
+  publicIp: string | null;
+  accessToken: string | null;
+  ossUsageBytes: number | null;
+  stopReason: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  provider: string;
+  region: string;
+}
+
 /**
- * 停止流程的收尾器。
+ * 单步推进一个 RELEASING / TERMINATING 实例的释放收尾（原 resumeReleasing 的 per-row 主体，
+ * 由云函数 poll 驱动，见 docs/CLOUD-FUNCTION-WORKERS.md §3）。
  *
  * 为什么需要它：`stopInstance` / `stopWorkspace` / 闲置释放只在请求里把状态置为
  * `RELEASING` 并下发 pre-stop，然后立即返回（否则同步等 agent 执行必然触发 Vercel 504）。
- * 真正「等 pre-stop ack → 删 ECS → 落库」的动作放在这里，由 `/api/maintenance`
- * 的每次 tick 驱动（serverless 无后台进程，一切时序挂在请求上）。
+ * 真正「等 pre-stop ack → 删 ECS → 落库」的动作由云函数 poll 的每次调用驱动。
  *
  * **绝不能在 pre-stop 完成前删 ECS**：回收脚本是数据持久化的唯一入口
  * （`lib/userdata.ts:70-94`，打包未提交改动到 `.snapshots/`、导出 code-server 配置），
  * 提前删除会丢用户代码。
  *
- * `TERMINATING` 与 `RELEASING` 的差异：前者来自心跳缺失的快速释放路径
- * （`reapStale`，agent 已失联，pre-stop 不可能执行），直接删即可；
- * 后者是主动停止 / 闲置，必须等 agent 上报 ready-stop（`preStopAckedAt`）。
+ * `TERMINATING` 与 `RELEASING` 的差异：前者是心跳缺失的快速释放路径（agent 已失联，
+ * pre-stop 不可能执行），直接删即可；后者是主动停止 / 闲置，必须等 agent 上报
+ * ready-stop（`preStopAckedAt`）。
+ *
+ * 返回 "SUCCEEDED"（行已到终态，任务自终）或 "PENDING"（还需继续轮询）。
  */
-export async function resumeReleasing(
-  userId: string,
-): Promise<{ finalized: number; pending: number; failed: number }> {
+async function advanceReleaseRow(row: ReleaseRow): Promise<"SUCCEEDED" | "PENDING"> {
+  // 让开正在途的快速释放（见 TERMINATING_SETTLE_MS 说明）
+  if (
+    row.status === "TERMINATING" &&
+    row.updatedAt &&
+    Date.now() - new Date(row.updatedAt).getTime() < TERMINATING_SETTLE_MS
+  ) {
+    return "PENDING";
+  }
+
+  // 没有云资源（创建早期就失败的行）→ 直接落 STOPPED，无需调云
+  if (!row.ecsInstanceId) {
+    await finalizeRelease(row.id, null, row.stopReason ?? "manual", null);
+    await cleanupExpiredLogs(row.workspaceId);
+    return "SUCCEEDED";
+  }
+
+  const base = row.releaseRequestedAt ?? row.createdAt;
+  const overDeadline =
+    !!base && Date.now() - new Date(base).getTime() > RELEASE_HOOK_DEADLINE_MS;
+
+  let ossUsage: number | null = null;
+  let hookSettled = row.status === "TERMINATING"; // 快速路径无 hook，视为已结束
+
+  if (row.status === "RELEASING") {
+    if (row.preStopAckedAt) {
+      ossUsage = row.ossUsageBytes;
+      hookSettled = true;
+    } else {
+      // pre-stop 未 ack：间隔足够时重发一次；否则留在 pending 等下一个 tick
+      const lastDispatch = row.preStopDispatchedAt;
+      const dueRedispatch =
+        !lastDispatch ||
+        Date.now() - new Date(lastDispatch).getTime() >= RELEASE_PRESTOP_REDISPATCH_GAP_MS;
+      if (dueRedispatch && row.publicIp) {
+        try {
+          await dispatchPreStop({
+            instanceId: row.id,
+            workspaceId: row.workspaceId,
+            publicIp: row.publicIp,
+            accessToken: row.accessToken ?? "",
+            script: buildStopHook(),
+            reason: row.stopReason ?? undefined,
+          });
+          await db
+            .update(instances)
+            .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
+            .where(eq(instances.id, row.id));
+        } catch (e) {
+          console.warn("[lifecycle] pre-stop (re)dispatch failed:", (e as Error).message);
+        }
+      }
+    }
+  }
+
+  if (!hookSettled && !overDeadline) {
+    return "PENDING";
+  }
+
+  const provider = getProvider(row.provider);
+  if (!provider) {
+    // 未知 provider 无法删云资源：保守续轮，让云侧 AutoReleaseTime 兜金钱
+    return "PENDING";
+  }
+
+  // pre-stop 已 ack，或已超时（强制收尾）→ 释放云资源
+  try {
+    await provider.deleteInstance(row.ecsInstanceId, row.region);
+  } catch (e) {
+    console.error("[lifecycle] deleteInstance failed, will retry next tick:", e);
+    return "PENDING";
+  }
+
+  const forced = !hookSettled;
+  await finalizeRelease(
+    row.id,
+    ossUsage,
+    forced ? (row.stopReason ?? "manual_timeout") : (row.stopReason ?? "manual"),
+    forced ? "停止脚本超时，已强制释放云资源（快照可能不完整）" : null,
+  );
+  await cleanupExpiredLogs(row.workspaceId);
+  return "SUCCEEDED";
+}
+
+/**
+ * 云函数入队的唯一调用方在 provisionInstanceCloud / workspaces·instances service，
+ * 封装见 `src/lib/instances/enqueue.ts`（独立文件避免 lifecycle ↔ workspaces/service 成环）。
+ */
+
+// ─────────────────────────────────────────────────────────────
+// poll 单步状态机（docs/CLOUD-FUNCTION-WORKERS.md §3）
+// ─────────────────────────────────────────────────────────────
+
+type PollStatus = "SUCCEEDED" | "FAILED" | "TIMEOUT" | "PENDING";
+
+/**
+ * 云函数 poll 端点单步：`POST /api/internal/instances/:id/poll` 调用。
+ * 依据实例行当前 status 分派（§3 状态机）；所有落库一律 `WHERE status=<旧状态>`
+ * 条件更新，与 agent-ready / agent-heartbeat / agent-error 并发时原子防重复推进。
+ *
+ * 私有件（isExpired / handleExpiredInstance / finalizeRelease / advanceReleaseRow 等）
+ * 都在本文件内部复用，route 层不直接 import。
+ */
+export async function pollInstanceStep(instanceId: string): Promise<PollStatus> {
   const rows = await db
     .select({
       id: instances.id,
-      status: instances.status,
       workspaceId: instances.workspaceId,
+      status: instances.status,
       ecsInstanceId: instances.ecsInstanceId,
-      releaseRequestedAt: instances.releaseRequestedAt,
-      preStopDispatchedAt: instances.preStopDispatchedAt,
-      preStopAckedAt: instances.preStopAckedAt,
       publicIp: instances.publicIp,
       accessToken: instances.accessToken,
       ossUsageBytes: instances.ossUsageBytes,
       stopReason: instances.stopReason,
+      bootStartedAt: instances.bootStartedAt,
       createdAt: instances.createdAt,
+      releaseRequestedAt: instances.releaseRequestedAt,
+      preStopDispatchedAt: instances.preStopDispatchedAt,
+      preStopAckedAt: instances.preStopAckedAt,
       updatedAt: instances.updatedAt,
       provider: workspaces.provider,
       region: workspaces.region,
     })
     .from(instances)
     .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
-    .where(
-      and(
-        eq(workspaces.userId, userId),
-        inArray(instances.status, ["RELEASING", "TERMINATING"]),
-      ),
-    )
-    .limit(RELEASE_MAX_PER_TICK);
+    .where(eq(instances.id, instanceId))
+    .limit(1);
 
-  let finalized = 0;
-  let pending = 0;
-  let failed = 0;
+  const inst = rows[0];
+  if (!inst) return "SUCCEEDED"; // 实例已不存在 → 幂等终态
 
-  for (const row of rows) {
-    // 让开正在途的快速释放（见 TERMINATING_SETTLE_MS 说明）
-    if (
-      row.status === "TERMINATING" &&
-      row.updatedAt &&
-      Date.now() - new Date(row.updatedAt).getTime() < TERMINATING_SETTLE_MS
-    ) {
-      pending++;
-      continue;
-    }
+  const now = new Date();
 
-    const provider = getProvider(row.provider);
-    if (!provider) {
-      failed++;
-      continue;
-    }
+  switch (inst.status) {
+    case "PROVISIONING": {
+      const base: Instance = {
+        id: inst.id,
+        workspaceId: inst.workspaceId,
+        status: inst.status,
+        ecsInstanceId: inst.ecsInstanceId,
+        bootStartedAt: inst.bootStartedAt,
+        createdAt: inst.createdAt,
+      };
 
-    // 没有云资源（创建早期就失败的行）→ 直接落 STOPPED，无需调云
-    if (!row.ecsInstanceId) {
-      await finalizeRelease(row.id, null, row.stopReason ?? "manual", null);
-      await cleanupExpiredLogs(row.workspaceId);
-      finalized++;
-      continue;
-    }
+      // 超时？（isExpired 只认 PROVISIONING：BOOTING 时长兜底在 agent + 云侧，见 W1）
+      if (isExpired(base)) {
+        await handleExpiredInstance(base);
+        await db
+          .update(instances)
+          .set({ lastCloudCheckedAt: now, updatedAt: now })
+          .where(and(eq(instances.id, inst.id), eq(instances.status, "PROVISIONING")));
+        return "TIMEOUT";
+      }
 
-    const base = row.releaseRequestedAt ?? row.createdAt;
-    const overDeadline =
-      !!base && Date.now() - new Date(base).getTime() > RELEASE_HOOK_DEADLINE_MS;
-
-    let ossUsage: number | null = null;
-    let hookSettled = row.status === "TERMINATING"; // 快速路径无 hook，视为已结束
-
-    if (row.status === "RELEASING") {
-      if (row.preStopAckedAt) {
-        ossUsage = row.ossUsageBytes;
-        hookSettled = true;
-      } else {
-        // pre-stop 未 ack：间隔足够时重发一次；否则留在 pending 等下一个 tick
-        const lastDispatch = row.preStopDispatchedAt;
-        const dueRedispatch =
-          !lastDispatch ||
-          Date.now() - new Date(lastDispatch).getTime() >= RELEASE_PRESTOP_REDISPATCH_GAP_MS;
-        if (dueRedispatch && row.publicIp) {
-          try {
-            await dispatchPreStop({
-              instanceId: row.id,
-              workspaceId: row.workspaceId,
-              publicIp: row.publicIp,
-              accessToken: row.accessToken ?? "",
-              script: buildStopHook(),
-              reason: row.stopReason ?? undefined,
-            });
-            await db
-              .update(instances)
-              .set({ preStopDispatchedAt: new Date(), updatedAt: new Date() })
-              .where(eq(instances.id, row.id));
-          } catch (e) {
-            console.warn("[lifecycle] pre-stop (re)dispatch failed:", (e as Error).message);
-          }
+      // 未超时 → 查云状态推进
+      let cloudStatus: string | null = null;
+      if (inst.ecsInstanceId) {
+        try {
+          cloudStatus = await getCloudStatus(inst.ecsInstanceId, inst.workspaceId);
+        } catch {
+          cloudStatus = null;
         }
       }
+
+      await db
+        .update(instances)
+        .set({
+          lastCloudStatus: cloudStatus,
+          lastCloudCheckedAt: now,
+          updatedAt: now,
+        })
+        .where(and(eq(instances.id, inst.id), eq(instances.status, "PROVISIONING")));
+
+      // 云侧已释放 / 查不到 → FAILED（deleteInstance 幂等，云侧天然幂等）
+      if (cloudStatus === "Released" || cloudStatus === null) {
+        if (inst.ecsInstanceId) {
+          await releaseInstance(inst.ecsInstanceId, inst.workspaceId).catch(() => {});
+        }
+        await db
+          .update(instances)
+          .set({
+            status: "FAILED",
+            bootError: "云实例已释放或不存在",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(instances.id, inst.id), eq(instances.status, "PROVISIONING")));
+        return "FAILED";
+      }
+
+      // 云 Running → 置 BOOTING + 回填 publicIp（条件更新防与 agent 首心跳并发双推进）
+      if (cloudStatus === "Running") {
+        let publicIp: string | null = null;
+        if (inst.ecsInstanceId) {
+          try {
+            const p = getProvider(inst.provider);
+            publicIp = (await p?.getInstancePublicIp(inst.ecsInstanceId, inst.region)) ?? null;
+          } catch {
+            publicIp = null;
+          }
+        }
+        await db
+          .update(instances)
+          .set({
+            status: "BOOTING",
+            ...(publicIp ? { publicIp } : {}),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(instances.id, inst.id), eq(instances.status, "PROVISIONING")));
+      }
+
+      return "PENDING";
     }
 
-    if (!hookSettled && !overDeadline) {
-      pending++;
-      continue;
+    case "BOOTING": {
+      // poll 不杀 BOOTING（W1：时长兜底在 agent 侧 entry_timeout 上报 → FAILED 与云 AutoReleaseTime）。
+      // 只落 lastCloudCheckedAt，等 agent-ready → RUNNING。
+      await db
+        .update(instances)
+        .set({ lastCloudCheckedAt: now, updatedAt: now })
+        .where(and(eq(instances.id, inst.id), eq(instances.status, "BOOTING")));
+      return "PENDING";
     }
 
-    // pre-stop 已 ack，或已超时（强制收尾）→ 释放云资源
-    try {
-      await provider.deleteInstance(row.ecsInstanceId, row.region);
-    } catch (e) {
-      console.error("[lifecycle] deleteInstance failed, will retry next tick:", e);
-      failed++;
-      continue;
+    case "RELEASING":
+    case "TERMINATING": {
+      await db
+        .update(instances)
+        .set({ lastCloudCheckedAt: now, updatedAt: now })
+        .where(and(eq(instances.id, inst.id), eq(instances.status, inst.status)));
+      return advanceReleaseRow(inst);
     }
 
-    const forced = !hookSettled;
-    await finalizeRelease(
-      row.id,
-      ossUsage,
-      forced ? (row.stopReason ?? "manual_timeout") : (row.stopReason ?? "manual"),
-      forced ? "停止脚本超时，已强制释放云资源（快照可能不完整）" : null,
-    );
-    await cleanupExpiredLogs(row.workspaceId);
-    finalized++;
+    default: {
+      // RUNNING / STOPPED / FAILED / 其它终态：无事可做，幂等自终
+      await db
+        .update(instances)
+        .set({ lastCloudCheckedAt: now, updatedAt: now })
+        .where(and(eq(instances.id, inst.id), eq(instances.status, inst.status)));
+      return "SUCCEEDED";
+    }
   }
-
-  return { finalized, pending, failed };
 }
 
 /** 默认日志保留天数；`settings.logRetentionDays` 缺失时兜底。 */
@@ -751,28 +650,10 @@ export async function cleanupExpiredLogs(workspaceId: string): Promise<void> {
 // 异步创建（docs/UI-PERFORMANCE.md U9）
 // ─────────────────────────────────────────────────────────────
 
-/** 认领有效期：超过它说明上一次创建尝试已经死了，允许别人接手 */
-const PROVISION_CLAIM_MS = 2 * 60 * 1000;
-
-/** 一个 tick 内最多创建几个实例，避免请求时长失控 */
-const PROVISION_MAX_PER_TICK = 2;
-
-/**
- * 判断失败是否源于「云侧基础资源已不存在」——通常是用户在云控制台手删了
- * VPC / VSwitch / 安全组 / 镜像。这类失败重试一万次也没用，必须重探测基础资源。
- */
-function isStaleResourceError(message: string): boolean {
-  return /InvalidVpcID|InvalidVSwitchId|InvalidSecurityGroupId|InvalidImageId|NotFound|not exist|does not exist|InvalidSystemDiskCategory/i.test(
-    message,
-  );
-}
-
 /**
  * 为一个已落库的 `PROVISIONING` 实例创建云资源：探测基础资源 → 安全组 → RunInstances。
  *
- * 两个调用方：
- *   1. `createInstance`（**用户请求内同步跑完**，主路径）
- *   2. `resumeProvisioning`（maintenance tick，只兜底请求中断/超时的孤儿行）
+ * 主路径由 `createInstance`（instances/service.ts）调用，用户请求内同步跑完。
  *
  * 之所以现在能同步跑：基础网络资源（VPC/VSwitch/镜像/共享安全组）已落库
  * （`region_resources`），常规路径只剩 2 次云 API、1~3 秒。
@@ -874,103 +755,9 @@ export async function provisionInstanceCloud(instanceId: string): Promise<void> 
       updatedAt: new Date(),
     })
     .where(eq(instances.id, row.id));
+
+  // 触发云函数轮询跟踪（fire-and-forget，失败仅 log，不阻塞创建主流程）
+  void enqueueTracking("create", row.id, row.provider);
 }
 
-/**
- * 兜底：完成「已落库但还没建云资源」的实例创建。
- *
- * 主路径已经是 `createInstance` 里的同步创建；这里只处理**孤儿行** ——
- * 比如用户请求超时/中断、或创建时云侧临时失败后留下的 `PROVISIONING` 且
- * `ecs_instance_id` 为空的行。由 `/api/maintenance` tick 驱动。
- *
- * 并发安全：通过 `provision_claimed_at` 做**原子认领** —— 条件 UPDATE 的
- * returning 为空说明另一个请求已经认领（或正在同步创建中），直接跳过，
- * 不会重复建资源。
- */
-export async function resumeProvisioning(
-  userId: string,
-): Promise<{ provisioned: number; skipped: number; failed: number }> {
-  const candidates = await db
-    .select({
-      id: instances.id,
-      workspaceId: instances.workspaceId,
-      cloudInstanceId: instances.cloudInstanceId,
-      diskSize: instances.diskSize,
-      bandwidth: instances.bandwidth,
-      useSpot: instances.useSpot,
-      accessToken: instances.accessToken,
-      provider: workspaces.provider,
-      region: workspaces.region,
-      userId: workspaces.userId,
-    })
-    .from(instances)
-    .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
-    .where(
-      and(
-        eq(workspaces.userId, userId),
-        eq(instances.status, "PROVISIONING"),
-        isNull(instances.ecsInstanceId),
-      ),
-    )
-    .limit(PROVISION_MAX_PER_TICK);
 
-  let provisioned = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const row of candidates) {
-    // 原子认领
-    const staleBefore = new Date(Date.now() - PROVISION_CLAIM_MS);
-    const claimed = await db
-      .update(instances)
-      .set({ provisionClaimedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(instances.id, row.id),
-          isNull(instances.ecsInstanceId),
-          or(
-            isNull(instances.provisionClaimedAt),
-            lt(instances.provisionClaimedAt, staleBefore),
-          ),
-        ),
-      )
-      .returning({ id: instances.id });
-
-    if (claimed.length === 0) {
-      skipped++;
-      continue;
-    }
-
-    try {
-      await provisionInstanceCloud(row.id);
-      provisioned++;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error("[lifecycle] resumeProvisioning failed:", message);
-
-      // 云侧基础资源被手删（VPC / VSwitch / 安全组 / 镜像）时，缓存里的 ID 就是脏的。
-      // 主动作废，让下一次 tick 重新探测，否则会一直用同一组失效 ID 重试失败。
-      if (isStaleResourceError(message)) {
-        await invalidateRegionResources(row.userId, row.region, row.provider).catch(
-          (ie) =>
-            console.warn(
-              "[lifecycle] invalidateRegionResources failed:",
-              (ie as Error).message,
-            ),
-        );
-      }
-
-      await db
-        .update(instances)
-        .set({
-          status: "FAILED",
-          bootError: message,
-          updatedAt: new Date(),
-        })
-        .where(eq(instances.id, row.id));
-      failed++;
-    }
-  }
-
-  return { provisioned, skipped, failed };
-}
