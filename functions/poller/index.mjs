@@ -69,7 +69,15 @@ async function run(event) {
   let state;
 
   do {
-    state = await pollOnce(instanceId);
+    try {
+      state = await pollOnce(instanceId);
+    } catch (e) {
+      // 单次 poll 非 2xx / 网络错误：不抛出让整个跟踪终止，
+      // 照常 sleep 后重试（docs/CLOUD-FUNCTION-WORKERS.md §6.3「网络失败照常重试」）。
+      // 只要预算（timeoutMs）未耗尽就继续；云 AutoReleaseTime 是最后的金钱兜底。
+      console.warn("[poller] poll attempt failed, will retry:", e?.message ?? e);
+      state = "PENDING";
+    }
     if (state === "PENDING" && Date.now() - started < timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }

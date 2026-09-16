@@ -235,6 +235,7 @@ export async function releaseIdleInstance(
         publicIp: instances.publicIp,
         accessToken: instances.accessToken,
         workspaceId: instances.workspaceId,
+        provider: workspaces.provider,
       })
       .from(instances)
       .innerJoin(workspaces, eq(workspaces.id, instances.workspaceId))
@@ -275,6 +276,11 @@ export async function releaseIdleInstance(
     // 下发失败不抛异常，poll 的 advanceReleaseRow 会在宽限期内重试
     console.error("[releaseIdleInstance] pre-stop dispatch failed:", e);
   }
+
+  // 空闲释放同样走云函数 poll 收尾（删 ECS / 落 STOPPED），
+  // 与其他五条释放入口（stop / releaseIdleWorkspace 等）一致，必须入队。
+  // 参考 docs/CLOUD-FUNCTION-WORKERS.md §D4：idle 释放也需要 poll 推进。
+  await enqueueTracking("release", row.id, row.provider);
 
   return "released";
 }
@@ -492,8 +498,10 @@ export async function pollInstanceStep(instanceId: string): Promise<PollStatus> 
         })
         .where(and(eq(instances.id, inst.id), eq(instances.status, "PROVISIONING")));
 
-      // 云侧已释放 / 查不到 → FAILED（deleteInstance 幂等，云侧天然幂等）
-      if (cloudStatus === "Released" || cloudStatus === null) {
+      // 云侧确凿已释放 → FAILED（仅认 provider 返回的 "Released"；null 是瞬时
+      // 网络/API 错误，不删 ECS，落 PENDING 让 poll 下端到 5min 超时再判，
+      // 对齐 docs/AGENT-LIFECYCLE §3「网络失败照常重试，不产生副作用」）
+      if (cloudStatus === "Released") {
         if (inst.ecsInstanceId) {
           await releaseInstance(inst.ecsInstanceId, inst.workspaceId).catch(() => {});
         }
